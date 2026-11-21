@@ -77,8 +77,8 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   Per-second: slow frames every ~0.35s at any FPS, sort ~4s at any FPS; no FPS measuring needed (use the
   OnUpdate elapsed time). I recommended per-second; the user thinks that's right but wants a clearer way to
   think and talk about it for users before deciding.
-- Presentation idea (user): a slider labelled "smoother <---> faster" instead of a number in ms. Plain-language
-  description underneath, e.g. what a sort of N items takes at each end.
+- Presentation (user, 2026-11-20): one slider, the math stays behind the scenes. Left = slow and smooth,
+  right = quick, with more stutter. No ms or FPS shown to the user.
 
 ## Ideas, not yet built
 - Buff food flag (discussed 2026-11-20, user said "not quite yet"). Classic data files all food and drink under
