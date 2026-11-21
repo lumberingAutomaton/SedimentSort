@@ -51,6 +51,17 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
   Rock Chipper are unbound weapons).
 
+## Ideas, not yet built
+- Buff food flag (discussed 2026-11-20, user said "not quite yet"). Classic data files all food and drink under
+  Consumable > Food & Drink. Buff food's tooltip says "well fed" ("If you spend at least 10 seconds eating you
+  will become well fed and gain ..."). Plan: for Food & Drink items only, read C_TooltipInfo.GetItemByID(itemID)
+  lines, look for "well fed" (case-insensitive), cache per itemID for the session. Make it a flag, so it beats
+  the Food & Drink subclass weight. Suggested starter weight 9.5 (just after food at 9).
+  Caveats: English text only; odd buff foods (e.g. Dragonbreath Chili) may not say "well fed" and need an item
+  weight; Forever may word some foods differently, so show the flag in /sed scan and check against real food.
+- Drink flag, same idea: C_Item.GetItemSpell(itemID) names the use spell "Food", "Drink" or "Refreshment".
+  Also English names.
+
 ## Status: 0.1.0 (2026-11-20)
 - Built: weight cascade with the starter preset, gravity sort, takeover of the bag sort button, /sed why, /sed scan.
 - Sort runs in rounds: send every move that uses no slot twice (no cap: a round is at most half the slots), wait for the game to
