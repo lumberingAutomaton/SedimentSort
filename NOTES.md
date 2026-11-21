@@ -51,14 +51,15 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## Status: 0.1.0 (2026-11-20)
 - Built: weight cascade with the starter preset, gravity sort, takeover of the bag sort button, /sed why, /sed scan.
-- Sort runs in rounds: re-read the bags, send every move that uses no slot twice (up to MAX_BATCH = 40), wait
-  for the game to confirm, repeat. Phases, one per round: merge partial stacks, place items, then put partial
-  stacks last in their group (drop the group's last bigger stack onto the partial one).
-- Sim (with slot locks modelled): your scan, shuffled, sorts in 4-10 rounds, usually 6-7. It was 55+ waits
-  when moves went one at a time.
-- Honors the per-bag "Ignore cleanup" setting in the bag menu. Skips special bags and the reagent bag.
-- dev/sim.lua runs the real sort against mocked APIs using a saved /sed scan: `lua dev/sim.lua <SV file> [seed]`.
-- Not built yet: weight editing UI, auto-place on loot, right-click toggle.
+- Sort runs in rounds: send every move that uses no slot twice (up to MAX_BATCH = 40), wait for the game to
+  confirm, repeat. Phases: merge partial stacks, place items, then put partial stacks last in their group
+  (drop the group's last bigger stack onto the partial one).
+- Placement is always 2 rounds (0.2.0): the rearrangement splits into chains, and shifting a chain by one =
+  reverse it, then reverse all but its first slot. Each reversal is disjoint swaps. No free slot needed.
+  Direct pairs (two slots that each hold what the other wants) are matched first to keep chains short.
+  The user had the same idea independently ("almost any move in 2 swaps").
+- Sim (slot locks modelled), 200 shuffles: full sort 3-6 rounds (the extra rounds are merges; the sim splits
+  stacks on purpose); "last floater jumps to the top" and back: always 2 rounds. Old greedy placement: 4-10.
 - In game 2026-11-20: 17 moves in 2 rounds, 0.7s, no errors. Still to check: does dropping a full stack onto a partial one top it up and leave the rest behind? How long
   does a full sort take? Does the server accept 40 moves in one go, or does it reject some ("item is busy")?
 

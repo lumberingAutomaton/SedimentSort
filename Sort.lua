@@ -1,10 +1,10 @@
 -- Sort: the gravity sort. Light items (weight below the sink line) pack from the top, heavy items
 -- pack from the bottom, free space stays in the middle.
 --
--- It works in rounds. Each round re-reads the bags, works out every move that can go out at once
--- (no slot used twice), sends them all, and waits for the game to confirm them. Re-reading every
--- round means looting, or the user moving something mid-sort, can't throw it off: the next round
--- just plans from what's really there.
+-- It works in rounds. Each round sends every move that can go out at once (no slot used twice) and
+-- waits for the game to confirm them. Phases: merge partial stacks, place items (always two rounds,
+-- see PlanPlacement), put partial stacks last. Every round re-reads the bags and checks them against
+-- the plan, so looting or the user moving something mid-sort just triggers a fresh plan.
 
 local _, ns = ...
 local Sort = {}
@@ -20,6 +20,7 @@ local MAX_BATCH = 40      -- most moves sent in one round
 local ticker
 local moves, rounds, startedAt, lastKey, repeats
 local waitingForUpdate, waitStarted, cursorSince
+local plan -- { rounds, round, pos, n }: placement swaps still to send
 
 local function Print(msg)
 	ns.Print(msg)
@@ -115,36 +116,113 @@ local function PlanTargets(slots)
 	return targets
 end
 
--- All placement moves for this round. Walk the positions holding the wrong thing and fill each
--- from a slot whose item belongs there and isn't already in a correct spot. A slot is used by at
--- most one move per round, so the moves can't interfere and all go out at once.
-local function PlaceMoves(slots, targets)
-	local batch, used = {}, {}
-	for p, s in ipairs(slots) do
-		if #batch >= MAX_BATCH then
-			break
-		end
-		local want = targets[p]
-		local have = s.item and s.item.sig
-		if want and have ~= want and not used[p] then
-			-- Best source: one whose own target is what p holds now, so the swap fixes both slots.
-			local best
-			for q, other in ipairs(slots) do
-				if not used[q] and q ~= p and other.item and other.item.sig == want and targets[q] ~= want then
-					if targets[q] == have then
-						best = q
-						break
-					end
-					best = best or q
-				end
+-- Placement plan. Work out where every slot's content must go (empty counts as content), which
+-- splits the rearrangement into chains: A goes to B's slot, B to C's, ..., the last back to A's.
+-- Shifting a chain along by one is the same as reversing it twice: reverse the whole chain, then
+-- reverse all of it except the first slot. Each reversal is swaps from the ends inward, and no two
+-- of them share a slot. So every chain, however long, is done in two rounds.
+-- Returns a list of rounds, each a list of swaps with the slot contents they expect to find.
+local EMPTY = ""
+
+local function SigAt(s)
+	return s.item and s.item.sig or EMPTY
+end
+
+local function PlanPlacement(slots, targets)
+	local n = #slots
+	local cur, want = {}, {}
+	for p = 1, n do
+		cur[p] = SigAt(slots[p])
+		want[p] = targets[p] or EMPTY
+	end
+
+	-- dest[p] = where the content of p goes. Anything already right stays put; the rest is
+	-- matched in slot order to positions that want that content.
+	local dest, open, taken = {}, {}, {}
+	for p = 1, n do
+		if cur[p] == want[p] then
+			dest[p] = p
+		else
+			local list = open[want[p]]
+			if not list then
+				list = {}
+				open[want[p]] = list
 			end
-			if best then
-				batch[#batch + 1] = { kind = "place", src = slots[best], dst = s }
-				used[p], used[best] = true, true
+			list[#list + 1] = p
+		end
+	end
+	-- First, direct pairs: p holds what q wants and q holds what p wants. One swap fixes both,
+	-- and every pair found keeps the chains short, which means fewer moves.
+	local claimed = {}
+	for p = 1, n do
+		if not dest[p] then
+			for _, q in ipairs(open[cur[p]]) do
+				if not claimed[q] and not dest[q] and q ~= p and cur[q] == want[p] then
+					dest[p], dest[q] = q, p
+					claimed[q], claimed[p] = true, true
+					break
+				end
 			end
 		end
 	end
-	return batch
+	-- Then everything else, in slot order.
+	for p = 1, n do
+		if not dest[p] then
+			local list = open[cur[p]]
+			local i = taken[cur[p]] or 0
+			repeat
+				i = i + 1
+			until not claimed[list[i]]
+			taken[cur[p]] = i
+			claimed[list[i]] = true
+			dest[p] = list[i]
+		end
+	end
+
+	local round1, round2 = {}, {}
+	local function AddSwap(round, a, b)
+		if cur[a] == cur[b] then
+			return -- same content (or both empty): nothing to do
+		end
+		round[#round + 1] = { a = a, b = b, sigA = cur[a], sigB = cur[b] }
+		cur[a], cur[b] = cur[b], cur[a]
+	end
+
+	local chains, seen = {}, {}
+	for p = 1, n do
+		if not seen[p] and dest[p] ~= p then
+			local chain, q = {}, p
+			while not seen[q] do
+				seen[q] = true
+				chain[#chain + 1] = q
+				q = dest[q]
+			end
+			chains[#chains + 1] = chain
+		end
+	end
+	-- Round 1 swaps are all applied to cur before round 2 is planned, so round 2's expected
+	-- contents are what round 1 leaves behind.
+	for _, chain in ipairs(chains) do
+		local k = #chain
+		for i = 1, math.floor(k / 2) do
+			AddSwap(round1, chain[i], chain[k + 1 - i])
+		end
+	end
+	for _, chain in ipairs(chains) do
+		local k = #chain
+		for i = 1, math.floor((k - 1) / 2) do
+			AddSwap(round2, chain[1 + i], chain[k + 1 - i])
+		end
+	end
+
+	local rounds = {}
+	if #round1 > 0 then
+		rounds[#rounds + 1] = round1
+	end
+	if #round2 > 0 then
+		rounds[#rounds + 1] = round2
+	end
+	return rounds
 end
 
 -- Placement treats stacks of the same item as interchangeable, so a partial stack can end up
@@ -181,6 +259,7 @@ local function Stop(msg)
 		ticker = nil
 	end
 	waitingForUpdate = false
+	plan = nil
 	if GetCursorInfo() then
 		ClearCursor()
 	end
@@ -198,6 +277,41 @@ local function Execute(move)
 		C_Container.PickupContainerItem(src.bag, src.slot)
 	end
 	C_Container.PickupContainerItem(dst.bag, dst.slot)
+end
+
+-- The next chunk of the placement plan, checked against the bags as they are now. If anything
+-- doesn't match (the user moved something, loot arrived), drop the plan; the caller re-plans.
+local function TakePlanned(slots)
+	if #slots ~= plan.n then
+		plan = nil
+		return nil
+	end
+	local round = plan.rounds[plan.round]
+	local batch = {}
+	while round and #batch < MAX_BATCH do
+		local swap = round[plan.pos]
+		local sa, sb = slots[swap.a], slots[swap.b]
+		if SigAt(sa) ~= swap.sigA or SigAt(sb) ~= swap.sigB then
+			plan = nil
+			return nil
+		end
+		-- The game moves from a slot with an item; if one side is empty, start from the other.
+		if sa.item then
+			batch[#batch + 1] = { kind = "place", src = sa, dst = sb }
+		else
+			batch[#batch + 1] = { kind = "place", src = sb, dst = sa }
+		end
+		plan.pos = plan.pos + 1
+		if plan.pos > #round then
+			-- A new round has to wait for this one to be confirmed, so stop the batch here.
+			plan.round, plan.pos = plan.round + 1, 1
+			break
+		end
+	end
+	if not plan.rounds[plan.round] then
+		plan = nil
+	end
+	return #batch > 0 and batch or nil
 end
 
 local function Step()
@@ -229,12 +343,19 @@ local function Step()
 	end
 
 	-- One phase per round: merges change counts, which placement depends on.
-	local batch = MergeMoves(slots)
-	if #batch == 0 then
-		batch = PlaceMoves(slots, PlanTargets(slots))
-	end
-	if #batch == 0 then
-		batch = RestackMoves(slots)
+	local batch = plan and TakePlanned(slots)
+	if not batch then
+		batch = MergeMoves(slots)
+		if #batch == 0 then
+			local placement = PlanPlacement(slots, PlanTargets(slots))
+			if #placement > 0 then
+				plan = { rounds = placement, round = 1, pos = 1, n = #slots }
+				batch = TakePlanned(slots) or {}
+			end
+		end
+		if #batch == 0 then
+			batch = RestackMoves(slots)
+		end
 	end
 	if #batch == 0 then
 		Stop(moves == 0 and "already sorted."
@@ -288,7 +409,7 @@ function Sort.Start()
 		return
 	end
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
-	waitingForUpdate, cursorSince = false, nil
+	waitingForUpdate, cursorSince, plan = false, nil, nil
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end

@@ -146,7 +146,8 @@ local function Run()
 	return messages[#messages]
 end
 
-print("first sort: " .. Run())
+local function Check(show)
+
 -- Print the layout and check it.
 local sink = ns.Weights.SinkLine()
 local seenGapOrSinker, seenSinker, last = false, false, -math.huge
@@ -157,7 +158,7 @@ for b = 0, 4 do
 		if t then
 			local item = ns.Bags.ReadSlot(b, s)
 			local w = ns.Weights.Resolve(item)
-			print(("%d/%-2d w%-5s %-30s x%d"):format(b, s, tostring(w), t.name, t.count))
+			if show then print(("%d/%-2d w%-5s %-30s x%d"):format(b, s, tostring(w), t.name, t.count)) end
 			if w < sink then
 				assert(not seenGapOrSinker, "floater after a gap or sinker at " .. b .. "/" .. s)
 				assert(w >= lastFloat, "floaters out of order at " .. b .. "/" .. s)
@@ -170,7 +171,7 @@ for b = 0, 4 do
 		else
 			if seenSinker then error("gap inside the sinker block at " .. b .. "/" .. s) end
 			seenGapOrSinker = true
-			print(("%d/%-2d   ·"):format(b, s))
+			if show then print(("%d/%-2d   ·"):format(b, s)) end
 		end
 	end
 end
@@ -182,5 +183,25 @@ for b = 0, 4 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
 		assert(not partial[k], "two partial stacks of " .. t.name)
 		partial[k] = true
 	end end end
+end
+
+print("first sort: " .. Run())
+Check(arg[3] == "show")
 print("second sort: " .. Run())
+
+-- Scenario: the user's "item 99 goes to the top": the last floater suddenly weighs less than
+-- everything, so every floater above it shifts down by one.
+local lastFloater
+for b = 0, 4 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+	if t then
+		local item = ns.Bags.ReadSlot(b, s)
+		if ns.Weights.Resolve(item) < ns.Weights.SinkLine() then lastFloater = item end
+	end end end
+SedimentDB.weights.items[lastFloater.itemID] = -1
+print("to the top (" .. lastFloater.name .. "): " .. Run())
+Check(false)
+-- And back down again.
+SedimentDB.weights.items[lastFloater.itemID] = 1000
+print("to the bottom: " .. Run())
+Check(false)
 print("OK")

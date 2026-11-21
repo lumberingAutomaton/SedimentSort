@@ -3,6 +3,7 @@
 -- /sed sort     Sort the bags (same as clicking the bag sort button).
 -- /sed cancel   Stop a sort in progress.
 -- /sed why      Hover a bag item, then run this: shows its weight cascade and which level won.
+--               Alt+right-click a bag item opens the same thing as an editable popup (Popup.lua).
 -- /sed scan     List class, subclass, quality and flags for every item (also saved to SedimentDB.lastScan).
 
 local ADDON, ns = ...
@@ -144,7 +145,9 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "PLAYER_LOGIN" then
 		TakeOverSortButton()
+		ns.Popup.Hook()
 	elseif event == "BAG_UPDATE_DELAYED" then
 		ns.Sort.OnBagUpdateDelayed()
+		ns.Popup.OnBagUpdate()
 	end
 end)
