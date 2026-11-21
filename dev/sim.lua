@@ -36,6 +36,9 @@ for _, t in ipairs(templates) do
 	end
 end
 for _, e in ipairs(extra) do templates[#templates + 1] = e end
+for _, t in ipairs(templates) do
+	if t.classID == 2 or t.equipLoc == "INVTYPE_CLOAK" then t.set = "Tank" end
+end
 
 -- Scatter into random slots.
 local free = {}
@@ -67,6 +70,11 @@ C_Container = {
 		if not t then return nil end
 		return { itemID = t.itemID, itemName = t.name, hyperlink = t.link, stackCount = t.count,
 			quality = t.quality, isBound = t.isBound, isLocked = locked[Key(b, s)] or false }
+	end,
+	GetContainerItemEquipmentSetInfo = function(b, s)
+		local t = bags[b][s]
+		if t and t.set then return true, t.set end
+		return false, ""
 	end,
 	GetContainerItemQuestInfo = function(b, s)
 		local t = bags[b][s]

@@ -32,6 +32,7 @@ function Bags.ReadSlot(bag, slot)
 	end
 	local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(info.itemID)
 	local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
+	local inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(bag, slot)
 	local item = {
 		bag = bag,
 		slot = slot,
@@ -48,11 +49,14 @@ function Bags.ReadSlot(bag, slot)
 		subclassName = classID and subclassID and C_Item.GetItemSubClassInfo(classID, subclassID) or nil,
 		equipLoc = equipLoc,
 		isQuestItem = quest and quest.isQuestItem or false,
+		inEquipmentSet = inSet or false,
+		equipmentSets = inSet and setList or "", -- comma-separated set names
 		maxStack = C_Item.GetItemMaxStackSizeByID(info.itemID) or 1,
 	}
-	-- Two stacks are interchangeable only if they're the same item in the same bind state.
+	-- Two slots are interchangeable only if they hold the same item in the same bind state and the
+	-- same equipment sets (sets remember the exact copy, so a set copy can't stand in for a spare).
 	-- Never swap two slots with the same signature: the game would merge them instead.
-	item.sig = item.link .. (item.isBound and "|B" or "|U")
+	item.sig = item.link .. (item.isBound and "|B" or "|U") .. "|" .. item.equipmentSets
 	return item
 end
 

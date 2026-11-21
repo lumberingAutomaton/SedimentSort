@@ -8,7 +8,9 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## Weight cascade (most specific wins, a level applies only if it has a weight)
 1. Item weight (this exact item)
-2. Flags, checked in order Quest > Gray > Unbound gear (equippable and not soulbound, i.e. BoE not yet bound)
+2. Flags, checked in order Equipment set > Quest > Gray > Unbound gear (equippable and not soulbound, i.e. BoE
+   not yet bound). Equipment set added 2026-11-20 at the user's request; starter weight 35. Items in the same set
+   sort together (set names are the first tie-break after weight).
 3. Subclass (Consumable > Potion)
 4. Class (Consumable)
 5. Default

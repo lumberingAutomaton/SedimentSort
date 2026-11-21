@@ -1,5 +1,5 @@
 -- Weights: resolve an item's weight through the cascade.
---   item weight > flags (Quest > Gray > Unbound gear) > subclass > class > default
+--   item weight > flags (Equipment set > Quest > Gray > Unbound gear) > subclass > class > default
 -- A level applies only if it has a weight. Weights are account-wide (SedimentDB.weights).
 
 local _, ns = ...
@@ -19,6 +19,7 @@ local PRESET = {
 		[4471] = 0.03, -- Flint and Tinder
 	},
 	flags = {
+		equipmentSet = 35,
 		quest = 51,
 		gray = 100,
 		unboundGear = 45,
@@ -37,8 +38,14 @@ local PRESET = {
 	},
 }
 
-local FLAG_ORDER = { "quest", "gray", "unboundGear" }
-local FLAG_LABELS = { quest = "Quest item", gray = "Gray quality", unboundGear = "Unbound gear" }
+-- Equipment set comes first: if you put something in a set, you're keeping it, even if it's gray.
+local FLAG_ORDER = { "equipmentSet", "quest", "gray", "unboundGear" }
+local FLAG_LABELS = {
+	equipmentSet = "Equipment set",
+	quest = "Quest item",
+	gray = "Gray quality",
+	unboundGear = "Unbound gear",
+}
 
 -- Equip locations that don't count as gear for the Unbound gear flag.
 local NOT_GEAR = {
@@ -68,6 +75,15 @@ function Weights.Init()
 			w[k] = type(v) == "table" and DeepCopy(v) or v
 		end
 	end
+	-- Flags added after the first release get their starter weight once. After that a cleared flag
+	-- stays cleared.
+	SedimentDB.weightsVersion = SedimentDB.weightsVersion or 1
+	if SedimentDB.weightsVersion < 2 then
+		if w.flags.equipmentSet == nil then
+			w.flags.equipmentSet = PRESET.flags.equipmentSet
+		end
+		SedimentDB.weightsVersion = 2
+	end
 end
 
 function Weights.SinkLine()
@@ -77,6 +93,9 @@ end
 -- Which flags this item carries, in priority order.
 local function ItemFlags(item)
 	local flags = {}
+	if item.inEquipmentSet then
+		flags.equipmentSet = true
+	end
 	if item.isQuestItem then
 		flags.quest = true
 	end

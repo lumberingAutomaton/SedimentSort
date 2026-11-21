@@ -27,10 +27,14 @@ end
 
 -- Planning ------------------------------------------------------------------------------------
 
--- Order for items: lighter first, then grouped by category, then by item, then bigger stacks first.
+-- Order for items: lighter first, then by equipment set (so each set stays together), then by
+-- category, then by item, then bigger stacks first.
 local function Compare(a, b)
 	if a.weight ~= b.weight then
 		return a.weight < b.weight
+	end
+	if a.equipmentSets ~= b.equipmentSets then
+		return a.equipmentSets < b.equipmentSets
 	end
 	if a.classID ~= b.classID then
 		return a.classID < b.classID
