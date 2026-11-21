@@ -15,12 +15,11 @@ local UPDATE_TIMEOUT = 2  -- seconds to wait for the game to confirm a move
 local CURSOR_TIMEOUT = 3  -- seconds to wait for the user to drop something from the cursor
 local MAX_MOVES = 1000
 local MAX_REPEATS = 3     -- same batch this many times in a row = stuck
-local MAX_BATCH = 40      -- most moves sent in one round
 
 local ticker
 local moves, rounds, startedAt, lastKey, repeats
 local waitingForUpdate, waitStarted, cursorSince
-local plan -- { rounds, round, pos, n }: placement swaps still to send
+local plan -- { rounds, round, n }: placement rounds still to send
 
 local function Print(msg)
 	ns.Print(msg)
@@ -71,7 +70,7 @@ local function MergeMoves(slots)
 	for _, sig in ipairs(order) do
 		local list = partials[sig]
 		local i, j = 1, #list
-		while i < j and #batch < MAX_BATCH do
+		while i < j do
 			local dst, src = list[i], list[j]
 			local amount = math.min(src.item.count, dst.item.maxStack - dst.item.count)
 			batch[#batch + 1] = { kind = "merge", src = src, dst = dst, amount = amount }
@@ -279,17 +278,17 @@ local function Execute(move)
 	C_Container.PickupContainerItem(dst.bag, dst.slot)
 end
 
--- The next chunk of the placement plan, checked against the bags as they are now. If anything
+-- The next round of the placement plan, checked against the bags as they are now. If anything
 -- doesn't match (the user moved something, loot arrived), drop the plan; the caller re-plans.
+-- A round goes out whole: no slot appears twice in it, so it can never be more than half the slots.
 local function TakePlanned(slots)
-	if #slots ~= plan.n then
+	local round = plan.rounds[plan.round]
+	if not round or #slots ~= plan.n then
 		plan = nil
 		return nil
 	end
-	local round = plan.rounds[plan.round]
 	local batch = {}
-	while round and #batch < MAX_BATCH do
-		local swap = round[plan.pos]
+	for _, swap in ipairs(round) do
 		local sa, sb = slots[swap.a], slots[swap.b]
 		if SigAt(sa) ~= swap.sigA or SigAt(sb) ~= swap.sigB then
 			plan = nil
@@ -301,17 +300,12 @@ local function TakePlanned(slots)
 		else
 			batch[#batch + 1] = { kind = "place", src = sb, dst = sa }
 		end
-		plan.pos = plan.pos + 1
-		if plan.pos > #round then
-			-- A new round has to wait for this one to be confirmed, so stop the batch here.
-			plan.round, plan.pos = plan.round + 1, 1
-			break
-		end
 	end
+	plan.round = plan.round + 1
 	if not plan.rounds[plan.round] then
 		plan = nil
 	end
-	return #batch > 0 and batch or nil
+	return batch
 end
 
 local function Step()
@@ -349,7 +343,7 @@ local function Step()
 		if #batch == 0 then
 			local placement = PlanPlacement(slots, PlanTargets(slots))
 			if #placement > 0 then
-				plan = { rounds = placement, round = 1, pos = 1, n = #slots }
+				plan = { rounds = placement, round = 1, n = #slots }
 				batch = TakePlanned(slots) or {}
 			end
 		end

@@ -51,7 +51,7 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## Status: 0.1.0 (2026-11-20)
 - Built: weight cascade with the starter preset, gravity sort, takeover of the bag sort button, /sed why, /sed scan.
-- Sort runs in rounds: send every move that uses no slot twice (up to MAX_BATCH = 40), wait for the game to
+- Sort runs in rounds: send every move that uses no slot twice (no cap: a round is at most half the slots), wait for the game to
   confirm, repeat. Phases: merge partial stacks, place items, then put partial stacks last in their group
   (drop the group's last bigger stack onto the partial one).
 - Placement is always 2 rounds (0.2.0): the rearrangement splits into chains, and shifting a chain by one =
