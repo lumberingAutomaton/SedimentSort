@@ -3,7 +3,10 @@
 -- /sed sort     Sort the bags (same as clicking the bag sort button).
 -- /sed cancel   Stop a sort in progress.
 -- /sed auto     Toggle auto-sort on loot (same as right-clicking the bag sort button).
--- /sed auto?    Show whether a sort is pending and what it's waiting for.
+-- /sed status   Show whether a sort is pending, what it's waiting for, and the last sort's cost.
+--               (/sed auto? does the same.)
+-- /sed delay [s] Show or set how long auto-sort waits after the last bag change.
+-- /sed budget [ms] Show or set auto-sort's time budget per frame for sending swaps.
 -- /sed why      Hover a bag item, then run this: shows its weight cascade and which level won.
 --               Alt+right-click a bag item opens the same thing as an editable popup (Popup.lua).
 -- /sed scan     List class, subclass, quality and flags for every item (also saved to SedimentDB.lastScan).
@@ -153,14 +156,26 @@ end
 SLASH_SEDIMENT1 = "/sediment"
 SLASH_SEDIMENT2 = "/sed"
 SlashCmdList.SEDIMENT = function(msg)
-	local cmd = strtrim(msg or ""):lower()
-	if cmd == "sort" then
+	local cmd, arg = strtrim(msg or ""):lower():match("^(%S*)%s*(.-)$")
+	if cmd == "budget" then
+		if arg ~= "" and not tonumber(arg) then
+			Print("/sed budget <ms>, e.g. /sed budget 0.5")
+		else
+			ns.Sort.SetBudget(tonumber(arg))
+		end
+	elseif cmd == "delay" then
+		if arg ~= "" and not tonumber(arg) then
+			Print("/sed delay <seconds>, e.g. /sed delay 1.5")
+		else
+			ns.AutoSort.SetDelay(tonumber(arg))
+		end
+	elseif cmd == "sort" then
 		ns.Sort.Start()
 	elseif cmd == "cancel" then
 		ns.Sort.Cancel()
 	elseif cmd == "auto" then
 		ns.AutoSort.Toggle()
-	elseif cmd == "auto?" then
+	elseif cmd == "auto?" or cmd == "status" then
 		ns.AutoSort.Status()
 	elseif cmd == "mutetest" then
 		ns.Sound.Test()
@@ -169,7 +184,7 @@ SlashCmdList.SEDIMENT = function(msg)
 	elseif cmd == "scan" then
 		Scan()
 	else
-		Print("/sed sort, /sed cancel, /sed auto (toggle auto-sort on loot), /sed why (hover an item), /sed scan")
+		Print("/sed sort, /sed cancel, /sed auto (toggle auto-sort on loot), /sed status, /sed delay [seconds], /sed budget [ms], /sed why (hover an item), /sed scan")
 	end
 end
 
@@ -180,6 +195,7 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
+frame:RegisterEvent("QUEST_LOG_UPDATE")
 frame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
 		SedimentDB = SedimentDB or {}
@@ -205,6 +221,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Popup.Hook()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
+	elseif event == "QUEST_LOG_UPDATE" then
+		ns.AutoSort.OnQuestLogChanged()
 	elseif event == "BAG_UPDATE_DELAYED" then
 		ns.Sort.OnBagUpdateDelayed()
 		ns.AutoSort.OnBagUpdateDelayed()

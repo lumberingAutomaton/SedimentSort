@@ -20,7 +20,10 @@ local ticker
 local moves, rounds, startedAt, lastKey, repeats
 local waitingForUpdate, waitStarted, cursorSince
 local plan -- { rounds, round, n }: placement rounds still to send
-local quiet
+local quiet    -- auto-sort: no chat on success, and stream the swaps
+local cpuMs = 0 -- our own Lua time during the current sort
+local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
+local sending  -- { batch, keys, i }: a round being streamed out over several frames
 
 local function Print(msg)
 	ns.Print(msg)
@@ -266,10 +269,16 @@ local function Stop(msg, success)
 	end
 	waitingForUpdate = false
 	plan = nil
+	sending = nil
+	if Sort.sender then
+		Sort.sender:Hide()
+	end
 	if GetCursorInfo() then
 		ClearCursor()
 	end
 	ns.Sound.UnmuteItemSounds()
+	Sort.lastCpuMs, Sort.lastMoves, Sort.lastRounds = cpuMs, moves, rounds
+	Sort.lastSendMs, Sort.lastMaxSwapMs = sendMs, maxSwapMs
 	if msg and not (success and quiet) then
 		Print(msg)
 	end
@@ -277,7 +286,21 @@ local function Stop(msg, success)
 	ns.OnSortFinished()
 end
 
+local ExecuteSwap
+
+-- One swap, timed. The time includes every event handler the game runs inside the pick-up and
+-- drop calls (Blizzard's UI and other addons), since those run before the call returns.
 local function Execute(move)
+	local t = debugprofilestop()
+	ExecuteSwap(move)
+	local spent = debugprofilestop() - t
+	sendMs = sendMs + spent
+	if spent > maxSwapMs then
+		maxSwapMs = spent
+	end
+end
+
+function ExecuteSwap(move)
 	local src, dst = move.src, move.dst
 	if move.kind == "merge" and move.amount < src.item.count then
 		C_Container.SplitContainerItem(src.bag, src.slot, move.amount)
@@ -317,7 +340,21 @@ local function TakePlanned(slots)
 	return batch
 end
 
+Sort.lastCpuMs, Sort.lastMoves, Sort.lastRounds = 0, 0, 0
+Sort.lastSendMs, Sort.lastMaxSwapMs = 0, 0
+
+local StepWork
+
 local function Step()
+	local t = debugprofilestop()
+	StepWork()
+	cpuMs = cpuMs + (debugprofilestop() - t)
+end
+
+function StepWork()
+	if sending then
+		return -- a round is still streaming out
+	end
 	if InCombatLockdown() then
 		Stop("stopped: entered combat. Press sort again afterwards.")
 		return
@@ -361,8 +398,9 @@ local function Step()
 		end
 	end
 	if #batch == 0 then
-		Stop(moves == 0 and "already sorted."
-			or ("sorted: %d moves in %d rounds, %.1fs."):format(moves, rounds, GetTime() - startedAt), true)
+		Stop(moves == 0 and ("already sorted (%.1fms)."):format(cpuMs)
+			or ("sorted: %d moves in %d rounds, %.1fs (our code: %.1fms)."):format(
+				moves, rounds, GetTime() - startedAt, cpuMs), true)
 		return
 	end
 
@@ -384,6 +422,13 @@ local function Step()
 		return
 	end
 
+	if quiet then
+		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
+		sending = { batch = batch, keys = keys, i = 1 }
+		Sort.sender:Show()
+		return
+	end
+	-- Button sort: the whole round in one go.
 	for i, move in ipairs(batch) do
 		Execute(move)
 		if GetCursorInfo() then
@@ -394,6 +439,71 @@ local function Step()
 	waitingForUpdate = true
 	waitStarted = GetTime()
 end
+
+-- Streaming. Each swap makes the game fire events right away, and Blizzard's UI and other addons
+-- run their handlers inside that same frame: measured in game at about 5ms per swap, nearly all of
+-- it outside Sediment. One swap can't be made cheaper, so auto-sort controls how often a swap lands
+-- on a frame instead. The budget is an average: every frame adds BudgetMs of allowance, every swap
+-- spends what it actually cost (handlers included), and a swap only goes out while the allowance
+-- isn't overdrawn. With 5ms swaps and the 0.1ms default that's one swap every ~50 frames. We don't wait
+-- for the server between frames, so the round is still one round to the server.
+local DEFAULT_BUDGET_MS = 0.1 -- picked in game 2026-11-20: smooth at 144 FPS
+local MAX_SAVED_MS = 5 -- allowance can't pile up beyond this, so a quiet spell can't buy a burst
+
+function Sort.BudgetMs()
+	return SedimentDB.streamBudgetMs or DEFAULT_BUDGET_MS
+end
+
+function Sort.SetBudget(ms)
+	if ms == nil then
+		Print(("auto-sort spends on average up to %sms per frame on swaps (default %sms). /sed budget <ms> to change.")
+			:format(Sort.BudgetMs(), DEFAULT_BUDGET_MS))
+		return
+	end
+	SedimentDB.streamBudgetMs = math.max(0.1, math.min(50, ms))
+	Print(("auto-sort now spends on average up to %sms per frame on swaps."):format(SedimentDB.streamBudgetMs))
+end
+
+local allowance = 0
+
+Sort.sender = CreateFrame("Frame")
+Sort.sender:Hide()
+Sort.sender:SetScript("OnShow", function()
+	allowance = Sort.BudgetMs() -- the first swap of a round can go straight away
+end)
+Sort.sender:SetScript("OnUpdate", function(self)
+	if not sending then
+		self:Hide()
+		return
+	end
+	Sort.lastFrames = (Sort.lastFrames or 0) + 1
+	local budget = Sort.BudgetMs()
+	allowance = math.min(allowance + budget, MAX_SAVED_MS)
+	if allowance < budget then
+		return -- still paying off the last swap
+	end
+	local start = debugprofilestop()
+	local batch = sending.batch
+	repeat
+		local i = sending.i
+		local before = debugprofilestop()
+		Execute(batch[i])
+		allowance = allowance - (debugprofilestop() - before)
+		if GetCursorInfo() then
+			cpuMs = cpuMs + (debugprofilestop() - start)
+			Stop("stopped: a move didn't go through (" .. sending.keys[i] .. ").")
+			return
+		end
+		sending.i = i + 1
+	until sending.i > #batch or allowance < budget
+	cpuMs = cpuMs + (debugprofilestop() - start)
+	if sending.i > #batch then
+		sending = nil
+		self:Hide()
+		waitingForUpdate = true
+		waitStarted = GetTime()
+	end
+end)
 
 function Sort.OnBagUpdateDelayed()
 	waitingForUpdate = false
@@ -413,6 +523,8 @@ function Sort.Start(isQuiet)
 		return
 	end
 	quiet = isQuiet or false
+	cpuMs, sendMs, maxSwapMs = 0, 0, 0
+	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
 	waitingForUpdate, cursorSince, plan = false, nil, nil

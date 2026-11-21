@@ -155,7 +155,35 @@ function Weights.SetLevel(kind, key, value)
 	end
 end
 
+-- The same answer as Explain, without building any tables: the sort calls this for every item
+-- on every planning pass, and Explain's tables were garbage for Lua to clean up each time.
+-- Returns weight, label of the winning level.
 function Weights.Resolve(item)
-	local levels, winner = Weights.Explain(item)
-	return levels[winner].weight, levels[winner].label
+	local w = SedimentDB.weights
+	local v = w.items[item.itemID]
+	if v ~= nil then
+		return v, "This item"
+	end
+	local flags = w.flags
+	if item.inEquipmentSet and flags.equipmentSet ~= nil then
+		return flags.equipmentSet, FLAG_LABELS.equipmentSet
+	end
+	if item.isQuestItem and flags.quest ~= nil then
+		return flags.quest, FLAG_LABELS.quest
+	end
+	if item.quality == Enum.ItemQuality.Poor and flags.gray ~= nil then
+		return flags.gray, FLAG_LABELS.gray
+	end
+	if flags.unboundGear ~= nil and not item.isBound and not NOT_GEAR[item.equipLoc or ""] then
+		return flags.unboundGear, FLAG_LABELS.unboundGear
+	end
+	v = w.subclasses[item.subKey or (item.classID .. ":" .. item.subclassID)]
+	if v ~= nil then
+		return v, item.subclassName or "Subclass"
+	end
+	v = w.classes[item.classID]
+	if v ~= nil then
+		return v, item.className or "Class"
+	end
+	return w.default, "Default"
 end

@@ -24,13 +24,40 @@ function Bags.IsSortable(bag)
 	return not C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.DisableAutoSort)
 end
 
+-- Facts about an item type that never change (class, names, stack size), looked up once per item
+-- ID instead of on every read.
+local static = {}
+
+local function Static(itemID)
+	local st = static[itemID]
+	if not st then
+		local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(itemID)
+		classID, subclassID = classID or -1, subclassID or -1
+		st = {
+			classID = classID,
+			subclassID = subclassID,
+			subKey = classID .. ":" .. subclassID,
+			className = classID >= 0 and C_Item.GetItemClassInfo(classID) or nil,
+			subclassName = classID >= 0 and subclassID >= 0 and C_Item.GetItemSubClassInfo(classID, subclassID) or nil,
+			equipLoc = equipLoc,
+			maxStack = C_Item.GetItemMaxStackSizeByID(itemID),
+		}
+		-- Only keep it once the game actually knew the item; otherwise look again next time.
+		if st.maxStack then
+			static[itemID] = st
+		end
+		st.maxStack = st.maxStack or 1
+	end
+	return st
+end
+
 -- Full description of one slot's item, or nil if the slot is empty.
 function Bags.ReadSlot(bag, slot)
 	local info = C_Container.GetContainerItemInfo(bag, slot)
 	if not info then
 		return nil
 	end
-	local _, _, _, equipLoc, _, classID, subclassID = C_Item.GetItemInfoInstant(info.itemID)
+	local st = Static(info.itemID)
 	local quest = C_Container.GetContainerItemQuestInfo(bag, slot)
 	local inSet, setList = C_Container.GetContainerItemEquipmentSetInfo(bag, slot)
 	local item = {
@@ -43,15 +70,16 @@ function Bags.ReadSlot(bag, slot)
 		quality = info.quality,
 		isBound = info.isBound,
 		isLocked = info.isLocked,
-		classID = classID or -1,
-		subclassID = subclassID or -1,
-		className = classID and C_Item.GetItemClassInfo(classID) or nil,
-		subclassName = classID and subclassID and C_Item.GetItemSubClassInfo(classID, subclassID) or nil,
-		equipLoc = equipLoc,
+		classID = st.classID,
+		subclassID = st.subclassID,
+		subKey = st.subKey,
+		className = st.className,
+		subclassName = st.subclassName,
+		equipLoc = st.equipLoc,
 		isQuestItem = quest and quest.isQuestItem or false,
 		inEquipmentSet = inSet or false,
 		equipmentSets = inSet and setList or "", -- comma-separated set names
-		maxStack = C_Item.GetItemMaxStackSizeByID(info.itemID) or 1,
+		maxStack = st.maxStack,
 	}
 	-- Two slots are interchangeable only if they hold the same item in the same bind state and the
 	-- same equipment sets (sets remember the exact copy, so a set copy can't stand in for a spare).

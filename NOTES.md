@@ -36,8 +36,23 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   order. A first version only reacted to new item GUIDs, a leftover from the nudge design; the user pointed out
   it only delayed undoing manual moves, so it was removed.
 - Also waits out: combat, cursor holding an item, vendor/bank/mail/trade/auction/guild bank windows, a sort in
-  progress, 0.5s of bag quiet (a burst of looting gives one sort), and the first 2s after login.
+  progress, 2s of bag quiet (a burst of looting gives one sort; raised from 0.5s at the user's request so new
+  quest items carry their quest flag by then), and the first 2s after login. QUEST_LOG_UPDATE also makes a sort
+  pending, for quest flags that show up later still.
+- The wait is adjustable with /sed delay <seconds> (SedimentDB.autoSortDelay, 0-30, default 2) so the user can
+  find a good value; then make that the default.
 - Auto sorts are quiet: chat only on errors.
+- Streaming (the user's idea): button sorts send each round in one frame; auto-sorts stream the same rounds,
+  spending on average at most a time budget per frame on swaps (/sed budget <ms>, SedimentDB.streamBudgetMs).
+  Default 0.1ms, picked in game: 1ms still judders. Swaps cost ~5ms each (handlers, nearly all outside
+  Sediment; planning is ~3-5ms per whole sort), so 0.1 = one swap every ~50 frames, ~4s for 11 swaps at
+  144 FPS. To do: make the budget per second so duration doesn't depend on frame rate; finish in a burst if
+  the bags open mid-stream; test swap cost with WoW Task Manager disabled. Each swap fires events whose handlers (Blizzard + other addons) run in the same
+  frame, so a whole round at once was a visible hitch: user saw 144 -> 124 fps ~2s after swapping equipment sets.
+  The budget is measured around each swap, so it includes the other handlers' time.
+- Per-item facts (class, names, stack size) are cached by item ID, and Weights.Resolve no longer builds the
+  Explain tables (dev/resolve_check.lua checks they agree). Sorts report "our code: X ms"; /sed auto? shows the
+  last sort's moves, rounds, frames and ms.
 - On by default (SedimentDB.autoSort). Right-click the bag sort button or /sed auto toggles; chat says the new
   state; the button is dimmed and desaturated while off; its tooltip shows the state.
 

@@ -122,6 +122,18 @@ GetCursorInfo = function() return cursor and "item" or nil end
 ClearCursor = function() cursor = nil end
 InCombatLockdown = function() return false end
 GetTime = function() return now end
+-- A fake clock that advances 0.3ms per reading, so streaming spreads swaps over several frames.
+local fakeMs = 0
+debugprofilestop = function() fakeMs = fakeMs + 0.3 return fakeMs end
+local frames = {}
+CreateFrame = function()
+	local f = { shown = true }
+	function f:Show() if not self.shown and self.OnShow then self.shown = true self:OnShow() end self.shown = true end
+	function f:Hide() self.shown = false end
+	function f:SetScript(name, fn) self[name] = fn end
+	frames[#frames + 1] = f
+	return f
+end
 C_Timer = { NewTicker = function(_, fn) tickFn = fn return { Cancel = function() tickFn = nil end } end }
 local messages = {}
 local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end,
@@ -141,15 +153,25 @@ local function Total()
 	return n
 end
 
-local function Run()
+local function Run(quiet)
 	local before = Total()
-	ns.Sort.Start()
+	ns.Sort.Start(quiet)
 	local ticks = 0
 	while tickFn do
 		now = now + 0.05; ticks = ticks + 1
 		tickFn()
-		locked = {}
-		ns.Sort.OnBagUpdateDelayed()
+		-- Frames drawn between ticks: run any OnUpdate handlers (the streaming sender).
+		for _ = 1, 3 do
+			for _, f in ipairs(frames) do
+				if f.shown and f.OnUpdate then f:OnUpdate() end
+			end
+		end
+		local streaming = false
+		for _, f in ipairs(frames) do if f.shown and f.OnUpdate then streaming = true end end
+		if not streaming then
+			locked = {}
+			ns.Sort.OnBagUpdateDelayed()
+		end
 		assert(ticks < 20000, "sort never finished")
 	end
 	local after = Total()
@@ -215,4 +237,10 @@ Check(false)
 SedimentDB.weights.items[lastFloater.itemID] = 1000
 print("to the bottom: " .. Run())
 Check(false)
+-- Auto-sort path: streamed and quiet. Clearing the weight sends the bracers back down.
+SedimentDB.weights.items[lastFloater.itemID] = nil
+SedimentDB.streamBudgetMs = 1
+Run(true)
+Check(false)
+print(("streamed: %d moves, %d rounds, over %d frames"):format(ns.Sort.lastMoves, ns.Sort.lastRounds, ns.Sort.lastFrames))
 print("OK")

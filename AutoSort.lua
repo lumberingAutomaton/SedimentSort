@@ -4,8 +4,10 @@
 -- - Any bag change (loot, crafting, using something up, selling) makes a sort pending.
 -- - Bags open: nothing moves unless you press sort. A pending sort runs when you close them.
 -- - Also waits out: combat, an item on the cursor, vendor/bank/mail/trade/auction/guild bank
---   windows, a sort already running, and bag changes in the last half second (so a burst of
---   looting gives one sort).
+--   windows, a sort already running, and bag changes in the last few seconds (/sed delay; so a burst
+--   of looting gives one sort, and new quest items are known as quest items by then).
+-- - A quest log change also makes a sort pending: the quest flag on an item can show up later
+--   than the item itself.
 -- - On by default. Right-click the bag sort button, or /sed auto, to toggle.
 -- So whenever the bags are closed, they're in exact order.
 
@@ -14,7 +16,27 @@ local AutoSort = {}
 ns.AutoSort = AutoSort
 
 local CHECK_EVERY = 0.25 -- seconds between checks while a sort is pending
-local SETTLE = 0.5       -- seconds of no bag changes before sorting
+-- Seconds of no bag changes before sorting: long enough for a burst of looting to finish and for
+-- the game to mark new quest items as quest items. Adjustable with /sed delay (SedimentDB.autoSortDelay)
+-- while the user finds a good value.
+local DEFAULT_DELAY = 2
+local MIN_DELAY, MAX_DELAY = 0, 30
+
+function AutoSort.Delay()
+	return SedimentDB.autoSortDelay or DEFAULT_DELAY
+end
+
+-- seconds = nil shows the current value.
+function AutoSort.SetDelay(seconds)
+	if seconds == nil then
+		ns.Print(("auto-sort waits %ss after the last bag change (default %ss). /sed delay <seconds> to change.")
+			:format(AutoSort.Delay(), DEFAULT_DELAY))
+		return
+	end
+	seconds = math.max(MIN_DELAY, math.min(MAX_DELAY, seconds))
+	SedimentDB.autoSortDelay = seconds
+	ns.Print(("auto-sort now waits %ss after the last bag change."):format(seconds))
+end
 
 local ready = false      -- false until shortly after login, while the bags are still loading in
 local pending = false
@@ -66,7 +88,7 @@ local function Check()
 	if ns.Sort.IsRunning() or InCombatLockdown() or GetCursorInfo() or BagsOpen() or BusyWindowOpen() then
 		return
 	end
-	if GetTime() - lastBagUpdate < SETTLE then
+	if GetTime() - lastBagUpdate < AutoSort.Delay() then
 		return
 	end
 	pending = false
@@ -82,8 +104,7 @@ function AutoSort.OnEnteringWorld()
 	end)
 end
 
-function AutoSort.OnBagUpdateDelayed()
-	lastBagUpdate = GetTime()
+local function MakePending()
 	if not ready or ns.Sort.IsRunning() or not AutoSort.IsEnabled() then
 		return -- a running sort's own moves don't count
 	end
@@ -91,6 +112,17 @@ function AutoSort.OnBagUpdateDelayed()
 	if not ticker then
 		ticker = C_Timer.NewTicker(CHECK_EVERY, Check)
 	end
+end
+
+function AutoSort.OnBagUpdateDelayed()
+	lastBagUpdate = GetTime()
+	MakePending()
+end
+
+-- Quest log changes can turn a bag item into a quest item (or back) without any bag update.
+-- Sorting when nothing needs to move makes no moves, so this is cheap.
+function AutoSort.OnQuestLogChanged()
+	MakePending()
 end
 
 -- What auto-sort is doing or waiting for, for /sed auto?.
@@ -105,11 +137,18 @@ function AutoSort.Status()
 	local busy = BusyWindowOpen()
 	if busy then reasons[#reasons + 1] = busy .. " is open" end
 	local quietFor = GetTime() - lastBagUpdate
-	if quietFor < SETTLE then reasons[#reasons + 1] = "bags changed under 0.5s ago" end
+	if quietFor < AutoSort.Delay() then
+		reasons[#reasons + 1] = ("bags changed under %ss ago"):format(AutoSort.Delay())
+	end
+	local S = ns.Sort
 	ns.Print(("auto-sort: %s; sort %s. Blocked by: %s."):format(
 		AutoSort.IsEnabled() and "on" or "off",
 		pending and "pending" or "not pending",
 		#reasons > 0 and table.concat(reasons, ", ") or "nothing"))
+	ns.Print(("last sort: %d moves, %d rounds, %d frames. Total %.1fms = planning %.1fms + swaps %.1fms"
+		.. " (slowest swap %.1fms)."):format(
+		S.lastMoves or 0, S.lastRounds or 0, S.lastFrames or 0, S.lastCpuMs or 0,
+		(S.lastCpuMs or 0) - (S.lastSendMs or 0), S.lastSendMs or 0, S.lastMaxSwapMs or 0))
 end
 
 function AutoSort.Toggle()
