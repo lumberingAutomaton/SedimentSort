@@ -2,6 +2,8 @@
 --
 -- /sed sort     Sort the bags (same as clicking the bag sort button).
 -- /sed cancel   Stop a sort in progress.
+-- /sed auto     Toggle auto-sort on loot (same as right-clicking the bag sort button).
+-- /sed auto?    Show whether a sort is pending and what it's waiting for.
 -- /sed why      Hover a bag item, then run this: shows its weight cascade and which level won.
 --               Alt+right-click a bag item opens the same thing as an editable popup (Popup.lua).
 -- /sed scan     List class, subclass, quality and flags for every item (also saved to SedimentDB.lastScan).
@@ -25,7 +27,25 @@ local function ShowButtonTooltip(button)
 	else
 		GameTooltip_AddNormalLine(GameTooltip, "Light items float to the top, heavy items sink to the bottom.")
 	end
+	GameTooltip_AddBlankLineToTooltip(GameTooltip)
+	GameTooltip_AddInstructionLine(GameTooltip, "Left-click: sort now")
+	local state = ns.AutoSort.IsEnabled() and "|cff66ff66ON|r" or "|cffff6666OFF|r"
+	GameTooltip_AddInstructionLine(GameTooltip, "Right-click: auto-sort on loot (" .. state .. ")")
 	GameTooltip:Show()
+end
+
+-- Dim the button while auto-sort is off, so the mode is visible at a glance.
+local function UpdateButtonLook()
+	local button = BagItemAutoSortButton
+	if not button then
+		return
+	end
+	local on = ns.AutoSort.IsEnabled()
+	local normal = button:GetNormalTexture()
+	if normal then
+		normal:SetDesaturated(not on)
+	end
+	button:SetAlpha(on and 1 or 0.6)
 end
 
 local function TakeOverSortButton()
@@ -34,8 +54,11 @@ local function TakeOverSortButton()
 		Print("bag sort button not found; use /sed sort.")
 		return
 	end
-	button:SetScript("OnClick", function(self)
-		if ns.Sort.IsRunning() then
+	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	button:SetScript("OnClick", function(self, mouseButton)
+		if mouseButton == "RightButton" then
+			ns.AutoSort.Toggle()
+		elseif ns.Sort.IsRunning() then
 			ns.Sort.Cancel()
 		else
 			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
@@ -43,6 +66,19 @@ local function TakeOverSortButton()
 		end
 	end)
 	button:SetScript("OnEnter", ShowButtonTooltip)
+	UpdateButtonLook()
+end
+
+function ns.OnAutoSortChanged()
+	UpdateButtonLook()
+	local button = BagItemAutoSortButton
+	if button and GameTooltip:IsOwned(button) then
+		ShowButtonTooltip(button)
+	end
+end
+
+function ns.OnSortFinished()
+	ns.Popup.OnBagUpdate()
 end
 
 function ns.OnSortStateChanged()
@@ -122,12 +158,18 @@ SlashCmdList.SEDIMENT = function(msg)
 		ns.Sort.Start()
 	elseif cmd == "cancel" then
 		ns.Sort.Cancel()
+	elseif cmd == "auto" then
+		ns.AutoSort.Toggle()
+	elseif cmd == "auto?" then
+		ns.AutoSort.Status()
+	elseif cmd == "mutetest" then
+		ns.Sound.Test()
 	elseif cmd == "why" then
 		Why()
 	elseif cmd == "scan" then
 		Scan()
 	else
-		Print("/sed sort, /sed cancel, /sed why (hover an item), /sed scan")
+		Print("/sed sort, /sed cancel, /sed auto (toggle auto-sort on loot), /sed why (hover an item), /sed scan")
 	end
 end
 
@@ -136,6 +178,7 @@ end
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
 frame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
@@ -144,10 +187,27 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Weights.Init()
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "PLAYER_LOGIN" then
+		-- /reload doesn't pick up files newly added to the .toc; only a full client restart does.
+		-- Without them the rest of the addon can't work, so say so instead of failing quietly.
+		local missing = {}
+		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup" }) do
+			if not ns[module] then
+				missing[#missing + 1] = module .. ".lua"
+			end
+		end
+		if #missing > 0 then
+			Print("|cffff6666not loaded: " .. table.concat(missing, ", ")
+				.. ". Exit WoW completely and start it again (a /reload isn't enough for new files).|r")
+			self:UnregisterAllEvents()
+			return
+		end
 		TakeOverSortButton()
 		ns.Popup.Hook()
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		ns.AutoSort.OnEnteringWorld()
 	elseif event == "BAG_UPDATE_DELAYED" then
 		ns.Sort.OnBagUpdateDelayed()
+		ns.AutoSort.OnBagUpdateDelayed()
 		ns.Popup.OnBagUpdate()
 	end
 end)

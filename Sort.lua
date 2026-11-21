@@ -20,6 +20,7 @@ local ticker
 local moves, rounds, startedAt, lastKey, repeats
 local waitingForUpdate, waitStarted, cursorSince
 local plan -- { rounds, round, n }: placement rounds still to send
+local quiet
 
 local function Print(msg)
 	ns.Print(msg)
@@ -256,7 +257,9 @@ end
 
 -- Executing ----------------------------------------------------------------------------------
 
-local function Stop(msg)
+-- success = the sort finished normally. A quiet sort (auto-sort) only prints when something
+-- went wrong.
+local function Stop(msg, success)
 	if ticker then
 		ticker:Cancel()
 		ticker = nil
@@ -266,10 +269,12 @@ local function Stop(msg)
 	if GetCursorInfo() then
 		ClearCursor()
 	end
-	if msg then
+	ns.Sound.UnmuteItemSounds()
+	if msg and not (success and quiet) then
 		Print(msg)
 	end
 	ns.OnSortStateChanged()
+	ns.OnSortFinished()
 end
 
 local function Execute(move)
@@ -357,7 +362,7 @@ local function Step()
 	end
 	if #batch == 0 then
 		Stop(moves == 0 and "already sorted."
-			or ("sorted: %d moves in %d rounds, %.1fs."):format(moves, rounds, GetTime() - startedAt))
+			or ("sorted: %d moves in %d rounds, %.1fs."):format(moves, rounds, GetTime() - startedAt), true)
 		return
 	end
 
@@ -398,7 +403,8 @@ function Sort.IsRunning()
 	return ticker ~= nil
 end
 
-function Sort.Start()
+-- isQuiet: don't announce a normal finish (used by auto-sort).
+function Sort.Start(isQuiet)
 	if ticker then
 		return
 	end
@@ -406,6 +412,8 @@ function Sort.Start()
 		Print("can't sort in combat.")
 		return
 	end
+	quiet = isQuiet or false
+	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
 	waitingForUpdate, cursorSince, plan = false, nil, nil
 	ticker = C_Timer.NewTicker(TICK, Step)

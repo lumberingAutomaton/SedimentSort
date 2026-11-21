@@ -28,14 +28,18 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 - Take over BagItemAutoSortButton's OnClick and the "Clean Up Bags" menu entry.
   Never overwrite C_Container.SortBags: that taints.
 
-## Auto-place on loot
-- On by default.
-- Cheap version: a new item goes to the correct side of the gap, or next to copies of itself.
-  The sort button does the full exact sort.
-- Tell loot from the user's own moves by item GUID. Only place items that newly arrived.
-- Hold off while: cursor is holding something, in combat, vendor/bank/mail/trade/AH open.
-- Toggle: right-click our sort button, plus a settings checkbox. Print the new state on every flip.
-  The button looks different while auto-place is off.
+## Auto-sort on loot (0.4.0, AutoSort.lua)
+- Decided 2026-11-20: a full sort (not a cheap nudge), debounced, and never while the bags are open. The user's
+  idea: "if the bag is open, don't sort unless I click the sort button". Changes while the bags are open are
+  remembered; closing the bags sorts them.
+- Any bag change triggers it (loot, crafting, using something up, selling), so closed bags are always in exact
+  order. A first version only reacted to new item GUIDs, a leftover from the nudge design; the user pointed out
+  it only delayed undoing manual moves, so it was removed.
+- Also waits out: combat, cursor holding an item, vendor/bank/mail/trade/auction/guild bank windows, a sort in
+  progress, 0.5s of bag quiet (a burst of looting gives one sort), and the first 2s after login.
+- Auto sorts are quiet: chat only on errors.
+- On by default (SedimentDB.autoSort). Right-click the bag sort button or /sed auto toggles; chat says the new
+  state; the button is dimmed and desaturated while off; its tooltip shows the state.
 
 ## Editing weights
 - Alt+right-click an item: popup showing the cascade, which rule won, and editable boxes for each level.
@@ -62,19 +66,39 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 - Drink flag, same idea: C_Item.GetItemSpell(itemID) names the use spell "Food", "Drink" or "Refreshment".
   Also English names.
 
-## Status: 0.1.0 (2026-11-20)
-- Built: weight cascade with the starter preset, gravity sort, takeover of the bag sort button, /sed why, /sed scan.
-- Sort runs in rounds: send every move that uses no slot twice (no cap: a round is at most half the slots), wait for the game to
-  confirm, repeat. Phases: merge partial stacks, place items, then put partial stacks last in their group
-  (drop the group's last bigger stack onto the partial one).
-- Placement is always 2 rounds (0.2.0): the rearrangement splits into chains, and shifting a chain by one =
-  reverse it, then reverse all but its first slot. Each reversal is disjoint swaps. No free slot needed.
-  Direct pairs (two slots that each hold what the other wants) are matched first to keep chains short.
-  The user had the same idea independently ("almost any move in 2 swaps").
-- Sim (slot locks modelled), 200 shuffles: full sort 3-6 rounds (the extra rounds are merges; the sim splits
-  stacks on purpose); "last floater jumps to the top" and back: always 2 rounds. Old greedy placement: 4-10.
-- In game 2026-11-20: 17 moves in 2 rounds, 0.7s, no errors. Still to check: does dropping a full stack onto a partial one top it up and leave the rest behind? How long
-  does a full sort take? Does the server accept 40 moves in one go, or does it reject some ("item is busy")?
+## Status (2026-11-20)
+- 0.1.0: weight cascade with the starter preset, gravity sort, takeover of the bag sort button (left-click sorts,
+  click again cancels), /sed why, /sed scan. Honors the per-bag "Ignore cleanup" setting. Skips special bags and
+  the reagent bag.
+- 0.2.0: Alt+right-click popup (Popup.lua), a post-hook on HandleModifiedItemClick. Shows the levels that apply
+  to the item plus the sink line, all editable; blank = inherit; "Sort now" button; follows the item by item ID
+  when a sort moves it. Two-round placement (below).
+- 0.3.0: Equipment set flag.
+- 0.4.0: auto-sort on loot (section above), right-click toggle, /sed auto, /sed auto? (what it's waiting for).
+  Busy-window and bag checks use IsVisible: IsShown on SendMailFrame was true with the mailbox closed, which
+  blocked auto-sort forever.
+- 0.4.0 also: item pick-up/put-down sounds muted while a sort runs (Sound.lua, MuteSoundFile on the 36
+  sound/interface/pickup files, IDs 567542-567577 from the community listfile). Verified on Forever with
+  /sed mutetest. Mutes are reference-counted, and a sort releases its mute 1s after it stops: unmuting right at
+  the stop let the last round's put-down sounds through.
+- On login Sediment checks every module loaded and says so in chat if not (new .toc files can need a client
+  restart).
+- Not built yet: the settings panel (categories not in the bags, item weight list, preset reset).
+
+### How the sort works
+- Rounds: send every move that uses no slot twice (no cap: a round is at most half the slots), wait for the
+  game to confirm, repeat. Phases: merge partial stacks, place items, then put partial stacks last in their
+  group (drop the group's last bigger stack onto the partial one).
+- Placement is always 2 rounds: the rearrangement splits into chains, and shifting a chain by one = reverse it,
+  then reverse all but its first slot. Each reversal is disjoint swaps. No free slot needed. Direct pairs (two
+  slots that each hold what the other wants) are matched first to keep chains short. The user had the same idea
+  independently ("almost any move in 2 swaps").
+- Every round re-reads the bags and checks them against the plan; a mismatch (loot, user moves) re-plans.
+- dev/sim.lua runs the real sort against mocked APIs using a saved /sed scan, with slot locks modelled:
+  `lua dev/sim.lua <SV file> [seed] [show]`. 200 shuffles: full sort 3-6 rounds (extra rounds are merges; the
+  sim splits stacks on purpose); "last floater jumps to the top" and back: always 2 rounds.
+- In game: 17 moves in 2 rounds = 0.7s; 13 moves in 3 rounds = 0.8s; no server errors.
+- Still to check in game: does dropping a full stack onto a partial one top it up and leave the rest behind?
 
 ## Probe checks (0.0.1)
 - [x] /sed movetest: addon item moves work ("move OK", 2026-11-20).

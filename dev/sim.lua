@@ -124,9 +124,12 @@ InCombatLockdown = function() return false end
 GetTime = function() return now end
 C_Timer = { NewTicker = function(_, fn) tickFn = fn return { Cancel = function() tickFn = nil end } end }
 local messages = {}
-local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end }
+local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end,
+	OnSortFinished = function() end }
 
-for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sort.lua" }) do
+MuteSoundFile, UnmuteSoundFile = function() end, function() end
+C_Timer.After = function(_, fn) fn() end
+for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 	assert(loadfile(root .. "/" .. f))("Sediment", ns)
 end
 ns.Weights.Init()
