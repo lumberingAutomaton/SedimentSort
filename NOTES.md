@@ -70,6 +70,16 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
   Rock Chipper are unbound weapons).
 
+## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
+- Per-frame budget (current, 0.1ms/frame) vs per-second (~14ms/s, same as 0.1 at 144 FPS). Each swap costs a
+  fixed ~5ms, so a slow frame is worse at high FPS (144: 6.9 -> ~12ms) than at low FPS (60: 16.7 -> ~22ms).
+  Per-frame: slow frames every ~0.35s at 144 but every ~0.8s at 60, and the sort takes ~9s at 60.
+  Per-second: slow frames every ~0.35s at any FPS, sort ~4s at any FPS; no FPS measuring needed (use the
+  OnUpdate elapsed time). I recommended per-second; the user thinks that's right but wants a clearer way to
+  think and talk about it for users before deciding.
+- Presentation idea (user): a slider labelled "smoother <---> faster" instead of a number in ms. Plain-language
+  description underneath, e.g. what a sort of N items takes at each end.
+
 ## Ideas, not yet built
 - Buff food flag (discussed 2026-11-20, user said "not quite yet"). Classic data files all food and drink under
   Consumable > Food & Drink. Buff food's tooltip says "well fed" ("If you spend at least 10 seconds eating you
