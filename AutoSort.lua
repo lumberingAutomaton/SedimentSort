@@ -59,6 +59,7 @@ local function BagsOpen()
 	end
 	return ContainerFrameCombinedBags and ContainerFrameCombinedBags:IsVisible() or false
 end
+AutoSort.BagsOpen = BagsOpen
 
 -- IsVisible, not IsShown: IsShown only checks the frame's own flag, so a tab inside a closed window
 -- (SendMailFrame inside MailFrame) can count as shown while nothing is on screen.
@@ -112,6 +113,11 @@ local function MakePending()
 	if not ticker then
 		ticker = C_Timer.NewTicker(CHECK_EVERY, Check)
 	end
+end
+
+-- A quiet sort stopped by combat: run again once combat is over (Check waits for that).
+function AutoSort.Resume()
+	MakePending()
 end
 
 function AutoSort.OnBagUpdateDelayed()

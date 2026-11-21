@@ -137,7 +137,8 @@ end
 C_Timer = { NewTicker = function(_, fn) tickFn = fn return { Cancel = function() tickFn = nil end } end }
 local messages = {}
 local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end,
-	OnSortFinished = function() end }
+	OnSortFinished = function() end,
+	AutoSort = { BagsOpen = function() return false end, Resume = function() end } }
 
 MuteSoundFile, UnmuteSoundFile = function() end, function() end
 C_Timer.After = function(_, fn) fn() end

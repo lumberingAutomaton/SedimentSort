@@ -286,6 +286,24 @@ local function Stop(msg, success)
 	ns.OnSortFinished()
 end
 
+-- Moving items is forbidden in combat (the game blocks it with ADDON_ACTION_BLOCKED), so every
+-- path that sends a swap checks first. An auto-sort picks up again by itself after combat; a button
+-- sort asks the user to press again.
+local function CombatStop()
+	if quiet then
+		Stop("auto-sort paused for combat; it finishes afterwards.")
+		ns.AutoSort.Resume()
+	else
+		Stop("stopped: entered combat. Press sort again afterwards.")
+	end
+end
+
+function Sort.OnCombatStart()
+	if ticker then
+		CombatStop()
+	end
+end
+
 local ExecuteSwap
 
 -- One swap, timed. The time includes every event handler the game runs inside the pick-up and
@@ -356,7 +374,7 @@ function StepWork()
 		return -- a round is still streaming out
 	end
 	if InCombatLockdown() then
-		Stop("stopped: entered combat. Press sort again afterwards.")
+		CombatStop()
 		return
 	end
 
@@ -422,14 +440,19 @@ function StepWork()
 		return
 	end
 
-	if quiet then
-		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
+	if quiet and not ns.AutoSort.BagsOpen() then
+		-- Auto-sort with the bags closed: stream the round out (see Sender below). With the bags
+		-- open the user is watching, so send it at once like a button sort.
 		sending = { batch = batch, keys = keys, i = 1 }
 		Sort.sender:Show()
 		return
 	end
 	-- Button sort: the whole round in one go.
 	for i, move in ipairs(batch) do
+		if InCombatLockdown() then
+			CombatStop()
+			return
+		end
 		Execute(move)
 		if GetCursorInfo() then
 			Stop("stopped: a move didn't go through (" .. keys[i] .. ").")
@@ -477,14 +500,21 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		return
 	end
 	Sort.lastFrames = (Sort.lastFrames or 0) + 1
+	-- Bags opened mid-stream: the user is watching, so send the rest of the round now.
+	local hurry = ns.AutoSort.BagsOpen()
 	local budget = Sort.BudgetMs()
 	allowance = math.min(allowance + budget, MAX_SAVED_MS)
-	if allowance < budget then
+	if allowance < budget and not hurry then
 		return -- still paying off the last swap
 	end
 	local start = debugprofilestop()
 	local batch = sending.batch
 	repeat
+		if InCombatLockdown() then
+			cpuMs = cpuMs + (debugprofilestop() - start)
+			CombatStop()
+			return
+		end
 		local i = sending.i
 		local before = debugprofilestop()
 		Execute(batch[i])
@@ -495,7 +525,7 @@ Sort.sender:SetScript("OnUpdate", function(self)
 			return
 		end
 		sending.i = i + 1
-	until sending.i > #batch or allowance < budget
+	until sending.i > #batch or (allowance < budget and not hurry)
 	cpuMs = cpuMs + (debugprofilestop() - start)
 	if sending.i > #batch then
 		sending = nil

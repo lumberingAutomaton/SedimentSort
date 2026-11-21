@@ -89,9 +89,12 @@ In-game tests left:
 Code left:
 - Decided 2026-11-20: ignore Blizzard's per-bag "Ignore cleanup" setting. The user: antithetical to the addon,
   it should sort every general bag. (Ignore it in Bags.IsSortable; don't change the user's Blizzard settings.)
-- An auto-sort stopped by combat should resume after combat (set pending again) instead of waiting for the next
-  bag change. Same for other quiet-sort interruptions.
-- Finish in one burst if the bags open mid-stream.
+- Done 2026-11-21: combat. The streaming sender didn't re-check combat between swaps, so a stream running into
+  a pull hit ADDON_ACTION_BLOCKED (user screenshot in Shadowfang Keep). Now every swap path checks
+  InCombatLockdown, PLAYER_REGEN_DISABLED stops a running sort at once, and an interrupted auto-sort resumes
+  after combat.
+- Done 2026-11-21: bags opening mid-stream make the rest of the auto-sort go out at button-sort speed (the
+  user saw it keep slowly adjusting with the bags open).
 - Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
 - Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
   Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,

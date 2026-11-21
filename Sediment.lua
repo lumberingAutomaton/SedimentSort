@@ -196,6 +196,7 @@ frame:RegisterEvent("PLAYER_LOGIN")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
 frame:RegisterEvent("QUEST_LOG_UPDATE")
+frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
 		SedimentDB = SedimentDB or {}
@@ -221,6 +222,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Popup.Hook()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		ns.Sort.OnCombatStart()
 	elseif event == "QUEST_LOG_UPDATE" then
 		ns.AutoSort.OnQuestLogChanged()
 	elseif event == "BAG_UPDATE_DELAYED" then
