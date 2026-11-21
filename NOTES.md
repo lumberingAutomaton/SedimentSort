@@ -47,7 +47,7 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   Default 0.1ms, picked in game: 1ms still judders. Swaps cost ~5ms each (handlers, nearly all outside
   Sediment; planning is ~3-5ms per whole sort), so 0.1 = one swap every ~50 frames, ~4s for 11 swaps at
   144 FPS. To do: make the budget per second so duration doesn't depend on frame rate; finish in a burst if
-  the bags open mid-stream; test swap cost with WoW Task Manager disabled. Each swap fires events whose handlers (Blizzard + other addons) run in the same
+  the bags open mid-stream; test swap cost with WoW Task Manager disabled (done: no meaningful change). Each swap fires events whose handlers (Blizzard + other addons) run in the same
   frame, so a whole round at once was a visible hitch: user saw 144 -> 124 fps ~2s after swapping equipment sets.
   The budget is measured around each swap, so it includes the other handlers' time.
 - Per-item facts (class, names, stack size) are cached by item ID, and Weights.Resolve no longer builds the
@@ -69,6 +69,35 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 - Decided 2026-11-20: "Unbound gear" flag so BoE gear sorts apart from bound gear. Bound gear falls through to its
   class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
   Rock Chipper are unbound weapons).
+
+## To do (as of end of 2026-11-20)
+In-game tests done:
+- WoW Task Manager off: no meaningful change in swap cost. The ~5ms per swap isn't the profiler.
+- Partial stacks: the partial ends up after the full stacks (restack assumption confirmed).
+
+In-game tests left:
+- Loot a quest item: counts settle, item lands with quest items. Tune /sed delay, then make that the default.
+- Alt+right-click a bank item opens the popup.
+- Special bags left alone: put an item in a reagent/profession bag, mess up, sort; nothing moves in or out.
+  /sed scan also prints "N items in M sortable slots": M should leave out the special bag's slots.
+- Two identical items, one in a set (e.g. put one Patterned Bronze Bracers in a set): the set copy sorts with
+  the set, the spares with the other gear. (A gray item in a set is a different, also useful test: it checks
+  Equipment set beats Gray.)
+- Combat mid-sort: swap sets with bags closed, wait ~2s for the sort to start (it streams for a few seconds),
+  then attack a mob. Expect the chat line "stopped: entered combat", nothing on the cursor, no error popup.
+
+Code left:
+- Decided 2026-11-20: ignore Blizzard's per-bag "Ignore cleanup" setting. The user: antithetical to the addon,
+  it should sort every general bag. (Ignore it in Bags.IsSortable; don't change the user's Blizzard settings.)
+- An auto-sort stopped by combat should resume after combat (set pending again) instead of waiting for the next
+  bag change. Same for other quiet-sort interruptions.
+- Finish in one burst if the bags open mid-stream.
+- Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
+- Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
+  Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
+  Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
+- Later/parked: ladder view tab; Buff food and Drink flags; sorting special bags separately; category row
+  breaks; neutral-buoyancy layer; splitting a swap's pick-up and put-down across frames; README.md.
 
 ## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
 - Per-frame budget (current, 0.1ms/frame) vs per-second (~14ms/s, same as 0.1 at 144 FPS). Each swap costs a
