@@ -318,9 +318,9 @@ local function Total()
 	return n
 end
 
-local function Run(quiet, interrupt)
+local function Run(quiet, interrupt, starter)
 	local before = Total()
-	ns.Sort.Start(quiet)
+	if starter then starter() else ns.Sort.Start(quiet) end
 	local ticks = 0
 	while tickFn do
 		now = now + 0.05; ticks = ticks + 1
@@ -333,8 +333,8 @@ local function Run(quiet, interrupt)
 				if f.shown and f.OnUpdate then f:OnUpdate() end
 			end
 		end
-		local streaming = false
-		for _, f in ipairs(frames) do if f.shown and f.OnUpdate then streaming = true end end
+		-- Only the sort's sender streams swaps; other frames (frame timing) always update.
+		local streaming = ns.Sort.sender.shown
 		if not streaming then
 			locked = {}
 			ns.Sort.OnBagUpdateDelayed()
@@ -439,6 +439,34 @@ end
 print("first sort: " .. Run())
 Check(arg[3] == "show")
 print("second sort: " .. Run())
+
+-- Scramble test: shuffle the normal bags into a seeded target (as the test bench does), check every
+-- slot got its target, then let auto-sort clean up.
+do
+	local mainSlots = {}
+	for _, sl in ipairs(ns.Bags.Read()) do
+		if sl.zone == "main" then mainSlots[#mainSlots + 1] = sl end
+	end
+	local layout = {}
+	for i, sl in ipairs(mainSlots) do layout[i] = sl.item and sl.item.sig or false end
+	for i = #layout, 2, -1 do
+		local j = math.random(i)
+		layout[i], layout[j] = layout[j], layout[i]
+	end
+	local targets = {}
+	for i = 1, #layout do targets[i] = layout[i] or nil end
+	local msg = Run(false, false, function() ns.Sort.Scramble(targets, #layout) end)
+	for i, sl in ipairs(ns.Bags.Read()) do
+		if sl.zone ~= "main" then break end
+		local got = sl.item and sl.item.sig or nil
+		assert(got == targets[i], ("scramble missed slot %d"):format(i))
+	end
+	print("scramble test: " .. msg)
+	print("cleanup after scramble: " .. Run(true))
+	Check(false)
+	local run = SedimentDB.benchHistory and SedimentDB.benchHistory[1]
+	assert(run and run.kind == "auto", "bench history not recorded")
+end
 
 -- Pause test: the same messy start sorted twice by auto-sort, once uninterrupted and once with the
 -- bags opened and closed on alternate ticks. Keeping the plan across pauses means the same moves.

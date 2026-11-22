@@ -128,6 +128,13 @@ Code left:
   for the auto-sort delay, it checks the remaining swaps still find what they expect (item and count at both
   ends) and carries on, else re-plans. The sort button during a paused auto-sort takes it over at full speed
   (it used to cancel it). Sim: interrupting after every swap gives exactly the uninterrupted move count.
+- 0.8.0: test bench (verified in game 2026-11-22). Dice button left of the sort button opens a small window:
+  mode button (Minimal: a few top/bottom swaps; Full: shuffle; Maximal: reverse + a few swaps), seed box
+  (Park-Miller, since math.random can't be seeded: same seed on the same sorted bag = same mess), Scramble.
+  Scrambles run through the sort engine at full speed, normal bags only, then queue an auto-sort. Every sort
+  records moves, rounds, seconds, our ms, worst frame and FPS vs the frame rate just before it
+  (SedimentDB.benchHistory, last 20; the window shows the latest). Gotcha found: empty slots as nil make # stop
+  at a gap, so the slot count is passed separately.
 - 0.7.0 also: progress sweep. A cooldown frame (GCD clock) over
   BagItemAutoSortButton and MainMenuBarBackpackButton runs for the estimated time left (Sort.EstimateSeconds:
   rounds x 0.3s server wait + streamed swaps x running-average swap cost / budget / FPS), re-aimed every

@@ -26,6 +26,13 @@ local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers
 local avgSwapMs = 5 -- running average swap cost, kept across sorts; feeds the progress estimate
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
 local paused   -- an auto-sort waiting for the bags to close, plan and progress kept
+local mode = "sort" -- or "scramble": a test-bench scramble aimed at scrambleTargets
+local scrambleTargets, scrambleCount, scramblePlanned
+
+-- Frame timing for the test bench: while a sort runs, count frames and track the slowest one;
+-- otherwise keep a running average frame time as the "before" baseline.
+local perfFrames, perfTime, perfWorst, baselineFrame = 0, 0, 0, 1 / 60
+local perfBase
 
 local function Print(msg)
 	ns.Print(msg)
@@ -360,11 +367,31 @@ local function Stop(msg, success)
 	ns.Sound.UnmuteItemSounds()
 	Sort.lastCpuMs, Sort.lastMoves, Sort.lastRounds = cpuMs, moves, rounds
 	Sort.lastSendMs, Sort.lastMaxSwapMs = sendMs, maxSwapMs
+	local wasScramble = mode == "scramble"
+	if moves and moves > 0 then
+		-- Test bench history: what this sort cost, in moves and in frames.
+		local run = {
+			kind = wasScramble and "scramble" or (quiet and "auto" or "button"),
+			moves = moves, rounds = rounds, seconds = GetTime() - startedAt, ourMs = cpuMs,
+			worstMs = perfWorst * 1000,
+			fps = perfTime > 0 and perfFrames / perfTime or 0,
+			beforeFps = perfBase and 1 / perfBase or 0,
+			finished = success or false,
+		}
+		Sort.lastRun = run
+		SedimentDB.benchHistory = SedimentDB.benchHistory or {}
+		table.insert(SedimentDB.benchHistory, 1, run)
+		SedimentDB.benchHistory[21] = nil
+	end
+	mode, scrambleTargets, scrambleCount, scramblePlanned = "sort", nil, 0, false
 	if msg and not (success and quiet) then
 		Print(msg)
 	end
 	ns.OnSortStateChanged()
 	ns.OnSortFinished(success)
+	if wasScramble and success then
+		ns.AutoSort.Resume() -- the scramble's own moves didn't count as changes; let auto-sort clean up
+	end
 end
 
 -- Moving items is forbidden in combat (the game blocks it with ADDON_ACTION_BLOCKED), so every
@@ -578,7 +605,27 @@ function StepWork()
 	-- One phase per round: merge stacks, move reagents into the reagent bag, place, restack.
 	-- Each phase changes what the next one plans from.
 	local batch = plan and TakePlanned(slots)
-	if not batch then
+	if mode == "scramble" then
+		-- A scramble is placement only, toward its targets, planned once. The normal bags come first
+		-- in the slot list, so their positions are the same in both lists.
+		if not batch and not scramblePlanned then
+			scramblePlanned = true
+			local mainSlots = {}
+			-- scrambleCount, not #scrambleTargets: empty slots are nil, and # stops at a gap.
+			for i = 1, scrambleCount do
+				mainSlots[i] = slots[i]
+			end
+			local placement = PlanPlacement(mainSlots, scrambleTargets)
+			if #placement > 0 then
+				plan = { rounds = placement, round = 1, n = #slots }
+				batch = TakePlanned(slots)
+			end
+		end
+		if not batch or #batch == 0 then
+			Stop(("scrambled: %d moves. Close your bags to let auto-sort clean up."):format(moves), true)
+			return
+		end
+	elseif not batch then
 		batch = MergeMoves(slots)
 		if #batch == 0 then
 			batch = TransferMoves(slots)
@@ -766,6 +813,7 @@ function Sort.Start(isQuiet)
 		return
 	end
 	quiet = isQuiet or false
+	perfFrames, perfTime, perfWorst, perfBase = 0, 0, 0, baselineFrame
 	cpuMs, sendMs, maxSwapMs = 0, 0, 0
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
@@ -774,6 +822,35 @@ function Sort.Start(isQuiet)
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end
+
+-- Test bench: rearrange the normal bags into targets (one item signature or nil per normal-bag
+-- slot, in on-screen order; count = number of normal-bag slots) at full speed. Built by the bench
+-- window from a seeded shuffle.
+function Sort.Scramble(targets, count)
+	if ticker then
+		Print("a sort is already running.")
+		return
+	end
+	Sort.Start(false)
+	if ticker then
+		mode, scrambleTargets, scrambleCount, scramblePlanned = "scramble", targets, count, false
+	end
+end
+
+-- Frame timing (see perf locals above).
+Sort.perf = CreateFrame("Frame")
+Sort.perf:SetScript("OnUpdate", function(_, elapsed)
+	elapsed = elapsed or 0
+	if ticker then
+		perfFrames = perfFrames + 1
+		perfTime = perfTime + elapsed
+		if elapsed > perfWorst then
+			perfWorst = elapsed
+		end
+	elseif elapsed > 0 then
+		baselineFrame = baselineFrame * 0.95 + elapsed * 0.05
+	end
+end)
 
 function Sort.Cancel()
 	if ticker then

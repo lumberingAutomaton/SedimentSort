@@ -256,3 +256,206 @@ function Popup.OnBagUpdate()
 		Popup.Refresh()
 	end
 end
+
+-- Test bench ----------------------------------------------------------------------------------
+-- A small dice button next to the bag sort button opens a tiny window: a mode button (Minimal,
+-- Full, Maximal), a seed box and Scramble. Scrambles are seeded, so the same seed on the same
+-- sorted bag always makes the same mess, which makes before/after comparisons fair:
+--   Minimal: swap a few items between the top and bottom thirds (everyday drift).
+--   Full:    shuffle every normal-bag slot.
+--   Maximal: reverse the whole order, then a few top/bottom swaps (worst case for a full sort).
+-- Only the normal bags are scrambled. The line underneath shows the last sort's cost; the last 20
+-- runs are kept in SedimentDB.benchHistory.
+
+local BENCH_MODES = { "Minimal", "Full", "Maximal" }
+local bench
+
+-- Park-Miller generator: WoW's math.random can't be seeded. Returns a function giving 1..n.
+local function SeededRandom(seed)
+	local state = math.floor(math.abs(seed)) % 2147483647
+	if state == 0 then
+		state = 1
+	end
+	return function(n)
+		state = state * 16807 % 2147483647
+		return state % n + 1
+	end
+end
+
+-- The scrambled layout for the normal bags: one item signature (or nil = empty) per slot.
+local function ScrambleTargets(modeName, seed)
+	local layout = {}
+	for _, s in ipairs(ns.Bags.Read()) do
+		if s.zone ~= "main" then
+			break -- normal-bag slots come first
+		end
+		layout[#layout + 1] = s.item and s.item.sig or false
+	end
+	local n = #layout
+	local roll = SeededRandom(seed)
+	local function SwapEnds(count)
+		local third = math.max(1, math.floor(n / 3))
+		for _ = 1, count do
+			local a, b = roll(third), n - roll(third) + 1
+			layout[a], layout[b] = layout[b], layout[a]
+		end
+	end
+	if modeName == "Minimal" then
+		SwapEnds(4)
+	elseif modeName == "Full" then
+		for i = n, 2, -1 do
+			local j = roll(i)
+			layout[i], layout[j] = layout[j], layout[i]
+		end
+	else
+		for i = 1, math.floor(n / 2) do
+			layout[i], layout[n - i + 1] = layout[n - i + 1], layout[i]
+		end
+		SwapEnds(4)
+	end
+	local targets = {}
+	for i = 1, n do
+		targets[i] = layout[i] or nil
+	end
+	return targets, n -- n travels separately: empty slots are nil, and # stops at a gap
+end
+
+local function BenchRunText(run)
+	if not run then
+		return "No sorts measured yet."
+	end
+	return ("%s: %d moves, %d rounds, %.1fs\nworst frame %.0fms, %.0f fps (before %.0f)"):format(
+		run.kind, run.moves, run.rounds, run.seconds, run.worstMs, run.fps, run.beforeFps)
+end
+
+local function BuildBench(anchor)
+	bench = CreateFrame("Frame", "SedimentBench", UIParent, "BackdropTemplate")
+	bench:SetSize(250, 112)
+	bench:SetFrameStrata("DIALOG")
+	bench:SetClampedToScreen(true)
+	bench:SetMovable(true)
+	bench:EnableMouse(true)
+	bench:RegisterForDrag("LeftButton")
+	bench:SetScript("OnDragStart", bench.StartMoving)
+	bench:SetScript("OnDragStop", bench.StopMovingOrSizing)
+	bench:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 16,
+		insets = { left = 4, right = 4, top = 4, bottom = 4 },
+	})
+	bench:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+	bench:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+	bench:Hide()
+	tinsert(UISpecialFrames, "SedimentBench")
+
+	local title = bench:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	title:SetPoint("TOPLEFT", 10, -10)
+	title:SetText("Sediment test bench")
+	local close = CreateFrame("Button", nil, bench, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", -2, -2)
+	close:SetScale(0.8)
+
+	local modeButton = CreateFrame("Button", nil, bench, "UIPanelButtonTemplate")
+	modeButton:SetSize(76, 22)
+	modeButton:SetPoint("TOPLEFT", 10, -28)
+	local function ShowMode()
+		modeButton:SetText(SedimentDB.benchMode or "Minimal")
+	end
+	modeButton:SetScript("OnClick", function()
+		local current = SedimentDB.benchMode or "Minimal"
+		for i, m in ipairs(BENCH_MODES) do
+			if m == current then
+				SedimentDB.benchMode = BENCH_MODES[i % #BENCH_MODES + 1]
+				break
+			end
+		end
+		ShowMode()
+	end)
+	modeButton:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, "Scramble mode (click to change)")
+		GameTooltip_AddNormalLine(GameTooltip, "Minimal: swap a few items between top and bottom.")
+		GameTooltip_AddNormalLine(GameTooltip, "Full: shuffle everything.")
+		GameTooltip_AddNormalLine(GameTooltip, "Maximal: reverse the order, then a few swaps.")
+		GameTooltip:Show()
+	end)
+	modeButton:SetScript("OnLeave", GameTooltip_Hide)
+	ShowMode()
+
+	local seedBox = CreateFrame("EditBox", nil, bench, "InputBoxTemplate")
+	seedBox:SetSize(46, 20)
+	seedBox:SetPoint("LEFT", modeButton, "RIGHT", 12, 0)
+	seedBox:SetAutoFocus(false)
+	seedBox:SetNumeric(true)
+	seedBox:SetMaxLetters(6)
+	seedBox:SetText(tostring(SedimentDB.benchSeed or 42))
+	seedBox:SetScript("OnEnterPressed", seedBox.ClearFocus)
+	seedBox:SetScript("OnEscapePressed", seedBox.ClearFocus)
+	seedBox:SetScript("OnEditFocusLost", function(self)
+		SedimentDB.benchSeed = tonumber(self:GetText()) or 42
+		self:SetText(tostring(SedimentDB.benchSeed))
+	end)
+	seedBox:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, "Seed")
+		GameTooltip_AddNormalLine(GameTooltip, "The same seed on the same sorted bag always makes the same mess.")
+		GameTooltip:Show()
+	end)
+	seedBox:SetScript("OnLeave", GameTooltip_Hide)
+
+	local scramble = CreateFrame("Button", nil, bench, "UIPanelButtonTemplate")
+	scramble:SetSize(80, 22)
+	scramble:SetPoint("LEFT", seedBox, "RIGHT", 8, 0)
+	scramble:SetText("Scramble")
+	scramble:SetScript("OnClick", function()
+		seedBox:ClearFocus()
+		local seed = tonumber(seedBox:GetText()) or 42
+		SedimentDB.benchSeed = seed
+		ns.Sort.Scramble(ScrambleTargets(SedimentDB.benchMode or "Minimal", seed))
+	end)
+
+	bench.result = bench:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	bench.result:SetPoint("TOPLEFT", modeButton, "BOTTOMLEFT", 0, -10)
+	bench.result:SetPoint("RIGHT", -10, 0)
+	bench.result:SetJustifyH("LEFT")
+end
+
+function Popup.BenchRefresh()
+	if bench and bench:IsShown() then
+		bench.result:SetText(BenchRunText(ns.Sort.lastRun or (SedimentDB.benchHistory or {})[1]))
+	end
+end
+
+function Popup.ToggleBench(anchor)
+	if not bench then
+		BuildBench(anchor or UIParent)
+	end
+	bench:SetShown(not bench:IsShown())
+	Popup.BenchRefresh()
+end
+
+-- The dice button, a child of the bag sort button so it shows and moves with it.
+function Popup.CreateBenchButton()
+	local sortButton = BagItemAutoSortButton
+	if not sortButton or Popup.benchButton then
+		return
+	end
+	local dice = CreateFrame("Button", nil, sortButton)
+	dice:SetSize(20, 20)
+	dice:SetPoint("RIGHT", sortButton, "LEFT", -2, 0)
+	dice:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
+	dice:SetPushedTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Down")
+	dice:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Highlight", "ADD")
+	dice:SetScript("OnClick", function(self)
+		Popup.ToggleBench(self)
+	end)
+	dice:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, "Sediment test bench")
+		GameTooltip_AddNormalLine(GameTooltip, "Scramble the bags to test a full cleanup.")
+		GameTooltip:Show()
+	end)
+	dice:SetScript("OnLeave", GameTooltip_Hide)
+	Popup.benchButton = dice
+end

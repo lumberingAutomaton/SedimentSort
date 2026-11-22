@@ -142,6 +142,7 @@ function ns.OnSortFinished(success)
 		sweepStartedAt = nil
 	end
 	ns.Popup.OnBagUpdate()
+	ns.Popup.BenchRefresh()
 end
 
 function ns.OnSortStateChanged()
@@ -237,6 +238,8 @@ SlashCmdList.SEDIMENT = function(msg)
 		ns.AutoSort.Toggle()
 	elseif cmd == "auto?" or cmd == "status" then
 		ns.AutoSort.Status()
+	elseif cmd == "bench" then
+		ns.Popup.ToggleBench(ns.Popup.benchButton)
 	elseif cmd == "mutetest" then
 		ns.Sound.Test()
 	elseif cmd == "why" then
@@ -280,6 +283,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		end
 		TakeOverSortButton()
 		ns.Popup.Hook()
+		ns.Popup.CreateBenchButton()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
 	elseif event == "PLAYER_REGEN_DISABLED" then
