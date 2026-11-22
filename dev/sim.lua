@@ -2,7 +2,8 @@
 -- Usage: lua dev/sim.lua <path to WTF SavedVariables/Sediment.lua> [seed] [show|bench]
 -- SEDIMENT_ORDER=stable, stableSets or stableFill (environment) swaps in an experimental
 -- within-weight order: current position instead of class/subclass/item ID (stableSets keeps set
--- names first; stableFill also moves one whole group of identical items to fill a hole). "bench"
+-- names first; stableFill also moves one whole group of identical items to fill a hole; stableFill2
+-- also tries every rotation at group boundaries, so a run of whole groups adding up to the shift moves). "bench"
 -- runs realistic events from a sorted bag and reports the average moves each costs.
 -- Loads the bag scan saved by /sed scan, shuffles it into simulated bags, runs the real sort code
 -- against mocked game APIs, and checks the result.
@@ -217,7 +218,8 @@ for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 		local a = src:find("local function Compare%(a, b%)")
 		local b = select(2, src:find("\nend\n", a))
 		local useSets = ORDER == "stableSets"
-		local fill = ORDER == "stableFill"
+		local fill = ORDER == "stableFill" or ORDER == "stableFill2"
+		local rotations = ORDER == "stableFill2"
 		src = src:sub(1, a - 1) .. [[
 local function Compare(a, b)
 	if a.weight ~= b.weight then
@@ -272,6 +274,19 @@ local function BestBands(list, start, slots)
 				if cost < bestCost then best, bestCost = order, cost end
 			end
 		end
+		]] .. (rotations and [[
+		-- stableFill2: also every rotation at group boundaries, i.e. the first k whole groups moved to
+		-- the back (equivalently the last m-k moved to the front). When the bands before this one grew
+		-- or shrank by N, the rotation whose moved groups add up to exactly N leaves only those groups
+		-- out of place.
+		for k = 1, #groups - 1 do
+			local order = {}
+			for c = k + 1, #groups do order[#order + 1] = groups[c] end
+			for c = 1, k do order[#order + 1] = groups[c] end
+			local cost = Cost(order)
+			if cost < bestCost then best, bestCost = order, cost end
+		end
+		]] or "") .. [[
 		for _, grp in ipairs(best) do for _, it in ipairs(grp.items) do out[#out + 1] = it end end
 		i = j + 1
 	end
@@ -490,9 +505,21 @@ if arg[3] == "bench" then
 			w[item.subKey] = old
 			Record("weight edit", Moves())
 		end
+		-- 4. Multi-loot: three items arrive at once (half match something here), then later three
+		-- random items are used up. Bands shift by up to 3, where group rotations should matter.
+		for _ = 1, 3 do
+			local f = FirstFree()
+			if f then bags[f[1]][f[2]] = Clone(templates[math.random(#templates)], math.random() < 0.5) end
+		end
+		Record("loot 3", Moves())
+		for _ = 1, 3 do
+			local u = RandomItemSlot()
+			if u then bags[u[1]][u[2]] = nil end
+		end
+		Record("use 3", Moves())
 		Check(false)
 	end
-	for _, name in ipairs({ "loot + use", "set swap", "weight edit" }) do
+	for _, name in ipairs({ "loot + use", "set swap", "weight edit", "loot 3", "use 3" }) do
 		local r = results[name]
 		print(("BENCH %s %-12s %.2f moves/event over %d events"):format(ORDER, name, r.total / r.n, r.n))
 	end

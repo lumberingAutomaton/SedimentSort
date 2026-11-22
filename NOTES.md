@@ -145,6 +145,17 @@ Average moves per event, starting from a sorted bag:
   one per later item. Identical stacks are never split (sim asserts it); classes may mix inside a band (the user
   is fine with that, not with split stacks).
 
+Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use differs from the first table):
+| event        | current | stable | stableFill | stableFill2 |
+| loot + use   | 8.1     | 7.6    | 2.7        | 2.8         |
+| set swap     | 7.1     | 2.1    | 1.3        | 1.3         |
+| weight edit  | 1.3     | 1.3    | 0.8        | 0.5         |
+| loot 3       | 14.9    | 14.3   | 7.6        | 5.3         |
+| use 3        | 16.0    | 16.3   | 11.1       | 7.9         |
+- stableFill2 (user's idea): also every rotation at group boundaries, i.e. when the bands before grew or shrank
+  by N, move whole groups adding up to exactly N from one end of the band to the other. Same as stableFill when
+  bands shift by 1; clearly better when they shift by more (multi-item loot, several things used up).
+
 ## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
 - Per-frame budget (current, 0.1ms/frame) vs per-second (~14ms/s, same as 0.1 at 144 FPS). Each swap costs a
   fixed ~5ms, so a slow frame is worse at high FPS (144: 6.9 -> ~12ms) than at low FPS (60: 16.7 -> ~22ms).
