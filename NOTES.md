@@ -129,6 +129,22 @@ Code left:
 - Later/parked: ladder view tab; Buff food and Drink flags; category row
   breaks; neutral-buoyancy layer; splitting a swap's pick-up and put-down across frames; README.md.
 
+## Within-weight order: benchmark (2026-11-22, dev/sim.lua bench mode, 10 seeds x 60 events)
+Idea (user): equal weight means "don't care", so auto-sort shouldn't impose an order inside a weight band.
+Proposed split (user): the button does the full canonical sort; auto-sort does the partial one.
+Average moves per event, starting from a sorted bag:
+| event        | current (class/subclass/ID) | stable (current position) | stableFill |
+| loot + use   | 14.8                        | 13.6                      | 4.2        |
+| set swap     | 12.8                        | 1.5                       | 0.9        |
+| weight edit  | 1.5                         | 1.4                       | 1.0        |
+- stable: within a band, identical items together, groups in current order (light bands append, heavy bands
+  prepend: both grow toward the gap). Adding set-name grouping (stableSets) cost most of the set-swap win (9.4),
+  and the user doubted its use, so it's out.
+- stableFill: stable, plus within each band one whole group of identical items may move to the band's front or
+  back when that leaves fewer slots wrong. A used-up item then costs about one move per later band instead of
+  one per later item. Identical stacks are never split (sim asserts it); classes may mix inside a band (the user
+  is fine with that, not with split stacks).
+
 ## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
 - Per-frame budget (current, 0.1ms/frame) vs per-second (~14ms/s, same as 0.1 at 144 FPS). Each swap costs a
   fixed ~5ms, so a slow frame is worse at high FPS (144: 6.9 -> ~12ms) than at low FPS (60: 16.7 -> ~22ms).

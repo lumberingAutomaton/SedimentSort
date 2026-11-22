@@ -1,7 +1,8 @@
 -- Offline simulation of the Sediment sort. Not loaded by the game.
 -- Usage: lua dev/sim.lua <path to WTF SavedVariables/Sediment.lua> [seed] [show|bench]
--- SEDIMENT_ORDER=stable or stableSets (environment) swaps in an experimental within-weight order:
--- current position instead of class/subclass/item ID (stableSets keeps set names first). "bench"
+-- SEDIMENT_ORDER=stable, stableSets or stableFill (environment) swaps in an experimental
+-- within-weight order: current position instead of class/subclass/item ID (stableSets keeps set
+-- names first; stableFill also moves one whole group of identical items to fill a hole). "bench"
 -- runs realistic events from a sorted bag and reports the average moves each costs.
 -- Loads the bag scan saved by /sed scan, shuffles it into simulated bags, runs the real sort code
 -- against mocked game APIs, and checks the result.
@@ -216,6 +217,7 @@ for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 		local a = src:find("local function Compare%(a, b%)")
 		local b = select(2, src:find("\nend\n", a))
 		local useSets = ORDER == "stableSets"
+		local fill = ORDER == "stableFill"
 		src = src:sub(1, a - 1) .. [[
 local function Compare(a, b)
 	if a.weight ~= b.weight then
@@ -232,7 +234,50 @@ local function Compare(a, b)
 	end
 	return a.index < b.index
 end
-]] .. src:sub(b + 1)
+]] .. (fill and [[
+-- stableFill: within each weight band, keep groups of identical items whole, and try moving one
+-- whole group to the front or back of the band if that leaves fewer slots holding the wrong thing
+-- than the current order does. Fills a hole by moving a group instead of shifting the whole band.
+local function BestBands(list, start, slots)
+	local out, i = {}, 1
+	while i <= #list do
+		local j = i
+		while j + 1 <= #list and list[j + 1].weight == list[i].weight do j = j + 1 end
+		local groups, g = {}, nil
+		for k = i, j do
+			local it = list[k]
+			if not g or g.sig ~= it.sig then g = { sig = it.sig, items = {} } groups[#groups + 1] = g end
+			table.insert(g.items, it)
+		end
+		local bandStart = start + (i - 1)
+		local function Cost(order)
+			local pos, cost = bandStart, 0
+			for _, grp in ipairs(order) do
+				for _ = 1, #grp.items do
+					local sl = slots[pos]
+					if not (sl.item and sl.item.sig == grp.sig) then cost = cost + 1 end
+					pos = pos + 1
+				end
+			end
+			return cost
+		end
+		local best, bestCost = groups, Cost(groups)
+		for a = 1, #groups do
+			for _, toFront in ipairs({ true, false }) do
+				local order = {}
+				if toFront then order[1] = groups[a] end
+				for c = 1, #groups do if c ~= a then order[#order + 1] = groups[c] end end
+				if not toFront then order[#order + 1] = groups[a] end
+				local cost = Cost(order)
+				if cost < bestCost then best, bestCost = order, cost end
+			end
+		end
+		for _, grp in ipairs(best) do for _, it in ipairs(grp.items) do out[#out + 1] = it end end
+		i = j + 1
+	end
+	return out
+end
+]] or "") .. src:sub(b + 1)
 		src = src:gsub("table%.sort%(items, Compare%)", [[
 local groupFirst = {}
 	for _, it in ipairs(items) do
@@ -240,6 +285,9 @@ local groupFirst = {}
 	end
 	for _, it in ipairs(items) do it.groupFirst = groupFirst[it.sig] end
 	table.sort(items, Compare)]], 1)
+		if fill then
+			src = src:gsub("\n\tlocal targets = {}\n", "\n\tfloaters = BestBands(floaters, 1, slots)\n\tsinkers = BestBands(sinkers, #slots - #sinkers + 1, slots)\n\tlocal targets = {}\n", 1)
+		end
 	end
 	assert(load(src, "@" .. f))("Sediment", ns)
 end
@@ -337,6 +385,26 @@ for sb = 0, 5 do if IsSpecial(sb) then
 		end end end
 	end
 end end
+-- Identical stacks are never split: within each bag zone, every item signature forms one unbroken
+-- run of slots.
+local function CheckRuns(bagList)
+	local seen, prev = {}, nil
+	for _, b in ipairs(bagList) do
+		for s = 1, BAG_SIZES[b] do
+			local t = bags[b][s]
+			local sig = t and (t.link .. tostring(t.isBound) .. (t.set or "")) or nil
+			if sig and sig ~= prev then
+				assert(not seen[sig], ("identical stacks split: %s at %d/%d"):format(t.name, b, s))
+				seen[sig] = true
+			end
+			prev = sig
+		end
+	end
+end
+local mainBags = {}
+for b = 0, 4 do if not IsSpecial(b) then mainBags[#mainBags + 1] = b end end
+CheckRuns(mainBags)
+for b = 0, 5 do if IsSpecial(b) then CheckRuns({ b }) end end
 -- At most one partial stack per item.
 local partial = {}
 for b = 0, 5 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
