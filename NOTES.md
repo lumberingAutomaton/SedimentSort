@@ -78,8 +78,8 @@ In-game tests done:
 In-game tests left:
 - Herb bag character (0.7.0 fix): sort; feathers and other non-herbs stay in the normal bags, no errors. Put an
   herb in the normal bags and sort: it moves into the herb bag.
-- 0.7.0 GCD sweep: swap sets with bags closed, sweep + bling on the backpack button; open bags mid-sweep:
-  sweep clears, nothing moves; close: it finishes. Button sort: quick sweep on the sort button.
+- Bags-open pause: swap sets with bags closed, open them mid-sweep: sweep clears, nothing moves; close: it
+  finishes. (GCD sweep itself verified in game 2026-11-22: "a nice little visual indicator".)
 - Loot a quest item: counts settle, item lands with quest items. Tune /sed delay, then make that the default.
 - Alt+right-click a bank item opens the popup.
 - Special bags left alone: put an item in a reagent/profession bag, mess up, sort; nothing moves in or out.
