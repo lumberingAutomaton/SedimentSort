@@ -87,8 +87,16 @@ In-game tests left:
   then attack a mob. Expect the chat line "stopped: entered combat", nothing on the cursor, no error popup.
 
 Code left:
-- Decided 2026-11-20: ignore Blizzard's per-bag "Ignore cleanup" setting. The user: antithetical to the addon,
-  it should sort every general bag. (Ignore it in Bags.IsSortable; don't change the user's Blizzard settings.)
+- Done 2026-11-21: Blizzard's per-bag "Ignore cleanup" setting is ignored (the user: antithetical to the addon).
+  Bags.IsSortable no longer reads it; the user's Blizzard settings are left untouched.
+- 0.6.0: reagent bag (verified in game 2026-11-21: silk moved out came back to its spot). The user noticed it "doesn't work very well anymore":
+  Blizzard's sort used to move crafting reagents into it, and Sediment had replaced that sort. Now:
+  merge (preferring reagent bag stacks as destination) -> transfer (reagents from normal bags into empty
+  reagent bag slots, one round) -> placement planned per zone (a chain crossing zones could route a
+  non-reagent through a reagent slot mid-sort) -> restack within a zone. Eligibility = isCraftingReagent
+  (C_Item.GetItemInfo, 17th return). If the game refuses a transfer, the item goes back, is remembered for
+  the session (Bags.notReagentBag), and the sort carries on. Sim covers a 24-slot bag and an overflowing 6-slot
+  one, plus a flagged-but-refused item.
 - Done 2026-11-21: combat. The streaming sender didn't re-check combat between swaps, so a stream running into
   a pull hit ADDON_ACTION_BLOCKED (user screenshot in Shadowfang Keep). Now every swap path checks
   InCombatLockdown, PLAYER_REGEN_DISABLED stops a running sort at once, and an interrupted auto-sort resumes
@@ -99,7 +107,7 @@ Code left:
 - Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
   Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
   Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
-- Later/parked: ladder view tab; Buff food and Drink flags; sorting special bags separately; category row
+- Later/parked: ladder view tab; Buff food and Drink flags; sorting profession bags (herb, mining, soul...); category row
   breaks; neutral-buoyancy layer; splitting a swap's pick-up and put-down across frames; README.md.
 
 ## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)

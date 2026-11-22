@@ -8,20 +8,26 @@ ns.Bags = Bags
 local FIRST_BAG = Enum.BagIndex.Backpack
 local LAST_BAG = Enum.BagIndex.Bag_4
 
--- Sortable = a general bag (no profession or other special family) that the user hasn't set to
--- "Ignore cleanup" in the bag menu. Special bags and the reagent bag are left alone for now.
+local REAGENT_BAG = Enum.BagIndex.ReagentBag
+
+-- Sortable = a general bag: not a profession or other special-family bag (those are left alone).
+-- Blizzard's per-bag "Ignore cleanup" setting is deliberately ignored: Sediment sorts every general
+-- bag (the user's call: a bag that opts out works against the whole addon).
 function Bags.IsSortable(bag)
 	if C_Container.GetContainerNumSlots(bag) == 0 then
 		return false
 	end
 	local _, family = C_Container.GetContainerNumFreeSlots(bag)
-	if family ~= 0 then
-		return false
-	end
-	if bag == FIRST_BAG then
-		return not C_Container.GetBackpackAutosortDisabled()
-	end
-	return not C_Container.GetBagSlotFlag(bag, Enum.BagSlotFlags.DisableAutoSort)
+	return family == 0
+end
+
+-- Items the game refused to put in the reagent bag this session (in case Forever's rule differs
+-- from the crafting-reagent flag). They stay in the normal bags.
+Bags.notReagentBag = {}
+
+-- Should this item live in the reagent bag?
+function Bags.WantsReagentBag(item)
+	return item.isCraftingReagent and not Bags.notReagentBag[item.itemID]
 end
 
 -- Facts about an item type that never change (class, names, stack size), looked up once per item
@@ -42,8 +48,10 @@ local function Static(itemID)
 			equipLoc = equipLoc,
 			maxStack = C_Item.GetItemMaxStackSizeByID(itemID),
 		}
+		local itemName, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, isCraftingReagent = C_Item.GetItemInfo(itemID)
+		st.isCraftingReagent = isCraftingReagent or false
 		-- Only keep it once the game actually knew the item; otherwise look again next time.
-		if st.maxStack then
+		if st.maxStack and itemName then
 			static[itemID] = st
 		end
 		st.maxStack = st.maxStack or 1
@@ -80,6 +88,7 @@ function Bags.ReadSlot(bag, slot)
 		inEquipmentSet = inSet or false,
 		equipmentSets = inSet and setList or "", -- comma-separated set names
 		maxStack = st.maxStack,
+		isCraftingReagent = st.isCraftingReagent,
 	}
 	-- Two slots are interchangeable only if they hold the same item in the same bind state and the
 	-- same equipment sets (sets remember the exact copy, so a set copy can't stand in for a spare).
@@ -88,20 +97,27 @@ function Bags.ReadSlot(bag, slot)
 	return item
 end
 
--- Every sortable slot in on-screen order. Each entry: { bag, slot, item = ReadSlot() or nil }.
--- Also reports whether any slot is locked (an item mid-move).
+-- Every sortable slot. Each entry: { bag, slot, zone, item = ReadSlot() or nil }.
+-- Zone "main" is the backpack and normal bags in on-screen order (backpack slot 1 top-left); zone
+-- "reagent" is the reagent bag, after them. Also reports whether any slot is locked (mid-move).
 function Bags.Read()
 	local slots, anyLocked = {}, false
+	local function AddBag(bag, zone)
+		for slot = 1, C_Container.GetContainerNumSlots(bag) do
+			local item = Bags.ReadSlot(bag, slot)
+			if item and item.isLocked then
+				anyLocked = true
+			end
+			slots[#slots + 1] = { bag = bag, slot = slot, zone = zone, item = item }
+		end
+	end
 	for bag = FIRST_BAG, LAST_BAG do
 		if Bags.IsSortable(bag) then
-			for slot = 1, C_Container.GetContainerNumSlots(bag) do
-				local item = Bags.ReadSlot(bag, slot)
-				if item and item.isLocked then
-					anyLocked = true
-				end
-				slots[#slots + 1] = { bag = bag, slot = slot, item = item }
-			end
+			AddBag(bag, "main")
 		end
+	end
+	if REAGENT_BAG and C_Container.GetContainerNumSlots(REAGENT_BAG) > 0 then
+		AddBag(REAGENT_BAG, "reagent")
 	end
 	return slots, anyLocked
 end

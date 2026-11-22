@@ -77,6 +77,16 @@ local function MergeMoves(slots)
 	local batch = {}
 	for _, sig in ipairs(order) do
 		local list = partials[sig]
+		-- Stacks in the reagent bag first, so they're the ones topped up and strays from the normal
+		-- bags get folded in. (Slots are listed normal bags first, so this is a stable move-to-front.)
+		local reagentFirst = {}
+		for _, s in ipairs(list) do
+			if s.zone == "reagent" then reagentFirst[#reagentFirst + 1] = s end
+		end
+		for _, s in ipairs(list) do
+			if s.zone ~= "reagent" then reagentFirst[#reagentFirst + 1] = s end
+		end
+		list = reagentFirst
 		local i, j = 1, #list
 		while i < j do
 			local dst, src = list[i], list[j]
@@ -121,6 +131,30 @@ local function PlanTargets(slots)
 		targets[first + i] = item.sig
 	end
 	return targets
+end
+
+-- Reagents in the normal bags move into empty reagent bag slots, as Blizzard's sort used to do.
+-- Plain moves into empty slots, so they all go out in one round. If the reagent bag is full, the
+-- rest stay in the normal bags and sort there by weight.
+local function TransferMoves(slots)
+	local empties, batch = {}, {}
+	for _, s in ipairs(slots) do
+		if s.zone == "reagent" and not s.item then
+			empties[#empties + 1] = s
+		end
+	end
+	if #empties == 0 then
+		return batch
+	end
+	for _, s in ipairs(slots) do
+		if s.zone == "main" and s.item and ns.Bags.WantsReagentBag(s.item) then
+			batch[#batch + 1] = { kind = "transfer", src = s, dst = empties[#batch + 1] }
+			if #batch == #empties then
+				break
+			end
+		end
+	end
+	return batch
 end
 
 -- Placement plan. Work out where every slot's content must go (empty counts as content), which
@@ -232,6 +266,37 @@ local function PlanPlacement(slots, targets)
 	return rounds
 end
 
+-- Plan each zone (normal bags, reagent bag) on its own and send their rounds together. A chain
+-- that crossed zones could route a non-reagent through a reagent bag slot mid-sort, which the game
+-- refuses; planned apart, every item stays inside its own zone the whole time.
+local function PlanZones(slots)
+	local zones, order = {}, {}
+	for index, s in ipairs(slots) do
+		local z = zones[s.zone]
+		if not z then
+			z = { slots = {}, map = {} }
+			zones[s.zone] = z
+			order[#order + 1] = s.zone
+		end
+		z.slots[#z.slots + 1] = s
+		z.map[#z.slots] = index
+	end
+	local combined = {}
+	for _, name in ipairs(order) do
+		local z = zones[name]
+		local rounds = PlanPlacement(z.slots, PlanTargets(z.slots))
+		for r, round in ipairs(rounds) do
+			combined[r] = combined[r] or {}
+			for _, swap in ipairs(round) do
+				-- Zone positions back to positions in the full slot list.
+				swap.a, swap.b = z.map[swap.a], z.map[swap.b]
+				table.insert(combined[r], swap)
+			end
+		end
+	end
+	return combined
+end
+
 -- Placement treats stacks of the same item as interchangeable, so a partial stack can end up
 -- in the middle of its group. Fix: drop a later, bigger stack onto it. The game tops the partial
 -- up to full and leaves the remainder behind, so in effect the two counts swap.
@@ -243,7 +308,7 @@ local function RestackMoves(slots)
 			-- Use the last bigger stack in the group, so the partial jumps straight to the end.
 			local best
 			local q = p + 1
-			while slots[q] and slots[q].item and slots[q].item.sig == item.sig do
+			while slots[q] and slots[q].zone == s.zone and slots[q].item and slots[q].item.sig == item.sig do
 				if not used[q] and slots[q].item.count > item.count then
 					best = q
 				end
@@ -302,6 +367,19 @@ function Sort.OnCombatStart()
 	if ticker then
 		CombatStop()
 	end
+end
+
+-- A move left the item on the cursor: the game refused it. A refused transfer into the reagent bag
+-- means Forever doesn't take that item there, so put it back, remember it for the session, and
+-- carry on. Anything else stops the sort. Returns true if the sort can continue.
+local function HandleFailedMove(move, key)
+	if move.kind == "transfer" then
+		ClearCursor()
+		ns.Bags.notReagentBag[move.src.item.itemID] = true
+		return true
+	end
+	Stop("stopped: a move didn't go through (" .. key .. ").")
+	return false
 end
 
 local ExecuteSwap
@@ -400,12 +478,16 @@ function StepWork()
 		return
 	end
 
-	-- One phase per round: merges change counts, which placement depends on.
+	-- One phase per round: merge stacks, move reagents into the reagent bag, place, restack.
+	-- Each phase changes what the next one plans from.
 	local batch = plan and TakePlanned(slots)
 	if not batch then
 		batch = MergeMoves(slots)
 		if #batch == 0 then
-			local placement = PlanPlacement(slots, PlanTargets(slots))
+			batch = TransferMoves(slots)
+		end
+		if #batch == 0 then
+			local placement = PlanZones(slots)
 			if #placement > 0 then
 				plan = { rounds = placement, round = 1, n = #slots }
 				batch = TakePlanned(slots) or {}
@@ -454,8 +536,7 @@ function StepWork()
 			return
 		end
 		Execute(move)
-		if GetCursorInfo() then
-			Stop("stopped: a move didn't go through (" .. keys[i] .. ").")
+		if GetCursorInfo() and not HandleFailedMove(move, keys[i]) then
 			return
 		end
 	end
@@ -519,9 +600,8 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		local before = debugprofilestop()
 		Execute(batch[i])
 		allowance = allowance - (debugprofilestop() - before)
-		if GetCursorInfo() then
+		if GetCursorInfo() and not HandleFailedMove(batch[i], sending.keys[i]) then
 			cpuMs = cpuMs + (debugprofilestop() - start)
-			Stop("stopped: a move didn't go through (" .. sending.keys[i] .. ").")
 			return
 		end
 		sending.i = i + 1

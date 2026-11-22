@@ -10,9 +10,14 @@ local scan = SedimentDB.lastScan.rows
 SedimentDB = {}
 math.randomseed(seed)
 
-local BAG_SIZES = { [0] = 20, 16, 16, 16, 16 }
+-- Bags 0-4 are the normal bags; 5 is the reagent bag. Its size alternates by seed, so some runs
+-- have room for every reagent and some overflow into the normal bags.
+local BAG_SIZES = { [0] = 20, 16, 16, 16, 16, seed % 2 == 0 and 24 or 6 }
 local bags = {}
-for b = 0, 4 do bags[b] = {} end
+for b = 0, 5 do bags[b] = {} end
+-- What the reagent bag accepts. "Simple Wood" is flagged as a crafting reagent but refused, to
+-- exercise the case where Forever's rule differs from the flag.
+local function FitsReagentBag(t) return t.isCraftingReagent and not t.refuse end
 
 -- Item templates from the scan.
 local templates = {}
@@ -22,6 +27,7 @@ for _, r in ipairs(scan) do
 		itemID = r.itemID, name = r.name, link = r.link, count = r.count, quality = r.quality,
 		isBound = r.bound or r.isBound or false, classID = r.classID, subclassID = r.subclassID,
 		equipLoc = r.equipLoc or "", isQuestItem = r.isQuestItem, maxStack = stack,
+		isCraftingReagent = r.classID == 7, refuse = r.name == "Simple Wood",
 	}
 end
 -- Split some full stacks into partials so the merge step gets exercised.
@@ -43,10 +49,16 @@ end
 -- Scatter into random slots.
 local free = {}
 for b = 0, 4 do for s = 1, BAG_SIZES[b] do free[#free + 1] = { b, s } end end
+local reagentFree = {}
+for s = 1, BAG_SIZES[5] do reagentFree[#reagentFree + 1] = s end
 for _, t in ipairs(templates) do
-	local i = math.random(#free)
-	local pos = table.remove(free, i)
-	bags[pos[1]][pos[2]] = t
+	if FitsReagentBag(t) and #reagentFree > 0 and math.random() < 0.3 then
+		bags[5][table.remove(reagentFree, math.random(#reagentFree))] = t
+	else
+		local i = math.random(#free)
+		local pos = table.remove(free, i)
+		bags[pos[1]][pos[2]] = t
+	end
 end
 
 -- Mocks ---------------------------------------------------------------------------------------
@@ -56,7 +68,7 @@ local now, cursor = 0, nil
 local locked = {}
 local function Key(b, s) return b * 100 + s end
 local tickFn
-Enum = { BagIndex = { Backpack = 0, Bag_4 = 4 }, BagSlotFlags = { DisableAutoSort = 1 }, ItemQuality = { Poor = 0 } }
+Enum = { BagIndex = { Backpack = 0, Bag_4 = 4, ReagentBag = 5 }, BagSlotFlags = { DisableAutoSort = 1 }, ItemQuality = { Poor = 0 } }
 local function Copy(t) local c = {} for k, v in pairs(t) do c[k] = v end return c end
 local byID = {}
 for _, t in ipairs(templates) do byID[t.itemID] = t end
@@ -89,6 +101,9 @@ C_Container = {
 		end
 		local src = bags[cursor.b][cursor.s]
 		if cursor.b == b and cursor.s == s then cursor = nil return end
+		-- The reagent bag refuses anything that doesn't fit; the item stays on the cursor.
+		if b == 5 and not FitsReagentBag(src) then return end
+		if t and cursor.b == 5 and not FitsReagentBag(t) then return end
 		if not t then
 			if cursor.count == src.count then
 				bags[b][s] = src; bags[cursor.b][cursor.s] = nil
@@ -117,6 +132,10 @@ C_Item = {
 	GetItemClassInfo = function(c) return "class" .. c end,
 	GetItemSubClassInfo = function(c, s) return "sub" .. c .. ":" .. s end,
 	GetItemMaxStackSizeByID = function(id) return byID[id].maxStack end,
+	GetItemInfo = function(id)
+		local t = byID[id]
+		return t.name, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, t.isCraftingReagent
+	end,
 }
 GetCursorInfo = function() return cursor and "item" or nil end
 ClearCursor = function() cursor = nil end
@@ -149,7 +168,7 @@ ns.Weights.Init()
 
 local function Total()
 	local n = {}
-	for b = 0, 4 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+	for b = 0, 5 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
 		if t then n[t.itemID] = (n[t.itemID] or 0) + t.count end end end
 	return n
 end
@@ -209,9 +228,37 @@ for b = 0, 4 do
 		end
 	end
 end
+-- The reagent bag: only items it accepts, light-to-heavy with its own gap, and if it has an empty
+-- slot, no reagent it would take is left in the normal bags.
+local rFloat, rSink, rSeenGap, rSeenSinker, hasEmpty = -math.huge, -math.huge, false, false, false
+for s = 1, BAG_SIZES[5] do
+	local t = bags[5][s]
+	if t then
+		assert(FitsReagentBag(t), "non-reagent in the reagent bag: " .. t.name)
+		local w = ns.Weights.Resolve(ns.Bags.ReadSlot(5, s))
+		if show then print(("R/%-2d w%-5s %-30s x%d"):format(s, tostring(w), t.name, t.count)) end
+		if w < sink then
+			assert(not rSeenGap and w >= rFloat, "reagent bag floaters out of order at " .. s)
+			rFloat = w
+		else
+			rSeenGap, rSeenSinker = true, true
+			assert(w >= rSink, "reagent bag sinkers out of order at " .. s)
+			rSink = w
+		end
+	else
+		assert(not rSeenSinker, "gap inside the reagent bag's sinker block at " .. s)
+		rSeenGap, hasEmpty = true, true
+		if show then print(("R/%-2d   ·"):format(s)) end
+	end
+end
+if hasEmpty then
+	for b = 0, 4 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+		assert(not (t and FitsReagentBag(t)), "reagent left in the normal bags with room in the reagent bag: " .. (t and t.name or ""))
+	end end
+end
 -- At most one partial stack per item.
 local partial = {}
-for b = 0, 4 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+for b = 0, 5 do for s = 1, BAG_SIZES[b] do local t = bags[b][s]
 	if t and t.maxStack > 1 and t.count < t.maxStack then
 		local k = t.link .. tostring(t.isBound)
 		assert(not partial[k], "two partial stacks of " .. t.name)
