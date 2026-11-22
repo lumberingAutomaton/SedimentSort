@@ -23,6 +23,7 @@ local plan -- { rounds, round, n }: placement rounds still to send
 local quiet    -- auto-sort: no chat on success, and stream the swaps
 local cpuMs = 0 -- our own Lua time during the current sort
 local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
+local avgSwapMs = 5 -- running average swap cost, kept across sorts; feeds the progress estimate
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
 
 local function Print(msg)
@@ -77,16 +78,16 @@ local function MergeMoves(slots)
 	local batch = {}
 	for _, sig in ipairs(order) do
 		local list = partials[sig]
-		-- Stacks in the reagent bag first, so they're the ones topped up and strays from the normal
-		-- bags get folded in. (Slots are listed normal bags first, so this is a stable move-to-front.)
-		local reagentFirst = {}
+		-- Stacks in special bags (reagent, profession) first, so they're the ones topped up and strays
+		-- from the normal bags get folded in. A stable move-to-front.
+		local specialFirst = {}
 		for _, s in ipairs(list) do
-			if s.zone == "reagent" then reagentFirst[#reagentFirst + 1] = s end
+			if s.zone ~= "main" then specialFirst[#specialFirst + 1] = s end
 		end
 		for _, s in ipairs(list) do
-			if s.zone ~= "reagent" then reagentFirst[#reagentFirst + 1] = s end
+			if s.zone == "main" then specialFirst[#specialFirst + 1] = s end
 		end
-		list = reagentFirst
+		list = specialFirst
 		local i, j = 1, #list
 		while i < j do
 			local dst, src = list[i], list[j]
@@ -133,24 +134,37 @@ local function PlanTargets(slots)
 	return targets
 end
 
--- Reagents in the normal bags move into empty reagent bag slots, as Blizzard's sort used to do.
--- Plain moves into empty slots, so they all go out in one round. If the reagent bag is full, the
--- rest stay in the normal bags and sort there by weight.
+-- Items in the normal bags move into empty slots of a special bag that accepts them: reagents into
+-- the reagent bag (as Blizzard's sort used to do), herbs into an herb bag, and so on. Slots are
+-- listed profession bags before the reagent bag, so an herb that's also a crafting reagent goes to
+-- the herb bag first. Plain moves into empty slots, so they all go out in one round. What doesn't
+-- fit anywhere stays in the normal bags and sorts there by weight. Nothing leaves a special bag.
 local function TransferMoves(slots)
-	local empties, batch = {}, {}
+	local batch, taken = {}, {}
+	local empties = {} -- zone -> list of empty slots, in zone order
+	local zoneOrder = {}
 	for _, s in ipairs(slots) do
-		if s.zone == "reagent" and not s.item then
-			empties[#empties + 1] = s
+		if s.zone ~= "main" then
+			if not empties[s.zone] then
+				empties[s.zone] = {}
+				zoneOrder[#zoneOrder + 1] = s.zone
+			end
+			if not s.item then
+				table.insert(empties[s.zone], s)
+			end
 		end
 	end
-	if #empties == 0 then
-		return batch
-	end
-	for _, s in ipairs(slots) do
-		if s.zone == "main" and s.item and ns.Bags.WantsReagentBag(s.item) then
-			batch[#batch + 1] = { kind = "transfer", src = s, dst = empties[#batch + 1] }
-			if #batch == #empties then
+	for _, zone in ipairs(zoneOrder) do
+		local free = empties[zone]
+		local used = 0
+		for _, s in ipairs(slots) do
+			if used >= #free then
 				break
+			end
+			if s.zone == "main" and s.item and not taken[s] and ns.Bags.ShouldTransfer(s.item, free[1].info) then
+				used = used + 1
+				taken[s] = true
+				batch[#batch + 1] = { kind = "transfer", src = s, dst = free[used] }
 			end
 		end
 	end
@@ -348,7 +362,7 @@ local function Stop(msg, success)
 		Print(msg)
 	end
 	ns.OnSortStateChanged()
-	ns.OnSortFinished()
+	ns.OnSortFinished(success)
 end
 
 -- Moving items is forbidden in combat (the game blocks it with ADDON_ACTION_BLOCKED), so every
@@ -363,19 +377,27 @@ local function CombatStop()
 	end
 end
 
+-- The rule: bags closed, auto-sort moves things; bags open, only the sort button does. An
+-- auto-sort that finds the bags open stops where it is (every round leaves a valid state) and
+-- AutoSort runs it again once they close, re-planning from whatever is there by then.
+local function PauseForOpenBags()
+	Stop()
+	ns.AutoSort.Resume()
+end
+
 function Sort.OnCombatStart()
 	if ticker then
 		CombatStop()
 	end
 end
 
--- A move left the item on the cursor: the game refused it. A refused transfer into the reagent bag
--- means Forever doesn't take that item there, so put it back, remember it for the session, and
--- carry on. Anything else stops the sort. Returns true if the sort can continue.
+-- A move left the item on the cursor: the game refused it. A refused transfer into a special bag
+-- means that bag doesn't take that item after all, so put it back, remember it for the session,
+-- and carry on. Anything else stops the sort. Returns true if the sort can continue.
 local function HandleFailedMove(move, key)
 	if move.kind == "transfer" then
 		ClearCursor()
-		ns.Bags.notReagentBag[move.src.item.itemID] = true
+		ns.Bags.refused[move.dst.zone .. ":" .. move.src.item.itemID] = true
 		return true
 	end
 	Stop("stopped: a move didn't go through (" .. key .. ").")
@@ -394,6 +416,7 @@ local function Execute(move)
 	if spent > maxSwapMs then
 		maxSwapMs = spent
 	end
+	avgSwapMs = avgSwapMs * 0.8 + spent * 0.2
 end
 
 function ExecuteSwap(move)
@@ -450,6 +473,10 @@ end
 function StepWork()
 	if sending then
 		return -- a round is still streaming out
+	end
+	if quiet and ns.AutoSort.BagsOpen() then
+		PauseForOpenBags()
+		return
 	end
 	if InCombatLockdown() then
 		CombatStop()
@@ -522,9 +549,9 @@ function StepWork()
 		return
 	end
 
-	if quiet and not ns.AutoSort.BagsOpen() then
-		-- Auto-sort with the bags closed: stream the round out (see Sender below). With the bags
-		-- open the user is watching, so send it at once like a button sort.
+	ns.OnSortProgress(Sort.EstimateSeconds(#batch))
+	if quiet then
+		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
 		sending = { batch = batch, keys = keys, i = 1 }
 		Sort.sender:Show()
 		return
@@ -581,11 +608,13 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		return
 	end
 	Sort.lastFrames = (Sort.lastFrames or 0) + 1
-	-- Bags opened mid-stream: the user is watching, so send the rest of the round now.
-	local hurry = ns.AutoSort.BagsOpen()
+	if ns.AutoSort.BagsOpen() then
+		PauseForOpenBags() -- bags opened mid-stream: only the button moves things while they're open
+		return
+	end
 	local budget = Sort.BudgetMs()
 	allowance = math.min(allowance + budget, MAX_SAVED_MS)
-	if allowance < budget and not hurry then
+	if allowance < budget then
 		return -- still paying off the last swap
 	end
 	local start = debugprofilestop()
@@ -605,7 +634,7 @@ Sort.sender:SetScript("OnUpdate", function(self)
 			return
 		end
 		sending.i = i + 1
-	until sending.i > #batch or (allowance < budget and not hurry)
+	until sending.i > #batch or allowance < budget
 	cpuMs = cpuMs + (debugprofilestop() - start)
 	if sending.i > #batch then
 		sending = nil
@@ -614,6 +643,31 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		waitStarted = GetTime()
 	end
 end)
+
+-- Rough seconds left, from the round about to go out plus any planned rounds after it: each round
+-- waits about ROUND_WAIT for the server, and a streamed round also takes (swaps x average swap
+-- cost / budget) frames to send. Phases not yet planned (restacking) aren't counted; the progress
+-- sweep re-aims every round, so that only makes the last stretch a little late.
+local ROUND_WAIT = 0.3
+
+function Sort.EstimateSeconds(batchSize)
+	local swaps, roundsLeft = batchSize, 1
+	if plan then
+		for r = plan.round, #plan.rounds do
+			swaps = swaps + #plan.rounds[r]
+			roundsLeft = roundsLeft + 1
+		end
+	end
+	local seconds = roundsLeft * ROUND_WAIT
+	if quiet then
+		local fps = GetFramerate and GetFramerate() or 60
+		if fps < 1 then
+			fps = 60
+		end
+		seconds = seconds + swaps * (avgSwapMs / Sort.BudgetMs()) / fps
+	end
+	return seconds
+end
 
 function Sort.OnBagUpdateDelayed()
 	waitingForUpdate = false

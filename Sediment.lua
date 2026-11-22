@@ -80,7 +80,54 @@ function ns.OnAutoSortChanged()
 	end
 end
 
-function ns.OnSortFinished()
+-- Progress sweep -----------------------------------------------------------------------------
+-- While a sort moves things, a cooldown sweep (the GCD clock) runs over the bag sort button and
+-- the backpack button in the bag bar, so you can see it working with the bags open or closed.
+-- It runs for the estimated time left and re-aims every round, so it ends when the sort does.
+-- A sort that finishes ends it with the cooldown "bling"; an interrupted one just clears it.
+-- Sorts that move nothing never show it.
+
+local sweeps
+local sweepStartedAt
+
+local function Sweeps()
+	if not sweeps then
+		sweeps = {}
+		for _, name in ipairs({ "BagItemAutoSortButton", "MainMenuBarBackpackButton" }) do
+			local parent = _G[name]
+			if parent then
+				local cd = CreateFrame("Cooldown", nil, parent, "CooldownFrameTemplate")
+				cd:SetAllPoints(parent)
+				cd:SetHideCountdownNumbers(true)
+				cd:SetDrawEdge(true)
+				cd:SetDrawBling(true)
+				sweeps[#sweeps + 1] = cd
+			end
+		end
+	end
+	return sweeps
+end
+
+function ns.OnSortProgress(secondsLeft)
+	sweepStartedAt = sweepStartedAt or GetTime()
+	local duration = (GetTime() - sweepStartedAt) + secondsLeft
+	for _, cd in ipairs(Sweeps()) do
+		cd:SetCooldown(sweepStartedAt, duration)
+	end
+end
+
+function ns.OnSortFinished(success)
+	if sweepStartedAt then
+		for _, cd in ipairs(Sweeps()) do
+			if success then
+				-- Run out a moment from now, so the cooldown's finishing bling plays.
+				cd:SetCooldown(sweepStartedAt, (GetTime() - sweepStartedAt) + 0.15)
+			else
+				cd:Clear()
+			end
+		end
+		sweepStartedAt = nil
+	end
 	ns.Popup.OnBagUpdate()
 end
 

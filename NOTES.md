@@ -76,6 +76,10 @@ In-game tests done:
 - Partial stacks: the partial ends up after the full stacks (restack assumption confirmed).
 
 In-game tests left:
+- Herb bag character (0.7.0 fix): sort; feathers and other non-herbs stay in the normal bags, no errors. Put an
+  herb in the normal bags and sort: it moves into the herb bag.
+- 0.7.0 GCD sweep: swap sets with bags closed, sweep + bling on the backpack button; open bags mid-sweep:
+  sweep clears, nothing moves; close: it finishes. Button sort: quick sweep on the sort button.
 - Loot a quest item: counts settle, item lands with quest items. Tune /sed delay, then make that the default.
 - Alt+right-click a bank item opens the popup.
 - Special bags left alone: put an item in a reagent/profession bag, mess up, sort; nothing moves in or out.
@@ -101,13 +105,28 @@ Code left:
   a pull hit ADDON_ACTION_BLOCKED (user screenshot in Shadowfang Keep). Now every swap path checks
   InCombatLockdown, PLAYER_REGEN_DISABLED stops a running sort at once, and an interrupted auto-sort resumes
   after combat.
-- Done 2026-11-21: bags opening mid-stream make the rest of the auto-sort go out at button-sort speed (the
-  user saw it keep slowly adjusting with the bags open).
+- Rule (user, 2026-11-21): bags closed, auto-sort moves things; bags open, ONLY the sort button does. Opening the
+  bags mid-auto-sort pauses it on the spot; it re-plans and finishes once they close. (Replaced a same-day
+  version that finished the sort in a burst when the bags opened: the user had a scroll jump twice under the
+  cursor while trying to use it.)
+  A spell waiting for a target doesn't matter with the bags closed (user, 2026-11-21): no check for it.
+- 0.7.0 (uncommitted, untested in game): special bags by their own type. Bug found by the user: on another
+  character the reagent bag slot holds an herb bag, and Sediment tried to put a feather (a crafting reagent)
+  in it. A bag's type now comes from the bag item (container subclass 11 = reagent bag) and its family
+  (GetContainerNumFreeSlots); a profession bag takes items whose C_Item.GetItemFamily matches, wherever it sits,
+  so profession bags in the normal slots are sorted too (was parked). Profession bags fill before the reagent
+  bag (an herb that's also a reagent goes to the herb bag). Refusals remembered per bag. Sim: big/small
+  reagent bag, herb bag in the reagent slot, mining bag in a normal slot; 300 seeds pass.
+- 0.7.0 also: progress sweep. A cooldown frame (GCD clock) over
+  BagItemAutoSortButton and MainMenuBarBackpackButton runs for the estimated time left (Sort.EstimateSeconds:
+  rounds x 0.3s server wait + streamed swaps x running-average swap cost / budget / FPS), re-aimed every
+  round. Success ends it with the cooldown bling; interruptions clear it; sorts that move nothing never show it.
+  Lives in Sediment.lua (no new file, so no client restart).
 - Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
 - Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
   Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
   Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
-- Later/parked: ladder view tab; Buff food and Drink flags; sorting profession bags (herb, mining, soul...); category row
+- Later/parked: ladder view tab; Buff food and Drink flags; category row
   breaks; neutral-buoyancy layer; splitting a swap's pick-up and put-down across frames; README.md.
 
 ## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
