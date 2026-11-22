@@ -85,8 +85,14 @@ In-game tests done: WoW Task Manager off (no change in swap cost); partial stack
 pause; pause keeps the plan (cloak test); reagent bag (silk test); test bench.
 
 Code left:
-- Auto-sort partial order: button = full canonical sort, auto-sort = stableFill2 (benchmarked below; 50-80%
-  fewer moves on everyday events, identical stacks never split). Measure before/after with the test bench.
+- 0.9.0: auto-sort partial order, plus bench improvements (below). In game 2026-11-22: a ring moved to the top
+  came back to the front of its band (Armor 51, after Weapon 50 in the user's weights) in 2 moves; correct,
+  though putting it back in its old slot would have been 1 move (see the never-worse idea). Measure in game with Drift
+  scrambles: sort, Drift seed 42 with Auto: Full, close bags, note; sort; same with Auto: Partial. Stand still
+  somewhere quiet, two or three runs each. Headline number: worst second.
+- Decided (user, 2026-11-22): optimize for everyday drift; full/maximal scrambles are rare (first run only).
+  Parked: never-worse partial order (also try the full order's arrangement per band; mainly helps undo
+  scrambles), time-based swap spacing (with the speed slider).
 - Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
 - Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
   Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
@@ -96,6 +102,22 @@ Code left:
   splitting a swap's pick-up and put-down across frames; README.md.
 
 ## Version log
+- 0.9.0 bench: Drift scramble mode (four distinct items move to the top of the gap, each leaving a hole: the
+  everyday case; default mode). Smoothness metrics replace average FPS (which flattered long sorts): worst
+  second (lowest FPS over any one-second window during the sort and the second after, as a % drop from normal
+  - the headline), hitches per second (frames over 1.5x normal frame time), worst frame vs normal. Readout
+  shows as one line ("Partial: 2 moves, 1.4s, -2%, 20ms"; details in its tooltip) in the strip under the bag's search box whenever the bench's "Status text" checkbox is on
+  (SedimentDB.benchStatusText, default on); the bench window sits above the bag.
+  Fix: the swap allowance reset at each round, so a two-round sort's two hitches came a quarter-second apart
+  (seen in game after a quest reward: 2 moves, worst frame 22ms); it's now set once per sort.
+- 0.9.0: auto-sort uses the partial order (stableFill2 from the benchmark): equal-weight groups keep their order,
+  identical stacks stay together, and a band whose position shifted moves whole groups adding up to the shift
+  from one end to the other instead of sliding. Button sorts keep the full order. Toggle in the test bench
+  ("Auto: Partial/Full", SedimentDB.autoOrder) for in-game A/B. Sim (built-in, 20 seeds): loot+use 8.6 -> 2.7,
+  set swap 7.3 -> 1.3, loot 3 15.8 -> 5.5, use 3 16.9 -> 8.1 moves. Bench history records which order ran.
+  The sim's pause test now compares placement moves only: which of two same-item stacks (different counts)
+  ends where can differ by run, so the restack phase may differ by a move; the sim now also asserts partial
+  stacks end last.
 - Done 2026-11-21: Blizzard's per-bag "Ignore cleanup" setting is ignored (the user: antithetical to the addon).
   Bags.IsSortable no longer reads it; the user's Blizzard settings are left untouched.
 - 0.6.0: reagent bag (verified in game 2026-11-21: silk moved out came back to its spot). The user noticed it "doesn't work very well anymore":

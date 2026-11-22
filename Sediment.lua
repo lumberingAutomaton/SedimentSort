@@ -129,6 +129,11 @@ function ns.OnSortPaused()
 	end
 end
 
+-- A sort's smoothness numbers are final a second after it ends (see Sort.lua); show them.
+function ns.OnBenchRun()
+	ns.Popup.BenchRefresh()
+end
+
 function ns.OnSortFinished(success)
 	if sweepStartedAt then
 		for _, cd in ipairs(Sweeps()) do

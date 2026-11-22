@@ -22,6 +22,7 @@ local waitingForUpdate, waitStarted, cursorSince
 local plan -- { rounds, round, n }: placement rounds still to send
 local quiet    -- auto-sort: no chat on success, and stream the swaps
 local cpuMs = 0 -- our own Lua time during the current sort
+local movesByKind = {} -- this sort's moves per phase (merge, transfer, place, restack), for tests
 local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
 local avgSwapMs = 5 -- running average swap cost, kept across sorts; feeds the progress estimate
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
@@ -33,6 +34,12 @@ local scrambleTargets, scrambleCount, scramblePlanned
 -- otherwise keep a running average frame time as the "before" baseline.
 local perfFrames, perfTime, perfWorst, baselineFrame = 0, 0, 0, 1 / 60
 local perfBase
+-- Smoothness metrics (see Sort.perf below): frames noticeably slower than normal ("hitches"), and the
+-- worst one-second stretch, which is what an eye (or an FPS counter) actually judges.
+local HITCH_FACTOR = 1.5   -- a frame this many times the normal frame time counts as a hitch
+local perfHitches = 0
+local perfMinWindowFps = math.huge
+local trackUntil = 0       -- keep watching the one-second window until a second after the sort ends
 
 local function Print(msg)
 	ns.Print(msg)
@@ -40,8 +47,8 @@ end
 
 -- Planning ------------------------------------------------------------------------------------
 
--- Order for items: lighter first, then by equipment set (so each set stays together), then by
--- category, then by item, then bigger stacks first.
+-- The full order (button sorts): lighter first, then by equipment set (so each set stays together),
+-- then by category, then by item, then bigger stacks first. Same bag in, same layout out.
 local function Compare(a, b)
 	if a.weight ~= b.weight then
 		return a.weight < b.weight
@@ -108,6 +115,106 @@ local function MergeMoves(slots)
 end
 
 -- The target signature for every position: floaters from the top, sinkers at the bottom.
+-- Auto-sort's partial order (button sorts always use the full order, Compare above). Equal weight
+-- means "don't care", so inside a weight band auto-sort keeps what's there instead of imposing an
+-- order: identical items stay together, and groups keep their current order (a group's position is
+-- its first member's slot). New loot lands at the top of the gap, so light bands grow at their end
+-- and heavy bands at their start, both toward the gap.
+local function CompareStable(a, b)
+	if a.weight ~= b.weight then
+		return a.weight < b.weight
+	end
+	if a.groupFirst ~= b.groupFirst then
+		return a.groupFirst < b.groupFirst
+	end
+	if a.count ~= b.count then
+		return a.count > b.count
+	end
+	return a.index < b.index
+end
+
+-- When an earlier band grows or shrinks by N, every later band's slots shift by N. Rather than slide
+-- a whole band along, move whole groups of identical items adding up to N from one end of the band
+-- to the other (the user's idea): a band then costs about N moves, not one per item. For each band,
+-- try the current order, moving any one group to the front or back, and every rotation at group
+-- boundaries; keep whichever leaves the fewest slots holding the wrong thing. Identical stacks are
+-- never split. Benchmarked in dev/sim.lua as "stableFill2": 50-80% fewer moves on everyday events.
+local function BestBands(list, start, slots)
+	local out, i = {}, 1
+	while i <= #list do
+		local j = i
+		while j + 1 <= #list and list[j + 1].weight == list[i].weight do
+			j = j + 1
+		end
+		local groups, g = {}, nil
+		for k = i, j do
+			local item = list[k]
+			if not g or g.sig ~= item.sig then
+				g = { sig = item.sig, items = {} }
+				groups[#groups + 1] = g
+			end
+			g.items[#g.items + 1] = item
+		end
+		local bandStart = start + (i - 1)
+		local function Cost(order)
+			local pos, cost = bandStart, 0
+			for _, grp in ipairs(order) do
+				for _ = 1, #grp.items do
+					local sl = slots[pos]
+					if not (sl.item and sl.item.sig == grp.sig) then
+						cost = cost + 1
+					end
+					pos = pos + 1
+				end
+			end
+			return cost
+		end
+		local best, bestCost = groups, Cost(groups)
+		local function Try(order)
+			local cost = Cost(order)
+			if cost < bestCost then
+				best, bestCost = order, cost
+			end
+		end
+		for a = 1, #groups do
+			local front, back = { groups[a] }, {}
+			for c = 1, #groups do
+				if c ~= a then
+					front[#front + 1] = groups[c]
+					back[#back + 1] = groups[c]
+				end
+			end
+			back[#back + 1] = groups[a]
+			Try(front)
+			Try(back)
+		end
+		for k = 1, #groups - 1 do
+			local order = {}
+			for c = k + 1, #groups do
+				order[#order + 1] = groups[c]
+			end
+			for c = 1, k do
+				order[#order + 1] = groups[c]
+			end
+			Try(order)
+		end
+		for _, grp in ipairs(best) do
+			for _, item in ipairs(grp.items) do
+				out[#out + 1] = item
+			end
+		end
+		i = j + 1
+	end
+	return out
+end
+
+-- Partial order for this sort? Auto-sorts, unless switched to the full order in the test bench
+-- (SedimentDB.autoOrder = "full") for comparisons.
+local function UsePartialOrder()
+	return quiet and (SedimentDB.autoOrder or "partial") == "partial"
+end
+
+-- The target signature for every position: floaters from the top, sinkers at the bottom.
 local function PlanTargets(slots)
 	local items = {}
 	for index, s in ipairs(slots) do
@@ -118,7 +225,21 @@ local function PlanTargets(slots)
 			items[#items + 1] = item
 		end
 	end
-	table.sort(items, Compare)
+	local partial = UsePartialOrder()
+	if partial then
+		local groupFirst = {}
+		for _, item in ipairs(items) do
+			if not groupFirst[item.sig] or item.index < groupFirst[item.sig] then
+				groupFirst[item.sig] = item.index
+			end
+		end
+		for _, item in ipairs(items) do
+			item.groupFirst = groupFirst[item.sig]
+		end
+		table.sort(items, CompareStable)
+	else
+		table.sort(items, Compare)
+	end
 
 	local sinkLine = ns.Weights.SinkLine()
 	local floaters, sinkers = {}, {}
@@ -128,6 +249,10 @@ local function PlanTargets(slots)
 		else
 			sinkers[#sinkers + 1] = item
 		end
+	end
+	if partial then
+		floaters = BestBands(floaters, 1, slots)
+		sinkers = BestBands(sinkers, #slots - #sinkers + 1, slots)
 	end
 
 	local targets = {}
@@ -366,22 +491,36 @@ local function Stop(msg, success)
 	end
 	ns.Sound.UnmuteItemSounds()
 	Sort.lastCpuMs, Sort.lastMoves, Sort.lastRounds = cpuMs, moves, rounds
+	Sort.lastMovesByKind = movesByKind
 	Sort.lastSendMs, Sort.lastMaxSwapMs = sendMs, maxSwapMs
 	local wasScramble = mode == "scramble"
 	if moves and moves > 0 then
-		-- Test bench history: what this sort cost, in moves and in frames.
+		-- Test bench history: what this sort cost. The worst-second figure needs the second after the
+		-- sort too (a short sort's hitches sit in a window that runs past its end), so the run is
+		-- finished off a second later.
+		local seconds = GetTime() - startedAt
+		local beforeFps = perfBase and 1 / perfBase or 0
 		local run = {
 			kind = wasScramble and "scramble" or (quiet and "auto" or "button"),
-			moves = moves, rounds = rounds, seconds = GetTime() - startedAt, ourMs = cpuMs,
+			order = quiet and (SedimentDB.autoOrder or "partial") or "full",
+			moves = moves, rounds = rounds, seconds = seconds, ourMs = cpuMs,
 			worstMs = perfWorst * 1000,
-			fps = perfTime > 0 and perfFrames / perfTime or 0,
-			beforeFps = perfBase and 1 / perfBase or 0,
+			normalMs = perfBase and perfBase * 1000 or 0,
+			hitches = perfHitches,
+			hitchRate = perfHitches / math.max(seconds, 1),
+			beforeFps = beforeFps,
 			finished = success or false,
 		}
-		Sort.lastRun = run
-		SedimentDB.benchHistory = SedimentDB.benchHistory or {}
-		table.insert(SedimentDB.benchHistory, 1, run)
-		SedimentDB.benchHistory[21] = nil
+		trackUntil = GetTime() + 1
+		C_Timer.After(1.05, function()
+			run.worstSecondFps = perfMinWindowFps < math.huge and perfMinWindowFps or beforeFps
+			run.dropPct = beforeFps > 0 and math.max(0, (1 - run.worstSecondFps / beforeFps) * 100) or 0
+			Sort.lastRun = run
+			SedimentDB.benchHistory = SedimentDB.benchHistory or {}
+			table.insert(SedimentDB.benchHistory, 1, run)
+			SedimentDB.benchHistory[21] = nil
+			ns.OnBenchRun()
+		end)
 	end
 	mode, scrambleTargets, scrambleCount, scramblePlanned = "sort", nil, 0, false
 	if msg and not (success and quiet) then
@@ -661,6 +800,7 @@ function StepWork()
 	end
 	moves = moves + #batch
 	rounds = rounds + 1
+	movesByKind[batch[1].kind] = (movesByKind[batch[1].kind] or 0) + #batch
 	if moves > MAX_MOVES then
 		Stop("stopped: too many moves.")
 		return
@@ -716,9 +856,9 @@ local allowance = 0
 
 Sort.sender = CreateFrame("Frame")
 Sort.sender:Hide()
-Sort.sender:SetScript("OnShow", function()
-	allowance = Sort.BudgetMs() -- the first swap of a round can go straight away
-end)
+-- The allowance is set once when a sort starts (Sort.Start), not per round: resetting it every
+-- round let each round's first swap go straight out, so a two-round sort's two hitches landed a
+-- quarter-second apart, which reads as one obvious stutter (seen in game after a quest reward).
 Sort.sender:SetScript("OnUpdate", function(self)
 	if not sending then
 		self:Hide()
@@ -814,6 +954,9 @@ function Sort.Start(isQuiet)
 	end
 	quiet = isQuiet or false
 	perfFrames, perfTime, perfWorst, perfBase = 0, 0, 0, baselineFrame
+	perfHitches, perfMinWindowFps = 0, math.huge
+	allowance = Sort.BudgetMs() -- the sort's first swap can go straight away
+	movesByKind = {}
 	cpuMs, sendMs, maxSwapMs = 0, 0, 0
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
@@ -839,15 +982,35 @@ end
 
 -- Frame timing (see perf locals above).
 Sort.perf = CreateFrame("Frame")
+local window, windowSum = {}, 0 -- recent frame times covering the last second
 Sort.perf:SetScript("OnUpdate", function(_, elapsed)
 	elapsed = elapsed or 0
+	if elapsed <= 0 then
+		return
+	end
+	window[#window + 1] = elapsed
+	windowSum = windowSum + elapsed
+	while #window > 1 and windowSum - window[1] >= 1 do
+		windowSum = windowSum - window[1]
+		table.remove(window, 1)
+	end
+	local tracking = ticker or GetTime() < trackUntil
+	if tracking and windowSum >= 0.9 then
+		local fps = #window / windowSum
+		if fps < perfMinWindowFps then
+			perfMinWindowFps = fps
+		end
+	end
 	if ticker then
 		perfFrames = perfFrames + 1
 		perfTime = perfTime + elapsed
 		if elapsed > perfWorst then
 			perfWorst = elapsed
 		end
-	elseif elapsed > 0 then
+		if perfBase and elapsed > perfBase * HITCH_FACTOR then
+			perfHitches = perfHitches + 1
+		end
+	elseif not tracking then
 		baselineFrame = baselineFrame * 0.95 + elapsed * 0.05
 	end
 end)
