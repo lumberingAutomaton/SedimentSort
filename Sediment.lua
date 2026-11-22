@@ -25,7 +25,9 @@ local Print = ns.Print
 local function ShowButtonTooltip(button)
 	GameTooltip:SetOwner(button)
 	GameTooltip_SetTitle(GameTooltip, "Sediment: sort by weight", HIGHLIGHT_FONT_COLOR)
-	if ns.Sort.IsRunning() then
+	if ns.Sort.IsRunning() and ns.Sort.IsQuiet() then
+		GameTooltip_AddNormalLine(GameTooltip, "Auto-sort waiting for the bags to close. Click to finish it now.")
+	elseif ns.Sort.IsRunning() then
 		GameTooltip_AddNormalLine(GameTooltip, "Sorting... click to cancel.")
 	else
 		GameTooltip_AddNormalLine(GameTooltip, "Light items float to the top, heavy items sink to the bottom.")
@@ -61,9 +63,10 @@ local function TakeOverSortButton()
 	button:SetScript("OnClick", function(self, mouseButton)
 		if mouseButton == "RightButton" then
 			ns.AutoSort.Toggle()
-		elseif ns.Sort.IsRunning() then
-			ns.Sort.Cancel()
+		elseif ns.Sort.IsRunning() and not ns.Sort.IsQuiet() then
+			ns.Sort.Cancel() -- a second click on a button sort cancels it
 		else
+			-- Starts a sort, or takes over an auto-sort (paused while the bags are open) at full speed.
 			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
 			ns.Sort.Start()
 		end
@@ -113,6 +116,16 @@ function ns.OnSortProgress(secondsLeft)
 	local duration = (GetTime() - sweepStartedAt) + secondsLeft
 	for _, cd in ipairs(Sweeps()) do
 		cd:SetCooldown(sweepStartedAt, duration)
+	end
+end
+
+-- A paused auto-sort: clear the sweep; it starts fresh, re-aimed, when the sort carries on.
+function ns.OnSortPaused()
+	if sweepStartedAt then
+		for _, cd in ipairs(Sweeps()) do
+			cd:Clear()
+		end
+		sweepStartedAt = nil
 	end
 end
 

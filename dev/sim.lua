@@ -200,9 +200,12 @@ CreateFrame = function()
 end
 C_Timer = { NewTicker = function(_, fn) tickFn = fn return { Cancel = function() tickFn = nil end } end }
 local messages = {}
+simBagsOpen = false
 local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end,
 	OnSortFinished = function() end, OnSortProgress = function() end,
-	AutoSort = { BagsOpen = function() return false end, Resume = function() end } }
+	OnSortPaused = function() simPauses = (simPauses or 0) + 1 end,
+	AutoSort = { BagsOpen = function() return simBagsOpen end, QuietLongEnough = function() return true end,
+		Resume = function() end } }
 
 MuteSoundFile, UnmuteSoundFile = function() end, function() end
 C_Timer.After = function(_, fn) fn() end
@@ -315,12 +318,14 @@ local function Total()
 	return n
 end
 
-local function Run(quiet)
+local function Run(quiet, interrupt)
 	local before = Total()
 	ns.Sort.Start(quiet)
 	local ticks = 0
 	while tickFn do
 		now = now + 0.05; ticks = ticks + 1
+		-- interrupt: the user's pattern, bags opened and closed again on alternate ticks.
+		if interrupt then simBagsOpen = ticks % 2 == 0 end
 		tickFn()
 		-- Frames drawn between ticks: run any OnUpdate handlers (the streaming sender).
 		for _ = 1, 3 do
@@ -336,6 +341,7 @@ local function Run(quiet)
 		end
 		assert(ticks < 20000, "sort never finished")
 	end
+	simBagsOpen = false
 	local after = Total()
 	for id, n in pairs(before) do assert(after[id] == n, "item count changed for " .. id) end
 	return messages[#messages]
@@ -433,6 +439,39 @@ end
 print("first sort: " .. Run())
 Check(arg[3] == "show")
 print("second sort: " .. Run())
+
+-- Pause test: the same messy start sorted twice by auto-sort, once uninterrupted and once with the
+-- bags opened and closed on alternate ticks. Keeping the plan across pauses means the same moves.
+do
+	local function Snapshot()
+		local copy = {}
+		for b = 0, 5 do copy[b] = {} for s = 1, BAG_SIZES[b] do copy[b][s] = bags[b][s] end end
+		return copy
+	end
+	local function Restore(copy)
+		for b = 0, 5 do for s = 1, BAG_SIZES[b] do bags[b][s] = copy[b][s] end end
+	end
+	-- Make a long chain like the cloak case: the last light item suddenly weighs the least.
+	local last
+	for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+		if t then
+			local it = ns.Bags.ReadSlot(b, s)
+			if ns.Weights.Resolve(it) < ns.Weights.SinkLine() then last = it end
+		end end end end
+	SedimentDB.weights.items[last.itemID] = -2
+	local start = Snapshot()
+	Run(true)
+	local plain = ns.Sort.lastMoves
+	Check(false)
+	Restore(start)
+	Run(true, true)
+	local interrupted = ns.Sort.lastMoves
+	Check(false)
+	print(("pause test: uninterrupted %d moves, interrupted every other tick %d moves (%d pauses)"):format(plain, interrupted, simPauses or 0))
+	assert(interrupted == plain, "interruptions changed the number of moves")
+	SedimentDB.weights.items[last.itemID] = nil
+	Run(true)
+end
 
 if arg[3] == "bench" then
 	-- Realistic events from a sorted bag; each followed by an auto-sort. Moves per event averaged.

@@ -76,6 +76,9 @@ In-game tests done:
 - Partial stacks: the partial ends up after the full stacks (restack assumption confirmed).
 
 In-game tests left:
+- 0.7.1 pause: repeat the cloak test (equip the set cloak so the old one lands in the set band; open the bags
+  each time the sweep starts). The cloak should go straight to its spot over the sort, not crawl. Pressing the
+  sort button with the bags open during a paused auto-sort should finish it at once.
 - Herb bag character (0.7.0 fix): sort; feathers and other non-herbs stay in the normal bags, no errors. Put an
   herb in the normal bags and sort: it moves into the herb bag.
 - Bags-open pause: swap sets with bags closed, open them mid-sweep: sweep clears, nothing moves; close: it
@@ -117,6 +120,14 @@ Code left:
   so profession bags in the normal slots are sorted too (was parked). Profession bags fill before the reagent
   bag (an herb that's also a reagent goes to the herb bag). Refusals remembered per bag. Sim: big/small
   reagent bag, herb bag in the reagent slot, mining bag in a normal slot; 300 seeds pass.
+- 0.7.1: pausing keeps the plan (user: "I think that worked", 2026-11-22). Opening the bags mid-auto-sort used to stop
+  it and throw the plan away; re-planning after every interruption made a long chain crawl one slot per
+  interruption (user: a non-set cloak swapped into the set band stepped down one slot each time they opened
+  the bags as the sweep started; the first swap of a chain's reversal is "first slot <-> its neighbour").
+  Now it pauses with the plan and the streamed round's progress kept; when the bags close and have been quiet
+  for the auto-sort delay, it checks the remaining swaps still find what they expect (item and count at both
+  ends) and carries on, else re-plans. The sort button during a paused auto-sort takes it over at full speed
+  (it used to cancel it). Sim: interrupting after every swap gives exactly the uninterrupted move count.
 - 0.7.0 also: progress sweep. A cooldown frame (GCD clock) over
   BagItemAutoSortButton and MainMenuBarBackpackButton runs for the estimated time left (Sort.EstimateSeconds:
   rounds x 0.3s server wait + streamed swaps x running-average swap cost / budget / FPS), re-aimed every
@@ -205,6 +216,9 @@ Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use di
   slots that each hold what the other wants) are matched first to keep chains short. The user had the same idea
   independently ("almost any move in 2 swaps").
 - Every round re-reads the bags and checks them against the plan; a mismatch (loot, user moves) re-plans.
+- dev/check_globals.sh: run after every change. Fails on any global that isn't a known WoW API or Sediment's
+  own; catches a local declared below the function that uses it (bitten twice: cpuMs in Sort.lua, then
+  lastBagUpdate in AutoSort.lua's QuietLongEnough, 129 errors in game). The sim mocks AutoSort, so it can't.
 - dev/sim.lua runs the real sort against mocked APIs using a saved /sed scan, with slot locks modelled:
   `lua dev/sim.lua <SV file> [seed] [show]`. 200 shuffles: full sort 3-6 rounds (extra rounds are merges; the
   sim splits stacks on purpose); "last floater jumps to the top" and back: always 2 rounds.

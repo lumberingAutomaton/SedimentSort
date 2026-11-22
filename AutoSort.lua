@@ -41,6 +41,12 @@ end
 local ready = false      -- false until shortly after login, while the bags are still loading in
 local pending = false
 local lastBagUpdate = 0
+
+-- Have the bags been quiet for the auto-sort delay? (A paused sort waits for this before going on.)
+-- Must come after the lastBagUpdate local above: functions only see locals declared before them.
+function AutoSort.QuietLongEnough()
+	return GetTime() - lastBagUpdate >= AutoSort.Delay()
+end
 local ticker
 
 -- Windows where items get clicked a lot (selling, mailing, trading) or come and go from the bank.

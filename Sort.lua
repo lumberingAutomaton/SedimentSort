@@ -25,6 +25,7 @@ local cpuMs = 0 -- our own Lua time during the current sort
 local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
 local avgSwapMs = 5 -- running average swap cost, kept across sorts; feeds the progress estimate
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
+local paused   -- an auto-sort waiting for the bags to close, plan and progress kept
 
 local function Print(msg)
 	ns.Print(msg)
@@ -349,6 +350,7 @@ local function Stop(msg, success)
 	waitingForUpdate = false
 	plan = nil
 	sending = nil
+	paused = false
 	if Sort.sender then
 		Sort.sender:Hide()
 	end
@@ -377,12 +379,71 @@ local function CombatStop()
 	end
 end
 
--- The rule: bags closed, auto-sort moves things; bags open, only the sort button does. An
--- auto-sort that finds the bags open stops where it is (every round leaves a valid state) and
--- AutoSort runs it again once they close, re-planning from whatever is there by then.
-local function PauseForOpenBags()
-	Stop()
-	ns.AutoSort.Resume()
+-- The rule: bags closed, auto-sort moves things; bags open, only the sort button does. An auto-sort
+-- that finds the bags open pauses where it is (every swap leaves a valid state) and keeps its plan,
+-- including how far through the current round it got. When the bags close and the bags have been
+-- quiet for the auto-sort delay, it checks nothing changed and carries on from the next swap; if
+-- something did change (the user moved or looted something), it re-plans. So opening and closing
+-- the bags mid-sort costs nothing. Throwing the plan away instead made a long chain crawl one slot
+-- per interruption (seen in game: a swapped-in cloak stepping down one slot at a time).
+local function Pause()
+	if paused then
+		return
+	end
+	paused = true
+	Sort.sender:Hide() -- keeps `sending`, so the round can continue later
+	ns.Sound.UnmuteItemSounds() -- the user is handling items now; their clicks should sound normal
+	ns.OnSortPaused()
+end
+
+local function SlotKey(bag, slot)
+	return bag * 1000 + slot
+end
+
+-- Does every swap still to send in the streamed round find what it expects? Compares item and
+-- count at both ends against the snapshot taken when the round was planned.
+local function StillValid(batch, from, slots)
+	local now = {}
+	for _, s in ipairs(slots) do
+		now[SlotKey(s.bag, s.slot)] = s.item
+	end
+	local function Same(planned)
+		local item = now[SlotKey(planned.bag, planned.slot)]
+		local was = planned.item
+		if not was or not item then
+			return not was and not item
+		end
+		return item.sig == was.sig and item.count == was.count
+	end
+	for i = from, #batch do
+		if not Same(batch[i].src) or not Same(batch[i].dst) then
+			return false
+		end
+	end
+	return true
+end
+
+-- Leave a pause: carry on with the streamed round if nothing changed, else drop it and re-plan.
+-- (Between rounds there's nothing to check here: TakePlanned checks every round before it goes.)
+local function Unpause()
+	paused = false
+	ns.Sound.MuteItemSounds()
+	if sending then
+		if StillValid(sending.batch, sending.i, ns.Bags.Read()) then
+			ns.OnSortProgress(Sort.EstimateSeconds(#sending.batch - sending.i + 1))
+			Sort.sender:Show()
+		else
+			sending, plan = nil, nil
+		end
+	end
+end
+
+function Sort.IsPaused()
+	return paused
+end
+
+function Sort.IsQuiet()
+	return quiet
 end
 
 function Sort.OnCombatStart()
@@ -471,11 +532,20 @@ local function Step()
 end
 
 function StepWork()
+	if paused then
+		if ns.AutoSort.BagsOpen() or not ns.AutoSort.QuietLongEnough() then
+			return
+		end
+		Unpause()
+		if sending then
+			return -- the streamed round carries on
+		end
+	end
 	if sending then
 		return -- a round is still streaming out
 	end
 	if quiet and ns.AutoSort.BagsOpen() then
-		PauseForOpenBags()
+		Pause()
 		return
 	end
 	if InCombatLockdown() then
@@ -608,13 +678,14 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		return
 	end
 	Sort.lastFrames = (Sort.lastFrames or 0) + 1
-	if ns.AutoSort.BagsOpen() then
-		PauseForOpenBags() -- bags opened mid-stream: only the button moves things while they're open
+	if quiet and ns.AutoSort.BagsOpen() then
+		Pause() -- bags opened mid-stream: only the button moves things while they're open
 		return
 	end
-	local budget = Sort.BudgetMs()
+	-- A button sort that took over a paused auto-sort (Sort.Start) sends the rest at once.
+	local budget = quiet and Sort.BudgetMs() or math.huge
 	allowance = math.min(allowance + budget, MAX_SAVED_MS)
-	if allowance < budget then
+	if quiet and allowance < budget then
 		return -- still paying off the last swap
 	end
 	local start = debugprofilestop()
@@ -634,7 +705,7 @@ Sort.sender:SetScript("OnUpdate", function(self)
 			return
 		end
 		sending.i = i + 1
-	until sending.i > #batch or allowance < budget
+	until sending.i > #batch or (quiet and allowance < budget)
 	cpuMs = cpuMs + (debugprofilestop() - start)
 	if sending.i > #batch then
 		sending = nil
@@ -680,6 +751,14 @@ end
 -- isQuiet: don't announce a normal finish (used by auto-sort).
 function Sort.Start(isQuiet)
 	if ticker then
+		-- A button sort during an auto-sort (paused, since the bags are open) takes it over: same
+		-- plan, but full speed. The rest of a streamed round goes out at once.
+		if quiet and not isQuiet then
+			quiet = false
+			if paused then
+				Unpause()
+			end
+		end
 		return
 	end
 	if InCombatLockdown() then
@@ -691,7 +770,7 @@ function Sort.Start(isQuiet)
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
-	waitingForUpdate, cursorSince, plan = false, nil, nil
+	waitingForUpdate, cursorSince, plan, paused = false, nil, nil, false
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end
