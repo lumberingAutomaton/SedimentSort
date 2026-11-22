@@ -70,30 +70,32 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
   Rock Chipper are unbound weapons).
 
-## To do (as of end of 2026-11-20)
-In-game tests done:
-- WoW Task Manager off: no meaningful change in swap cost. The ~5ms per swap isn't the profiler.
-- Partial stacks: the partial ends up after the full stacks (restack assumption confirmed).
-
+## To do (updated 2026-11-22)
 In-game tests left:
-- 0.7.1 pause: repeat the cloak test (equip the set cloak so the old one lands in the set band; open the bags
-  each time the sweep starts). The cloak should go straight to its spot over the sort, not crawl. Pressing the
-  sort button with the bags open during a paused auto-sort should finish it at once.
 - Herb bag character (0.7.0 fix): sort; feathers and other non-herbs stay in the normal bags, no errors. Put an
   herb in the normal bags and sort: it moves into the herb bag.
-- Bags-open pause: swap sets with bags closed, open them mid-sweep: sweep clears, nothing moves; close: it
-  finishes. (GCD sweep itself verified in game 2026-11-22: "a nice little visual indicator".)
 - Loot a quest item: counts settle, item lands with quest items. Tune /sed delay, then make that the default.
 - Alt+right-click a bank item opens the popup.
-- Special bags left alone: put an item in a reagent/profession bag, mess up, sort; nothing moves in or out.
-  /sed scan also prints "N items in M sortable slots": M should leave out the special bag's slots.
-- Two identical items, one in a set (e.g. put one Patterned Bronze Bracers in a set): the set copy sorts with
-  the set, the spares with the other gear. (A gray item in a set is a different, also useful test: it checks
-  Equipment set beats Gray.)
-- Combat mid-sort: swap sets with bags closed, wait ~2s for the sort to start (it streams for a few seconds),
-  then attack a mob. Expect the chat line "stopped: entered combat", nothing on the cursor, no error popup.
+- Two identical items, one in a set (e.g. one Patterned Bronze Bracers in a set): the set copy sorts with the
+  set, the spares with the other gear.
+- Combat mid-sort, since the per-swap combat fix: let an auto-sort start, pull a mob. Expect "auto-sort paused
+  for combat", no blocked-action error, and the sort finishing after the fight.
+
+In-game tests done: WoW Task Manager off (no change in swap cost); partial stacks go last; GCD sweep; bags-open
+pause; pause keeps the plan (cloak test); reagent bag (silk test); test bench.
 
 Code left:
+- Auto-sort partial order: button = full canonical sort, auto-sort = stableFill2 (benchmarked below; 50-80%
+  fewer moves on everyday events, identical stacks never split). Measure before/after with the test bench.
+- Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
+- Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
+  Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
+  Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
+- Make the tuned /sed delay the default.
+- Later/parked: ladder view tab; Buff food and Drink flags; category row breaks; neutral-buoyancy layer;
+  splitting a swap's pick-up and put-down across frames; README.md.
+
+## Version log
 - Done 2026-11-21: Blizzard's per-bag "Ignore cleanup" setting is ignored (the user: antithetical to the addon).
   Bags.IsSortable no longer reads it; the user's Blizzard settings are left untouched.
 - 0.6.0: reagent bag (verified in game 2026-11-21: silk moved out came back to its spot). The user noticed it "doesn't work very well anymore":
@@ -113,7 +115,7 @@ Code left:
   version that finished the sort in a burst when the bags opened: the user had a scroll jump twice under the
   cursor while trying to use it.)
   A spell waiting for a target doesn't matter with the bags closed (user, 2026-11-21): no check for it.
-- 0.7.0 (uncommitted, untested in game): special bags by their own type. Bug found by the user: on another
+- 0.7.0: special bags by their own type. Bug found by the user: on another
   character the reagent bag slot holds an herb bag, and Sediment tried to put a feather (a crafting reagent)
   in it. A bag's type now comes from the bag item (container subclass 11 = reagent bag) and its family
   (GetContainerNumFreeSlots); a profession bag takes items whose C_Item.GetItemFamily matches, wherever it sits,
@@ -140,12 +142,6 @@ Code left:
   rounds x 0.3s server wait + streamed swaps x running-average swap cost / budget / FPS), re-aimed every
   round. Success ends it with the cooldown bling; interruptions clear it; sorts that move nothing never show it.
   Lives in Sediment.lua (no new file, so no client restart).
-- Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
-- Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
-  Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
-  Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
-- Later/parked: ladder view tab; Buff food and Drink flags; category row
-  breaks; neutral-buoyancy layer; splitting a swap's pick-up and put-down across frames; README.md.
 
 ## Within-weight order: benchmark (2026-11-22, dev/sim.lua bench mode, 10 seeds x 60 events)
 Idea (user): equal weight means "don't care", so auto-sort shouldn't impose an order inside a weight band.
