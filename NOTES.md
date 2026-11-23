@@ -105,6 +105,9 @@ Code left:
   splitting a swap's pick-up and put-down across frames.
 
 ## Version log
+- Renamed 2026-11-22 to match the GitHub repo: folder ~/Source/SedimentSort, SedimentSort.toc, AddOns symlink
+  SedimentSort, saved settings in SavedVariables/SedimentSort.lua (copied from Sediment.lua with the game
+  closed; the old file is left as a backup). Display name, chat prefix, /sed and SedimentDB unchanged.
 - 0.10.0: settings window (Settings.lua), /sed or the popup's Settings button. Ladder tab: every set weight
   (items, flags, subclasses, classes, default) light to heavy with the sink line drawn across; edit in place,
   x clears; "Not set" lists bag categories falling through to the default, with counts and a box each. General

@@ -1,5 +1,5 @@
 -- Offline simulation of the Sediment sort. Not loaded by the game.
--- Usage: lua dev/sim.lua <path to WTF SavedVariables/Sediment.lua> [seed] [show|bench]
+-- Usage: lua dev/sim.lua <path to WTF SavedVariables/SedimentSort.lua> [seed] [show|bench]
 -- SEDIMENT_AUTO=full (environment) makes auto-sorts use the full order instead of the default partial
 -- one, for comparison. "bench"
 -- runs realistic events from a sorted bag and reports the average moves each costs.

@@ -63,9 +63,9 @@ comparing changes; not needed for normal play.
 
 ## Install
 
-Put this folder in `World of Warcraft/_forever_/Interface/AddOns/` (copy or symlink) **named `Sediment`**:
-WoW only loads an addon whose folder matches its `.toc` name, and a clone of this repo is called
-`SedimentSort` by default (`git clone <url> Sediment` avoids that). After adding or updating files,
-restart the game client: a `/reload` doesn't pick up new files.
+Put this folder in `World of Warcraft/_forever_/Interface/AddOns/` (copy or symlink) as `SedimentSort`,
+which is what cloning this repo gives you: WoW only loads an addon whose folder matches its `.toc` name
+(`SedimentSort.toc`). It shows as "Sediment" in the game. After adding or updating files, restart the
+game client: a `/reload` doesn't pick up new files.
 
 `NOTES.md` holds the design notes and to-do list; `dev/` holds offline tests (not loaded by the game).
