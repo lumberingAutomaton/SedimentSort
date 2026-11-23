@@ -8,7 +8,7 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## Weight cascade (most specific wins, a level applies only if it has a weight)
 1. Item weight (this exact item)
-2. Flags, checked in order Equipment set > Quest > Gray > Unbound gear (equippable and not soulbound, i.e. BoE
+2. Flags, checked in order Equipment set > Quest > Gray > BoE gear (renamed from "Unbound gear" 2026-11-22; stored as unboundGear; equippable and not soulbound, i.e. BoE
    not yet bound). Equipment set added 2026-11-20 at the user's request; starter weight 35. Items in the same set
    sort together (set names are the first tie-break after weight).
 3. Subclass (Consumable > Potion)
@@ -94,14 +94,22 @@ Code left:
   Parked: never-worse partial order (also try the full order's arrangement per band; mainly helps undo
   scrambles), time-based swap spacing (with the speed slider).
 - Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
-- Settings panel (design in chat 2026-11-20): own window via /sed, Settings button in the popup, stub under
-  Options > AddOns. Sections: Auto-sort (on/off, wait, speed slider, with explanations), General, Flags,
-  Categories (inherited values in grey), Item weights (remove, drag to add), Reset to starter weights.
+- 0.10.0: settings window (verified in game 2026-11-22: "looks good").
+  Still to do: Options > AddOns stub; drag-to-add items; a full category browser (only bag categories show
+  under "Not set" today).
+- Idea (user, 2026-11-22, consider only): replace numbers with a stackable ranking (rungs, several rules per
+  rung, sink line as a divider). Plan: keep numbers internally; a ranking UI assigns a number between
+  neighbours (or equal, to join a rung). The ladder tab is laid out to become that.
 - Make the tuned /sed delay the default.
 - Later/parked: ladder view tab; Buff food and Drink flags; category row breaks; neutral-buoyancy layer;
-  splitting a swap's pick-up and put-down across frames; README.md.
+  splitting a swap's pick-up and put-down across frames.
 
 ## Version log
+- 0.10.0: settings window (Settings.lua), /sed or the popup's Settings button. Ladder tab: every set weight
+  (items, flags, subclasses, classes, default) light to heavy with the sink line drawn across; edit in place,
+  x clears; "Not set" lists bag categories falling through to the default, with counts and a box each. General
+  tab: auto-sort on/off, wait, speed budget, sink line, default weight, reset to starter weights (confirmed).
+  Edits queue an auto-sort. /sed help lists commands (bare /sed now opens the window).
 - 0.9.0 bench: Drift scramble mode (four distinct items move to the top of the gap, each leaving a hole: the
   everyday case; default mode). Smoothness metrics replace average FPS (which flattered long sorts): worst
   second (lowest FPS over any one-second window during the sort and the second after, as a % drop from normal

@@ -1,5 +1,6 @@
 -- Sediment core: saved data, the bag sort button, slash commands.
 --
+-- /sed          Open the settings window (ladder of weights, general settings). /sed help lists the rest.
 -- /sed sort     Sort the bags (same as clicking the bag sort button).
 -- /sed cancel   Stop a sort in progress.
 -- /sed auto     Toggle auto-sort on loot (same as right-clicking the bag sort button).
@@ -223,7 +224,12 @@ SLASH_SEDIMENT1 = "/sediment"
 SLASH_SEDIMENT2 = "/sed"
 SlashCmdList.SEDIMENT = function(msg)
 	local cmd, arg = strtrim(msg or ""):lower():match("^(%S*)%s*(.-)$")
-	if cmd == "budget" then
+	if cmd == "" or cmd == "config" or cmd == "settings" then
+		ns.Settings.Toggle()
+	elseif cmd == "help" then
+		Print("/sed (settings), /sed sort, /sed cancel, /sed auto, /sed status, /sed delay [s], /sed budget [ms], "
+			.. "/sed why (hover an item), /sed bench, /sed scan")
+	elseif cmd == "budget" then
 		if arg ~= "" and not tonumber(arg) then
 			Print("/sed budget <ms>, e.g. /sed budget 0.5")
 		else
@@ -265,6 +271,7 @@ frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("BAG_UPDATE_DELAYED")
 frame:RegisterEvent("QUEST_LOG_UPDATE")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
+frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 frame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
 		SedimentDB = SedimentDB or {}
@@ -275,7 +282,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		-- /reload doesn't pick up files newly added to the .toc; only a full client restart does.
 		-- Without them the rest of the addon can't work, so say so instead of failing quietly.
 		local missing = {}
-		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup" }) do
+		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup", "Settings" }) do
 			if not ns[module] then
 				missing[#missing + 1] = module .. ".lua"
 			end
@@ -291,6 +298,8 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Popup.CreateBenchButton()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
+	elseif event == "GET_ITEM_INFO_RECEIVED" then
+		ns.Settings.Refresh() -- item names in the ladder that weren't loaded yet
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		ns.Sort.OnCombatStart()
 	elseif event == "QUEST_LOG_UPDATE" then

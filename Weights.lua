@@ -1,5 +1,5 @@
 -- Weights: resolve an item's weight through the cascade.
---   item weight > flags (Equipment set > Quest > Gray > Unbound gear) > subclass > class > default
+--   item weight > flags (Equipment set > Quest > Gray > BoE gear) > subclass > class > default
 -- A level applies only if it has a weight. Weights are account-wide (SedimentDB.weights).
 
 local _, ns = ...
@@ -44,10 +44,10 @@ local FLAG_LABELS = {
 	equipmentSet = "Equipment set",
 	quest = "Quest item",
 	gray = "Gray quality",
-	unboundGear = "Unbound gear",
+	unboundGear = "BoE gear", -- equippable and not soulbound yet (internal name unboundGear)
 }
 
--- Equip locations that don't count as gear for the Unbound gear flag.
+-- Equip locations that don't count as gear for the BoE gear flag.
 local NOT_GEAR = {
 	[""] = true,
 	INVTYPE_NON_EQUIP_IGNORE = true,
@@ -84,6 +84,18 @@ function Weights.Init()
 		end
 		SedimentDB.weightsVersion = 2
 	end
+end
+
+-- For the settings panel: flags in priority order with their labels, and a full reset.
+Weights.FLAG_ORDER = FLAG_ORDER
+
+function Weights.FlagLabel(flag)
+	return FLAG_LABELS[flag] or flag
+end
+
+function Weights.ResetToPreset()
+	SedimentDB.weights = DeepCopy(PRESET)
+	SedimentDB.weightsVersion = 2
 end
 
 function Weights.SinkLine()

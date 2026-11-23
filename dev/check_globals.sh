@@ -11,7 +11,8 @@ GameTooltip_SetTitle GameTooltip_Hide HIGHLIGHT_FONT_COLOR SOUNDKIT PlaySound Mu
 BagItemAutoSortButton ContainerFrameCombinedBags BagItemSearchBox IsAnyBagOpen GetInventoryItemID
 GetCursorInfo ClearCursor GetCursorPosition GetMouseButtonClicked GetMouseFoci GetMouseFocus
 IsAltKeyDown IsControlKeyDown IsShiftKeyDown InCombatLockdown GetTime GetFramerate debugprofilestop
-SlashCmdList SLASH_SEDIMENT1 SLASH_SEDIMENT2 SedimentDB"
+SlashCmdList SLASH_SEDIMENT1 SLASH_SEDIMENT2 SedimentDB
+StaticPopupDialogs StaticPopup_Show YES NO"
 status=0
 for f in *.lua; do
 	luac -p "$f" || { status=1; continue; }

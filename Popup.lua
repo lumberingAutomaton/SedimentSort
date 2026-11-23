@@ -72,6 +72,14 @@ local function Build()
 		ns.Sort.Start()
 	end)
 
+	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	frame.settingsButton:SetSize(80, 22)
+	frame.settingsButton:SetText("Settings")
+	frame.settingsButton:SetPoint("RIGHT", frame.sortButton, "LEFT", -6, 0)
+	frame.settingsButton:SetScript("OnClick", function()
+		ns.Settings.Open()
+	end)
+
 	frame:SetScript("OnHide", function()
 		current = nil
 	end)
