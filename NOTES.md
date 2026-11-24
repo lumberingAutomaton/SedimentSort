@@ -71,15 +71,25 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   Rock Chipper are unbound weapons).
 
 ## To do (updated 2026-11-24)
-In-game tests left: none.
+In-game tests left:
+- Settings > General > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with Auto: Full:
+  does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
 
 Code left:
-- Speed slider ("smoother <-> faster") replacing the raw /sed budget number; per-second budget underneath.
-  Waiting on the user.
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
 
 Ideas / parked (decided not now):
+- Reverse (user, 2026-11-24): flip the whole layout so light items (hearthstone, "good stuff") pack from the
+  bottom and heavy from the top, gap still in the middle. Implementation: reverse the on-screen slot order in
+  Bags.Read (all zones); everything else unchanged. Open questions: a General-tab checkbox and/or
+  Shift+click on the sort button to flip and sort at once.
+- Per-account vs per-character settings (user, 2026-11-24): today everything is account-wide (SedimentDB).
+  Candidates for per-character: reverse, maybe auto-sort options. Weights stay account-wide.
+- Highlight items with no weight of their own / using the default weight (user, 2026-11-24), e.g. a marker
+  on those bag slots, so missing weights are visible in the bag itself (the ladder's "Not set" lists them).
+- Weight versions (user, 2026-11-24: "would love it, not critical"): keep snapshots of the weights (e.g. before
+  a reset, and on each session or on demand), with a way to restore one. A reset already asks to confirm.
 - Ranking instead of numbers (rungs, sink line as a divider); the ladder is laid out to become that.
 - Buff food and Drink flags; category row breaks; neutral-buoyancy layer.
 - Never-worse partial order; improved target-choice planner (~10% fewer swaps, not noticeable); exact
@@ -121,6 +131,13 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.11.0 also: smoothness budget default 0.3ms/frame (was 0.1), picked in game: Drift clean-ups ~1s instead
+  of 2s+, worst second about -6%. Speed slider dropped from the to-do: a good default is enough.
+- 0.11.0: setting for opening the bags during an auto-sort (SedimentDB.openBags): "pause" (default, as before)
+  or "finish" (send everything left at once, unpaced, in auto-sort's own order; a separate `hurry` flag, not
+  the button takeover, which switches to the full order). Idea (user): sort slowly in the background, finish
+  now when the bags open; makes a full-order background sort viable. Sim: finish-now gives the same placement
+  moves as an uninterrupted auto-sort and never pauses.
 - 0.10.2: editing safety. Bug (2026-11-24): two weights (Miscellaneous class 15, Blacksmith Hammer 0.02)
   vanished from the ladder unseen. Cause: the ladder re-sorts on every change, so a row frame can change
   hands; a still-focused number box saved its stale text (blank = remove) onto whatever rule now owned the

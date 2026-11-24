@@ -497,9 +497,34 @@ local function BuildGeneralPage(page)
 		"The weight of anything with no item, flag, subclass or class weight of its own.",
 		function() return SedimentDB.weights.default end, function(n) ns.Weights.SetLevel("default", nil, n) end)
 
+	-- What an auto-sort does if the bags open while it's running.
+	local openText = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	openText:SetPoint("TOPLEFT", 4, -280)
+	openText:SetText("If the bags open during an auto-sort")
+	local openButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	openButton:SetSize(100, 22)
+	openButton:SetPoint("TOPLEFT", 220, -276)
+	local openHelp = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	openHelp:SetPoint("TOPLEFT", openText, "BOTTOMLEFT", 0, -3)
+	openHelp:SetPoint("RIGHT", page, "RIGHT", -8, 0)
+	openHelp:SetJustifyH("LEFT")
+	local function ShowOpenMode()
+		local finish = ns.Sort.OpenBagsMode() == "finish"
+		openButton:SetText(finish and "Finish now" or "Pause")
+		openHelp:SetText(finish
+			and "Everything left goes out at once, so the bag settles within about half a second of opening. "
+				.. "Expect a short stutter and items still moving for a moment."
+			or "Nothing moves while the bags are open; the sort carries on once they close.")
+	end
+	openButton:SetScript("OnClick", function()
+		SedimentDB.openBags = ns.Sort.OpenBagsMode() == "finish" and "pause" or "finish"
+		ShowOpenMode()
+	end)
+	page.refreshers[#page.refreshers + 1] = ShowOpenMode
+
 	local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
 	reset:SetSize(170, 24)
-	reset:SetPoint("TOPLEFT", 4, -290)
+	reset:SetPoint("TOPLEFT", 4, -350)
 	reset:SetText("Reset to starter weights")
 	reset:SetScript("OnClick", function()
 		StaticPopup_Show("SEDIMENT_RESET_WEIGHTS")

@@ -28,6 +28,7 @@ local movesDone = 0 -- swaps sent so far in this sort, for the progress sweep
 local ReportProgress -- defined further down; declared here so Unpause (above it) can use it
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
 local paused   -- an auto-sort waiting for the bags to close, plan and progress kept
+local hurry    -- an auto-sort finishing at full speed because the bags opened ("Finish now" setting)
 local mode = "sort" -- or "scramble": a test-bench scramble aimed at scrambleTargets
 local scrambleTargets, scrambleCount, scramblePlanned
 
@@ -484,6 +485,7 @@ local function Stop(msg, success)
 	plan = nil
 	sending = nil
 	paused = false
+	hurry = false
 	if Sort.sender then
 		Sort.sender:Hide()
 	end
@@ -605,6 +607,23 @@ local function Unpause()
 	end
 end
 
+-- What an auto-sort does when the bags open (SedimentDB.openBags): "pause" (the default: wait,
+-- keeping the plan, and finish once they close) or "finish" (send everything left at once, keeping
+-- auto-sort's own order; the bag settles within a round or two of opening).
+function Sort.OpenBagsMode()
+	return SedimentDB.openBags == "finish" and "finish" or "pause"
+end
+
+-- The bags are open during an auto-sort: pause it, or hurry it to the end.
+local function OnBagsOpenDuringAutoSort()
+	if Sort.OpenBagsMode() == "finish" then
+		hurry = true
+		return false -- carry on, unpaced
+	end
+	Pause()
+	return true
+end
+
 function Sort.IsPaused()
 	return paused
 end
@@ -724,8 +743,7 @@ function StepWork()
 	if sending then
 		return -- a round is still streaming out
 	end
-	if quiet and ns.AutoSort.BagsOpen() then
-		Pause()
+	if quiet and not hurry and ns.AutoSort.BagsOpen() and OnBagsOpenDuringAutoSort() then
 		return
 	end
 	if InCombatLockdown() then
@@ -821,7 +839,7 @@ function StepWork()
 	end
 
 	ReportProgress(#batch)
-	if quiet then
+	if quiet and not hurry then
 		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
 		sending = { batch = batch, keys = keys, i = 1 }
 		Sort.sender:Show()
@@ -848,9 +866,9 @@ end
 -- it outside Sediment. One swap can't be made cheaper, so auto-sort controls how often a swap lands
 -- on a frame instead. The budget is an average: every frame adds BudgetMs of allowance, every swap
 -- spends what it actually cost (handlers included), and a swap only goes out while the allowance
--- isn't overdrawn. With 5ms swaps and the 0.1ms default that's one swap every ~50 frames. We don't wait
+-- isn't overdrawn. With ~8ms swaps and the 0.3ms default that's one swap every ~27 frames. We don't wait
 -- for the server between frames, so the round is still one round to the server.
-local DEFAULT_BUDGET_MS = 0.1 -- picked in game 2026-11-20: smooth at 144 FPS
+local DEFAULT_BUDGET_MS = 0.3 -- picked in game 2026-11-24: Drift clean-ups ~1s (was 2s+ at 0.1), worst second about -6%
 local MAX_SAVED_MS = 5 -- allowance can't pile up beyond this, so a quiet spell can't buy a burst
 
 function Sort.BudgetMs()
@@ -880,14 +898,15 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		return
 	end
 	Sort.lastFrames = (Sort.lastFrames or 0) + 1
-	if quiet and ns.AutoSort.BagsOpen() then
-		Pause() -- bags opened mid-stream: only the button moves things while they're open
-		return
+	if quiet and not hurry and ns.AutoSort.BagsOpen() and OnBagsOpenDuringAutoSort() then
+		return -- bags opened mid-stream: paused (the default); in "finish" mode it carries on unpaced
 	end
-	-- A button sort that took over a paused auto-sort (Sort.Start) sends the rest at once.
-	local budget = quiet and Sort.BudgetMs() or math.huge
+	-- Paced only for an auto-sort that isn't hurrying. A button sort, or one that took over a paused
+	-- auto-sort (Sort.Start), sends the rest at once.
+	local paced = quiet and not hurry
+	local budget = paced and Sort.BudgetMs() or math.huge
 	allowance = math.min(allowance + budget, MAX_SAVED_MS)
-	if quiet and allowance < budget then
+	if paced and allowance < budget then
 		return -- still paying off the last swap
 	end
 	local start = debugprofilestop()
@@ -908,7 +927,7 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		end
 		sending.i = i + 1
 		ReportProgress(#batch - i)
-	until sending.i > #batch or (quiet and allowance < budget)
+	until sending.i > #batch or (paced and allowance < budget)
 	cpuMs = cpuMs + (debugprofilestop() - start)
 	if sending.i > #batch then
 		sending = nil
@@ -953,7 +972,7 @@ function Sort.Start(isQuiet)
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
-	waitingForUpdate, cursorSince, plan, paused = false, nil, nil, false
+	waitingForUpdate, cursorSince, plan, paused, hurry = false, nil, nil, false, false
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end

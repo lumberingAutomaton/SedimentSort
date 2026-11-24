@@ -549,6 +549,18 @@ do
 	-- can differ, so the restack phase may differ by a move; Check above verifies both end states.
 	print(("pause test: placement moves uninterrupted %d, interrupted every other tick %d (%d pauses)"):format(plain, interrupted, simPauses or 0))
 	assert(interrupted == plain, "interruptions changed the number of placement moves")
+	-- "Finish now" mode: opening the bags mid-sort sends the rest at once, in auto-sort's own order,
+	-- so the placement moves match the uninterrupted run and it never pauses.
+	Restore(start)
+	SedimentDB.openBags = "finish"
+	local pausesBefore = simPauses or 0
+	Run(true, true)
+	local finished = ns.Sort.lastMovesByKind.place or 0
+	Check(false)
+	SedimentDB.openBags = nil
+	print(("finish-now test: placement moves %d (uninterrupted %d), pauses %d"):format(finished, plain, (simPauses or 0) - pausesBefore))
+	assert(finished == plain, "finish-now changed the number of placement moves")
+	assert((simPauses or 0) == pausesBefore, "finish-now paused")
 	SedimentDB.weights.items[last.itemID] = nil
 	Run(true)
 end
