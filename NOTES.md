@@ -72,7 +72,6 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## To do (updated 2026-11-24)
 In-game tests left:
-- Pick a bag-button icon: /sed icon cycles candidates (placeholder: gear).
 - Settings > General > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with Auto: Full:
   does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
 
@@ -133,6 +132,12 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.12.1: bag button = Blizzard's button-style gear, Interface\Buttons\UI-OptionsButton (user's pick after trying
+  candidates in game). The old dice fit because it was a button graphic (small art, transparent padding);
+  item icons fill their square and looked heavy. 15px in a 20x20 click area, centred on the search bar: the
+  bar's height is odd, so a 16px icon sat half a pixel low (the user's guess: odd container, even icon);
+  15px with no nudge lines up. Tuning commands (/sed icon, nudge, iconsize) removed and their saved values
+  cleared.
 - 0.12.0: settings streamlined (user, 2026-11-24). One window, three tabs: Weights (ladder + select mode +
   reset; sink line and default edited only in the ladder), Sorting (auto on/off, Partial/Full order moved
   from the bench, wait, smoothness, open-bags behaviour, "Show testing tools"), Testing (hidden by default:

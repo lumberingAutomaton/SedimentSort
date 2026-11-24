@@ -456,28 +456,46 @@ Popup.ScrambleTargets = ScrambleTargets
 Popup.BenchRunText = BenchRunText
 
 -- The bag button: a small icon left of the sort button (a child of it, so it shows and moves with
--- it) that opens the settings window on the Sorting tab. The icon is a placeholder until one is
--- picked: /sed icon cycles through candidates.
-local ICONS = {
-	"Interface\\Icons\\INV_Misc_Gear_01",
-	"Interface\\Icons\\INV_Misc_Dust_02",
-	"Interface\\Icons\\INV_Stone_15",
-	"Interface\\Icons\\INV_Misc_PocketWatch_01",
-	"Interface\\Icons\\INV_Ore_Copper_01",
-	"Interface\\Icons\\Spell_Nature_EarthBind",
-}
+-- it) that opens the settings window on the Sorting tab. Picked in game (2026-11-24):
+-- - Blizzard's button-style gear: people read a gear as "settings", and a button graphic has
+--   transparent padding like the old dice, so it sits lightly where a full-square item icon looked heavy.
+-- - 15px, not 16: the search bar's height is odd, so its centre falls between pixel rows; an odd-sized
+--   icon's centre does too and lines up exactly, where an even one sat half a pixel low.
+-- - Vertically centred on the search bar (the sort button sits a little lower), re-measured when shown
+--   and whenever Blizzard repositions the sort button.
+local ICON = "Interface\\Buttons\\UI-OptionsButton"
+local ICON_SIZE = 15
 
 function Popup.CreateBagButton()
 	local sortButton = BagItemAutoSortButton
 	if not sortButton or Popup.bagButton then
 		return
 	end
+	-- Values left over from tuning the icon in game (/sed icon, nudge, iconsize, now removed).
+	SedimentDB.bagIcon, SedimentDB.bagIconNudge, SedimentDB.bagIconSize, SedimentDB.bagIconVersion = nil, nil, nil, nil
 	local b = CreateFrame("Button", nil, sortButton)
 	b:SetSize(20, 20)
 	b:SetPoint("RIGHT", sortButton, "LEFT", -2, 0)
+	local function Align()
+		local search = BagItemSearchBox
+		local searchY, sortY
+		if search and search:IsVisible() then
+			searchY = select(2, search:GetCenter()) -- GetCenter returns x, y; "a and f()" would keep only x
+		end
+		sortY = select(2, sortButton:GetCenter())
+		local dy = (searchY and sortY) and (searchY - sortY) or 0
+		b:ClearAllPoints()
+		b:SetPoint("RIGHT", sortButton, "LEFT", -2, dy)
+	end
+	b:SetScript("OnShow", function()
+		Align()
+		C_Timer.After(0, Align) -- again once the bag has finished laying itself out
+	end)
+	hooksecurefunc(sortButton, "SetPoint", function() C_Timer.After(0, Align) end)
 	b.icon = b:CreateTexture(nil, "ARTWORK")
-	b.icon:SetAllPoints()
-	b.icon:SetTexture(ICONS[SedimentDB.bagIcon or 1] or ICONS[1])
+	b.icon:SetSize(ICON_SIZE, ICON_SIZE)
+	b.icon:SetPoint("CENTER")
+	b.icon:SetTexture(ICON)
 	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	b:SetScript("OnClick", function()
 		ns.Settings.Open("Sorting")
@@ -491,13 +509,4 @@ function Popup.CreateBagButton()
 	b:SetScript("OnLeave", GameTooltip_Hide)
 	Popup.bagButton = b
 	Popup.BenchRefresh() -- put the status text in the bag from the start, if it's on
-end
-
--- /sed icon: try the next candidate icon on the bag button (temporary, to pick one by eye).
-function Popup.NextIcon()
-	SedimentDB.bagIcon = (SedimentDB.bagIcon or 1) % #ICONS + 1
-	if Popup.bagButton then
-		Popup.bagButton.icon:SetTexture(ICONS[SedimentDB.bagIcon])
-	end
-	ns.Print(("bag button icon %d of %d: %s"):format(SedimentDB.bagIcon, #ICONS, ICONS[SedimentDB.bagIcon]))
 end

@@ -303,8 +303,7 @@ SlashCmdList.SEDIMENT = function(msg)
 		else
 			ns.Settings.Open("Testing")
 		end
-	elseif cmd == "icon" then
-		ns.Popup.NextIcon()
+
 	elseif cmd == "mutetest" then
 		ns.Sound.Test()
 	elseif cmd == "why" then
