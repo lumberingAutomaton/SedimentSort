@@ -19,7 +19,7 @@ local CHECK_EVERY = 0.25 -- seconds between checks while a sort is pending
 -- Seconds of no bag changes before sorting: long enough for a burst of looting to finish and for
 -- the game to mark new quest items as quest items. Adjustable with /sed delay (SedimentDB.autoSortDelay)
 -- while the user finds a good value.
-local DEFAULT_DELAY = 2
+local DEFAULT_DELAY = 1.1 -- tuned in game 2026-11-24: new quest items register within it; checks run every 0.25s
 local MIN_DELAY, MAX_DELAY = 0, 30
 
 function AutoSort.Delay()

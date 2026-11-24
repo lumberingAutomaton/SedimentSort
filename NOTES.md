@@ -76,10 +76,6 @@ Waiting on an in-game look:
   one smooth sweep each, bling when the items settle.
 
 In-game tests left:
-- Herb bag character (0.7.0 fix): sort; feathers stay in the normal bags, no errors. An herb in the normal
-  bags moves into the herb bag.
-- Quest items: loot one; counts settle, it lands with the quest items. Tune /sed delay -> make it the default.
-- Alt+right-click a bank item opens the popup.
 - Two identical items, one in a set (e.g. one Patterned Bronze Bracers): the set copy sorts with the set.
 - Combat mid-sort (since the per-swap combat fix): "auto-sort paused for combat", no blocked-action error,
   finishes after the fight.
@@ -89,7 +85,6 @@ Code left:
   Waiting on the user.
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
-- Make the tuned delay the default (after the quest-item test).
 
 Ideas / parked (decided not now):
 - Ranking instead of numbers (rungs, sink line as a divider); the ladder is laid out to become that.
@@ -98,7 +93,8 @@ Ideas / parked (decided not now):
   matching (2.3%); splitting pick-up/put-down across frames (per-swap cost isn't noticeable).
 - An exact 99th-percentile frame time in the bench (worst frame already bounds it).
 
-Done in game: Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
+Done in game: herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
+checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
 pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
 ## Matching vs the proven minimum (2026-11-24)

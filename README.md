@@ -24,7 +24,7 @@ your bags, heavy items sink to the bottom, and the free space stays in the middl
 - **The sort button** in the bag does a full sort: the exact order, the same result every time.
   Sediment takes this button over from the built-in sort.
 - **Auto-sort** (on by default) keeps the bags sorted by itself, but only while they're closed. A
-  couple of seconds after your bags change, it sorts quietly, moving only what the weights require.
+  second after your bags change, it sorts quietly, moving only what the weights require.
   Opening your bags pauses it; it finishes when you close them. It never runs in combat or while a
   vendor, bank, mail, trade or auction window is open. Right-click the sort button to turn it on or off
   (the button greys out while it's off).
