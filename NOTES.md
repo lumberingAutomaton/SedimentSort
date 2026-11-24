@@ -113,8 +113,25 @@ correct. Measured with dev/min_swaps.lua (exhaustive max-cycle search, checked a
 - auto-sort (partial): 21290 swaps vs proven minimum 20821 = 2.3% extra; 90% of plans already optimal;
   worst plan +2 swaps.
 - full order: 1.3% extra; 14% of plans above minimum; worst +2.
-Decision (user): real but small; not worth acting on for now. The review's second point (BestBands scores
-wrong slots, not swaps) was not measured.
+Decision (user): not worth acting on.
+
+## Target choice vs better layouts (2026-11-24, same bench, SEDIMENT_MEASURE=1)
+For each plan: min swaps to the partial order's layout vs the best layout a local search finds (move any
+whole group anywhere in its band, keep changes that lower the proven count), and a floor (contents outside
+their band region must move; one swap moves at most two). 20 seeds:
+| event       | ours  | best found | floor | found vs ours |
+| loot + use  | 3055  | 2637       | 1815  | -13.7%        |
+| use 3       | 9222  | 8145       | 5539  | -11.7%        |
+| weight edit | 1121  | 1011       | 829   | -9.8%         |
+| set swap    | 1570  | 1479       | 1134  | -5.8%         |
+| loot 3      | 5853  | 5515       | 3796  | -5.8%         |
+| all         | 20821 | 18787      | 13113 | -9.8%         |
+Headroom of at least ~10% in target choice (the floor is loose). Reviewer suggested a candidate planner behind
+a switch. Decision (user, 2026-11-24): not worth it: ~one swap saved every 3-4 loot events, and a swap's
+5-10ms on one frame isn't noticeable. If revisited: score candidates with PlanPlacement's own swap count (not
+the exponential solver), hard time budget with the current choice as fallback, a "Partial+" bench toggle for
+in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-up/put-down across frames is
+parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
 - 0.10.1 (uncommitted): progress sweep shows work, not time: swaps done out of swaps known, never backwards,

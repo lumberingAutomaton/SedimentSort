@@ -222,13 +222,31 @@ for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 	fh:close()
 	if MEASURE and f == "Sort.lua" then
 		src = src:gsub("(\t\twant%[p%] = targets%[p%] or EMPTY\n\tend\n)", "%1\tlocal cur0 = {} for i = 1, n do cur0[i] = cur[i] end\n", 1)
-		src = src:gsub("(\n\tlocal rounds = {}\n)", "\n\tif SimMeasure then SimMeasure(cur0, want, #round1 + #round2) end%1", 1)
+		src = src:gsub("(\n\tlocal rounds = {}\n)", "\n\tif SimMeasure then SimMeasure(cur0, want, #round1 + #round2, slots) end%1", 1)
 		assert(src:find("SimMeasure%(cur0"), "measurement hook not inserted")
 	end
 	assert(load(src, "@" .. f))("Sediment", ns)
 end
 if MEASURE then
-	function SimMeasure(cur, want, ours)
+	-- Target-choice bracket (bench events only, tagged with SimEvent): for each placement plan,
+	-- "ours" = proven minimum swaps to the partial order's chosen layout; "found" = best layout a
+	-- local search finds (move whole groups of identical items within each weight band, keep any
+	-- change that lowers the proven count); "floor" = contents outside the region that may hold them
+	-- must move, and one swap moves at most two, so no valid layout needs fewer.
+	Bracket = {}
+	local function GroupsOf(want, from, to)
+		local groups, g = {}, nil
+		for p = from, to do
+			if not g or g.sig ~= want[p] then g = { sig = want[p], size = 0 } groups[#groups + 1] = g end
+			g.size = g.size + 1
+		end
+		return groups
+	end
+	local function Fill(want, from, groups)
+		local p = from
+		for _, g in ipairs(groups) do for _ = 1, g.size do want[p] = g.sig p = p + 1 end end
+	end
+	function SimMeasure(cur, want, ours, slots)
 		if ours == 0 then return end
 		local best = MinSwaps(cur, want)
 		Measured.plans = Measured.plans + 1
@@ -243,6 +261,56 @@ if MEASURE then
 			Measured.worse = Measured.worse + 1
 			Measured.worst = math.max(Measured.worst, ours - best)
 		end
+		if not SimEvent then return end
+		-- Band regions in the chosen layout: runs of equal weight; empties are the gap.
+		local weightOf = {}
+		for _, sl in ipairs(slots) do if sl.item then weightOf[sl.item.sig] = sl.item.weight end end
+		local function Region(sig) return sig == "" and "gap" or weightOf[sig] end
+		local n = #want
+		local bands, p = {}, 1
+		while p <= n do
+			local w = Region(want[p])
+			local q = p
+			while q + 1 <= n and Region(want[q + 1]) == w do q = q + 1 end
+			bands[#bands + 1] = { from = p, to = q, weight = w }
+			p = q + 1
+		end
+		local regionAt = {}
+		for _, b in ipairs(bands) do for k = b.from, b.to do regionAt[k] = b.weight end end
+		local mustMove = 0
+		for k = 1, n do if regionAt[k] ~= Region(cur[k]) then mustMove = mustMove + 1 end end
+		local floor = math.ceil(mustMove / 2)
+		local cand = {}
+		for k = 1, n do cand[k] = want[k] end
+		local found, improved, passes = best, true, 0
+		while improved and passes < 20 do
+			improved, passes = false, passes + 1
+			for _, b in ipairs(bands) do
+				if b.weight ~= "gap" then
+					local groups = GroupsOf(cand, b.from, b.to)
+					for i = 1, #groups do
+						for j = 1, #groups do
+							if i ~= j then
+								local order = {}
+								for k = 1, #groups do order[k] = groups[k] end
+								table.insert(order, j, table.remove(order, i))
+								Fill(cand, b.from, order)
+								local c = MinSwaps(cur, cand)
+								if c and c < found then
+									found, improved, groups = c, true, order
+								else
+									Fill(cand, b.from, groups)
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		local e = Bracket[SimEvent] or { plans = 0, ours = 0, found = 0, floor = 0, better = 0 }
+		e.plans, e.ours, e.found, e.floor = e.plans + 1, e.ours + best, e.found + found, e.floor + floor
+		if found < best then e.better = e.better + 1 end
+		Bracket[SimEvent] = e
 	end
 end
 ns.Weights.Init()
@@ -519,6 +587,7 @@ if arg[3] == "bench" then
 	local function Moves() Run(true) return ns.Sort.lastMoves end
 	local results = {}
 	local function Record(name, m)
+		SimEvent = nil
 		local r = results[name] or { n = 0, total = 0 }
 		r.n, r.total = r.n + 1, r.total + m
 		results[name] = r
@@ -531,7 +600,7 @@ if arg[3] == "bench" then
 		local pick = templates[math.random(#templates)]
 		local p = FirstFree()
 		if p then bags[p[1]][p[2]] = Clone(pick, math.random() < 0.5) end
-		Record("loot + use", Moves())
+		SimEvent = "loot + use" Record("loot + use", Moves())
 		-- 2. Set swap: four gear pieces leave, four set pieces arrive.
 		for _ = 1, 4 do
 			local g = RandomItemSlot(isGear)
@@ -545,7 +614,7 @@ if arg[3] == "bench" then
 			local f = FirstFree()
 			if f then bags[f[1]][f[2]] = c end
 		end
-		Record("set swap", Moves())
+		SimEvent = "set swap" Record("set swap", Moves())
 		-- 3. Weight edit: nudge one subclass's weight, sort, put it back, sort.
 		local any = RandomItemSlot()
 		if any then
@@ -553,9 +622,9 @@ if arg[3] == "bench" then
 			local w = SedimentDB.weights.subclasses
 			local old = w[item.subKey]
 			w[item.subKey] = ns.Weights.Resolve(item) + (math.random() < 0.5 and -3 or 3)
-			Record("weight edit", Moves())
+			SimEvent = "weight edit" Record("weight edit", Moves())
 			w[item.subKey] = old
-			Record("weight edit", Moves())
+			SimEvent = "weight edit" Record("weight edit", Moves())
 		end
 		-- 4. Multi-loot: three items arrive at once (half match something here), then later three
 		-- random items are used up. Bands shift by up to 3, where group rotations should matter.
@@ -563,15 +632,18 @@ if arg[3] == "bench" then
 			local f = FirstFree()
 			if f then bags[f[1]][f[2]] = Clone(templates[math.random(#templates)], math.random() < 0.5) end
 		end
-		Record("loot 3", Moves())
+		SimEvent = "loot 3" Record("loot 3", Moves())
 		for _ = 1, 3 do
 			local u = RandomItemSlot()
 			if u then bags[u[1]][u[2]] = nil end
 		end
-		Record("use 3", Moves())
+		SimEvent = "use 3" Record("use 3", Moves())
 		Check(false)
 	end
 	if MEASURE then
+		for name, e in pairs(Bracket) do
+			print(("BRACKET\t%s\t%d\t%d\t%d\t%d\t%d"):format(name, e.plans, e.ours, e.found, e.floor, e.better))
+		end
 		local m = Measured
 		print(("MEASURE plans %d ours %d best %d worse %d worst %d unproven %d oursUnproven %d"):format(
 			m.plans, m.ours, m.best, m.worse, m.worst, m.unproven, m.oursUnproven))
