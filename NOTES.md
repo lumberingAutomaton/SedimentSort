@@ -2,87 +2,55 @@
 
 Design and open questions. This file is not part of the addon.
 
-## Idea
-Replace the Omnibag sort with our own. Every item has a weight. Items below the sink line float to the top of
-the bags, items at or above it sink to the bottom, and the free space stays in the middle.
+## How it works now (0.13.0)
+User-facing overview: README.md. This section is the developer's view; history is in the version log below.
 
-## Weight cascade (most specific wins, a level applies only if it has a weight)
-1. Item weight (this exact item)
-2. Flags, checked in order Equipment set > Quest > Gray > BoE gear (renamed from "Unbound gear" 2026-11-22; stored as unboundGear; equippable and not soulbound, i.e. BoE
-   not yet bound). Equipment set added 2026-11-20 at the user's request; starter weight 35. Items in the same set
-   sort together (set names are the first tie-break after weight).
-3. Subclass (Consumable > Potion)
-4. Class (Consumable)
-5. Default
-
-- Trash = gray quality. NOT the Miscellaneous > Junk subclass: classic data files normal items there.
-- Ties: category, then item ID, then bigger stack first.
-- Weights are account-wide.
-- No pins in v1. Weight 0 works as a pin for the top slots.
-
-## Sort
-- Client-side: plan the target layout, then move items one at a time, waiting for each move to settle.
-  Pause in combat, and when the cursor is holding an item.
-- Merge partial stacks first.
-- Special bags (reagent, profession) sorted separately, outside the gravity layout.
-- Take over BagItemAutoSortButton's OnClick and the "Clean Up Bags" menu entry.
-  Never overwrite C_Container.SortBags: that taints.
-
-## Auto-sort on loot (0.4.0, AutoSort.lua)
-- Decided 2026-11-20: a full sort (not a cheap nudge), debounced, and never while the bags are open. The user's
-  idea: "if the bag is open, don't sort unless I click the sort button". Changes while the bags are open are
-  remembered; closing the bags sorts them.
-- Any bag change triggers it (loot, crafting, using something up, selling), so closed bags are always in exact
-  order. A first version only reacted to new item GUIDs, a leftover from the nudge design; the user pointed out
-  it only delayed undoing manual moves, so it was removed.
-- Also waits out: combat, cursor holding an item, vendor/bank/mail/trade/auction/guild bank windows, a sort in
-  progress, 2s of bag quiet (a burst of looting gives one sort; raised from 0.5s at the user's request so new
-  quest items carry their quest flag by then), and the first 2s after login. QUEST_LOG_UPDATE also makes a sort
-  pending, for quest flags that show up later still.
-- The wait is adjustable with /sed delay <seconds> (SedimentDB.autoSortDelay, 0-30, default 2) so the user can
-  find a good value; then make that the default.
-- Auto sorts are quiet: chat only on errors.
-- Streaming (the user's idea): button sorts send each round in one frame; auto-sorts stream the same rounds,
-  spending on average at most a time budget per frame on swaps (/sed budget <ms>, SedimentDB.streamBudgetMs).
-  Default 0.1ms, picked in game: 1ms still judders. Swaps cost ~5ms each (handlers, nearly all outside
-  Sediment; planning is ~3-5ms per whole sort), so 0.1 = one swap every ~50 frames, ~4s for 11 swaps at
-  144 FPS. To do: make the budget per second so duration doesn't depend on frame rate; finish in a burst if
-  the bags open mid-stream; test swap cost with WoW Task Manager disabled (done: no meaningful change). Each swap fires events whose handlers (Blizzard + other addons) run in the same
-  frame, so a whole round at once was a visible hitch: user saw 144 -> 124 fps ~2s after swapping equipment sets.
-  The budget is measured around each swap, so it includes the other handlers' time.
-- Per-item facts (class, names, stack size) are cached by item ID, and Weights.Resolve no longer builds the
-  Explain tables (dev/resolve_check.lua checks they agree). Sorts report "our code: X ms"; /sed auto? shows the
-  last sort's moves, rounds, frames and ms.
-- On by default (SedimentDB.autoSort). Right-click the bag sort button or /sed auto toggles; chat says the new
-  state; the button is dimmed and desaturated while off; its tooltip shows the state.
-
-## Editing weights
-- Alt+right-click an item: popup showing the cascade, which rule won, and editable boxes for each level.
-  Blank = inherit.
-- Settings panel: class/subclass tree, flags, list of item weights, default, sink line, starter preset.
-- Optional tooltip line "Weight 8 · Potion", off by default.
-
-## Open
-- Category row breaks: option, off by default?
-- Starter weights: draft in chat 2026-11-20 (tools as item weights, Consumable 10, Trade Goods 30, Quest 51, Gray 100).
-- Parked: neutral-buoyancy middle layer (a weight band held mid-gap). v1 keeps two layers.
-- Decided 2026-11-20: "Unbound gear" flag so BoE gear sorts apart from bound gear. Bound gear falls through to its
-  class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
-  Rock Chipper are unbound weapons).
+- **Weights** (Weights.lua): most specific rule with a weight wins: item > flags (Equipment set > Quest > Gray >
+  BoE gear, stored as unboundGear: equippable and not soulbound) > subclass > class > default. Gray quality is
+  trash (not Miscellaneous > Junk: classic data files normal items there). Account-wide, in
+  SedimentDB.weights; starter set = PRESET in Weights.lua. Resolve is a table-free version of Explain.
+- **Layout**: below the sink line packs from the top, at or above it from the bottom, gap in the middle.
+  Full order (button): weight, equipment set names, class, subclass, item ID, bigger stack first. Partial
+  order (auto-sort default): weight, then groups of identical items in their current order, with whole
+  groups rotated between band ends when a band shifts (BestBands). Identical stacks stay together; the
+  partial stack goes last. An item's identity (sig) = link + bound + equipment sets.
+- **Zones** (Bags.lua): normal bags in on-screen order (backpack slot 1 top-left), then each special bag,
+  identified by the bag item (container subclass 11 = reagent) or its family. Profession bags fill before the
+  reagent bag. Blizzard's per-bag "Ignore cleanup" flag is ignored.
+- **Sort engine** (Sort.lua): phases merge -> transfer into special bags -> placement (per zone; every chain in
+  two rounds by double reversal) -> restack. Every round re-reads the bags and checks them against the plan.
+  Combat is checked before every swap and stops a sort at once. Button sorts send a round in one frame;
+  auto-sorts stream it at an average budget per frame (default 0.3ms). Takes over BagItemAutoSortButton's
+  click; never replaces C_Container.SortBags (taint).
+- **Auto-sort** (AutoSort.lua): any bag change or quest-log update makes a sort pending. It waits for: bags
+  closed, no combat, empty cursor, no vendor/bank/mail/trade/auction/guild bank window, 1.1s of bag quiet,
+  2s after login. Bags opening mid-sort: pause (default; the plan is kept) or finish now (SedimentDB.openBags).
+  Quiet in chat; item sounds muted during sorts (Sound.lua); the gliding sweep shows progress.
+- **UI**: sort button (left: sort, right: toggle auto-sort); a gear next to it opens Settings (Settings.lua):
+  Weights (Select mode, ladder, reset), Sorting (auto-sort options, Debug mode), and in debug mode Testing
+  (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
+  /sed help). A welcome screen shows on opening until dismissed; ? brings it back. Alt+right-click popup
+  (Popup.lua). Every Sediment window closes and Select mode ends in combat.
 
 ## To do (updated 2026-11-24)
 In-game tests left:
-- Settings > General > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with Auto: Full:
-  does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
+- 0.13.0: welcome screen on opening Settings ("Set weights" jumps to Weights with Select mode on;
+  "Don't show this again"; ? brings it back); "Select mode: off/on", which opens the bags when it starts
+  and leaves them open when it ends (user: turning it off shouldn't close them); Debug mode revealing
+  Testing + Commands; tabs clear of the close button.
+- Settings > Sorting > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with auto-sort order
+  Full: does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
 
 Code left:
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
 
 Ideas / parked (decided not now):
+- Sort demo on the welcome screen (user, 2026-11-24, optional): snapshot the bags, sort them to a sample set of
+  weights so a new user sees it work, with Undo restoring the snapshot.
 - Reverse (user, 2026-11-24): flip the whole layout so light items (hearthstone, "good stuff") pack from the
   bottom and heavy from the top, gap still in the middle. Implementation: reverse the on-screen slot order in
-  Bags.Read (all zones); everything else unchanged. Open questions: a General-tab checkbox and/or
+  Bags.Read (all zones); everything else unchanged. Open questions: a Sorting-tab checkbox and/or
   Shift+click on the sort button to flip and sort at once.
 - Per-account vs per-character settings (user, 2026-11-24): today everything is account-wide (SedimentDB).
   Candidates for per-character: reverse, maybe auto-sort options. Weights stay account-wide.
@@ -132,6 +100,13 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.13.0: onboarding and docs. A welcome screen in the settings window explains float/sink, background sorting,
+  and how to start (Select mode), with "Set weights", OK and "Don't show this again"; ? brings it back.
+  "Show testing tools" became "Debug mode", which also reveals a Commands tab. All /sed commands live in one
+  table (ns.COMMANDS, plus ns.SHORTCUTS for the mouse), used by /sed help and the Commands tab; unknown
+  commands say so instead of printing a stale list. README rewritten from the code (commands table generated
+  from ns.COMMANDS); NOTES' design sections replaced with "How it works now". Select mode opens the bags when
+  it starts and leaves them open when it ends (user's call).
 - 0.12.1: bag button = Blizzard's button-style gear, Interface\Buttons\UI-OptionsButton (user's pick after trying
   candidates in game). The old dice fit because it was a button graphic (small art, transparent padding);
   item icons fill their square and looked heavy. 15px in a 20x20 click area, centred on the search bar: the
@@ -273,17 +248,7 @@ Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use di
   by N, move whole groups adding up to exactly N from one end of the band to the other. Same as stableFill when
   bands shift by 1; clearly better when they shift by more (multi-item loot, several things used up).
 
-## Open question: how to present the auto-sort budget (user is sleeping on it, 2026-11-20)
-- Per-frame budget (current, 0.1ms/frame) vs per-second (~14ms/s, same as 0.1 at 144 FPS). Each swap costs a
-  fixed ~5ms, so a slow frame is worse at high FPS (144: 6.9 -> ~12ms) than at low FPS (60: 16.7 -> ~22ms).
-  Per-frame: slow frames every ~0.35s at 144 but every ~0.8s at 60, and the sort takes ~9s at 60.
-  Per-second: slow frames every ~0.35s at any FPS, sort ~4s at any FPS; no FPS measuring needed (use the
-  OnUpdate elapsed time). I recommended per-second; the user thinks that's right but wants a clearer way to
-  think and talk about it for users before deciding.
-- Presentation (user, 2026-11-20): one slider, the math stays behind the scenes. Left = slow and smooth,
-  right = quick, with more stutter. No ms or FPS shown to the user.
-
-## Ideas, not yet built
+## Idea details: Buff food and Drink flags (parked; see To do)
 - Buff food flag (discussed 2026-11-20, user said "not quite yet"). Classic data files all food and drink under
   Consumable > Food & Drink. Buff food's tooltip says "well fed" ("If you spend at least 10 seconds eating you
   will become well fed and gain ..."). Plan: for Food & Drink items only, read C_TooltipInfo.GetItemByID(itemID)
@@ -294,7 +259,8 @@ Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use di
 - Drink flag, same idea: C_Item.GetItemSpell(itemID) names the use spell "Food", "Drink" or "Refreshment".
   Also English names.
 
-## Status (2026-11-20)
+## Early history (0.1.0-0.4.0, 2026-11-20)
+Historical; current behaviour is under "How it works now" at the top.
 - 0.1.0: weight cascade with the starter preset, gravity sort, takeover of the bag sort button (left-click sorts,
   click again cancels), /sed why, /sed scan. Honors the per-bag "Ignore cleanup" setting. Skips special bags and
   the reagent bag.
@@ -329,9 +295,10 @@ Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use di
   `lua dev/sim.lua <SV file> [seed] [show]`. 200 shuffles: full sort 3-6 rounds (extra rounds are merges; the
   sim splits stacks on purpose); "last floater jumps to the top" and back: always 2 rounds.
 - In game: 17 moves in 2 rounds = 0.7s; 13 moves in 3 rounds = 0.8s; no server errors.
-- Still to check in game: does dropping a full stack onto a partial one top it up and leave the rest behind?
+- Dropping a full stack onto a partial one tops it up and leaves the rest behind (confirmed in game).
 
-## Probe checks (0.0.1)
+## First probe findings (0.0.1, 2026-11-20)
+Still true: how Forever classifies items, which shaped the starter weights.
 - [x] /sed movetest: addon item moves work ("move OK", 2026-11-20).
 - [x] Combined view: backpack slot 1 = top-left, last bag's last slot = bottom-right (confirmed in game 2026-11-20).
 - [x] /sed scan (2026-11-20, mid-crafting so not a typical spread):

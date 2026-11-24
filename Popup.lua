@@ -291,7 +291,7 @@ end
 --   Full:    shuffle every normal-bag slot.
 --   Maximal: reverse the whole order, then a few top/bottom swaps (worst case for a full sort).
 -- Only the normal bags are scrambled. A one-line status text under the bag's search box shows what the
--- last sort cost (testing tools on + "Status text"); the last 20 runs are kept in SedimentDB.benchHistory.
+-- last sort cost (debug mode on + "Status text"); the last 20 runs are kept in SedimentDB.benchHistory.
 
 local BENCH_MODES = { "Drift", "Minimal", "Full", "Maximal" }
 Popup.BENCH_MODES = BENCH_MODES
@@ -399,7 +399,7 @@ local function BenchRunTooltip(run)
 end
 
 -- The status text: one line in the strip between the bag's search box and its first row.
--- Shown with the bag while testing tools are on (Settings > Sorting) and the Testing tab's "Status text"
+-- Shown with the bag while debug mode is on (Settings > Sorting) and the Testing tab's "Status text"
 -- checkbox is on (SedimentDB.benchStatusText, on by default). Display only, just text.
 local readout
 
@@ -505,7 +505,7 @@ function Popup.CreateBagButton()
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "Sediment settings")
-		GameTooltip_AddNormalLine(GameTooltip, "Sorting, weights, and (if switched on) testing tools.")
+		GameTooltip_AddNormalLine(GameTooltip, "Weights and sorting options.")
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)

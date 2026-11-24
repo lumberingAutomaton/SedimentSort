@@ -1,16 +1,6 @@
 -- Sediment core: saved data, the bag sort button, slash commands.
---
--- /sed          Open the settings window (also the button left of the bag's sort button). /sed help: the rest.
--- /sed sort     Sort the bags (same as clicking the bag sort button).
--- /sed cancel   Stop a sort in progress.
--- /sed auto     Toggle auto-sort on loot (same as right-clicking the bag sort button).
--- /sed status   Show whether a sort is pending, what it's waiting for, and the last sort's cost.
---               (/sed auto? does the same.)
--- /sed delay [s] Show or set how long auto-sort waits after the last bag change.
--- /sed budget [ms] Show or set auto-sort's time budget per frame for sending swaps.
--- /sed why      Hover a bag item, then run this: shows its weight cascade and which level won.
---               Alt+right-click a bag item opens the same thing as an editable popup (Popup.lua).
--- /sed scan     List class, subclass, quality and flags for every item (also saved to SedimentDB.lastScan).
+-- The slash commands are listed once, in ns.COMMANDS below: /sed help and the settings window's Commands
+-- tab (debug mode) both read that list, so they can't drift apart.
 
 local ADDON, ns = ...
 
@@ -18,6 +8,36 @@ function ns.Print(msg)
 	print("|cffc8a96eSediment:|r " .. msg)
 end
 local Print = ns.Print
+
+-- Every /sed command, in the order they're listed. usage = what to type; text = what it does.
+ns.COMMANDS = {
+	{ usage = "/sed", text = "Open the settings window (also /sed config, /sed settings)." },
+	{ usage = "/sed sort", text = "Sort the bags now, the same as clicking the sort button." },
+	{ usage = "/sed cancel", text = "Stop a sort that's running." },
+	{ usage = "/sed auto", text = "Turn auto-sort on or off (or right-click the sort button)." },
+	{ usage = "/sed status", text = "What auto-sort is waiting for, and what the last sort cost (also /sed auto?)." },
+	{ usage = "/sed delay [seconds]", text = "Show or set how long auto-sort waits after the bags change." },
+	{ usage = "/sed budget [ms]", text = "Show or set auto-sort's smoothness: time per frame it may spend moving items." },
+	{ usage = "/sed why", text = "Hover a bag item, then run this: its weight rules in chat." },
+	{ usage = "/sed bench", text = "Open the Testing tab (needs debug mode)." },
+	{ usage = "/sed scan", text = "List every item's class, subclass, quality and flags in chat." },
+	{ usage = "/sed mutetest", text = "Mute the item pick-up/put-down sounds for 15 seconds, to check muting works." },
+	{ usage = "/sed help", text = "List these commands in chat." },
+}
+
+-- Mouse shortcuts, listed with the commands.
+ns.SHORTCUTS = {
+	{ usage = "Sort button", text = "Left-click: sort now. Right-click: turn auto-sort on or off." },
+	{ usage = "Gear button", text = "Open the settings window (next to the sort button)." },
+	{ usage = "Alt+right-click", text = "On any bag item: its weight popup." },
+}
+
+local function PrintHelp()
+	Print("commands:")
+	for _, c in ipairs(ns.COMMANDS) do
+		print(("  |cffffd100%s|r  %s"):format(c.usage, c.text))
+	end
+end
 
 -- Sort button ---------------------------------------------------------------------------------
 -- We replace the click and tooltip of Blizzard's bag sort button. We never touch
@@ -274,8 +294,7 @@ SlashCmdList.SEDIMENT = function(msg)
 	if cmd == "" or cmd == "config" or cmd == "settings" then
 		ns.Settings.Toggle()
 	elseif cmd == "help" then
-		Print("/sed (settings), /sed sort, /sed cancel, /sed auto, /sed status, /sed delay [s], /sed budget [ms], "
-			.. "/sed why (hover an item), /sed bench, /sed scan")
+		PrintHelp()
 	elseif cmd == "budget" then
 		if arg ~= "" and not tonumber(arg) then
 			Print("/sed budget <ms>, e.g. /sed budget 0.5")
@@ -298,12 +317,11 @@ SlashCmdList.SEDIMENT = function(msg)
 		ns.AutoSort.Status()
 	elseif cmd == "bench" then
 		if not SedimentDB.testingTools then
-			Print("turn on \"Show testing tools\" in the Sorting tab first.")
+			Print("turn on \"Debug mode\" in the Sorting tab first.")
 			ns.Settings.Open("Sorting")
 		else
 			ns.Settings.Open("Testing")
 		end
-
 	elseif cmd == "mutetest" then
 		ns.Sound.Test()
 	elseif cmd == "why" then
@@ -311,7 +329,7 @@ SlashCmdList.SEDIMENT = function(msg)
 	elseif cmd == "scan" then
 		Scan()
 	else
-		Print("/sed sort, /sed cancel, /sed auto (toggle auto-sort on loot), /sed status, /sed delay [seconds], /sed budget [ms], /sed why (hover an item), /sed scan")
+		Print(("unknown command \"%s\". /sed help lists them."):format(cmd))
 	end
 end
 

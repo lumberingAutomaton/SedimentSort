@@ -6,7 +6,9 @@
 -- the x. Under it, "Not set": the categories among your current bag items that fall through to the
 -- default weight, with a box to give each one a weight. So you see what's set and what's missing.
 -- Sorting tab: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
--- "Show testing tools", which reveals the Testing tab (seeded scrambles, status text, recent sorts).
+-- "Debug mode", which reveals the Testing tab (seeded scrambles, status text, recent sorts) and the
+-- Commands tab (every /sed command). A welcome screen explains the idea when the window opens, until
+-- "Don't show this again"; the ? next to the title brings it back.
 --
 -- Numbers are still what's stored and edited. The ladder is laid out so it could become a ranking
 -- (move rules between rungs instead of typing numbers) without changing anything underneath.
@@ -413,8 +415,9 @@ end
 -- clicking an item opens its weight popup (clicking the next item switches to it). The clicks land on
 -- Sediment's own catcher frames laid over the slots (children of the item buttons, so they move and
 -- hide with them); Blizzard's item buttons are never changed, so nothing is tainted. While it's on, a
--- plain click can't use or pick up an item. It ends when toggled off, when the window closes, and when
--- combat starts (all Sediment windows close then, so a potion always works when it matters).
+-- plain click can't use or pick up an item. Turning it on opens the bags; ending it leaves them open. It
+-- ends when toggled off, when the window closes, and when combat starts (all
+-- Sediment windows close then, so a potion always works when it matters).
 
 local selecting = false
 local hookedFrames = {}
@@ -511,10 +514,17 @@ function Settings.SetSelectMode(on)
 		Print("not in combat.")
 		on = false
 	end
+	local was = selecting
 	selecting = on and true or false
-	Settings.RefreshOverlays()
+	Settings.RefreshOverlays() -- hooks the bag windows first, so opening them below refreshes the overlays
+	-- Starting select mode opens the bags (no change if they're open). Ending it leaves them as they are
+	-- (user: turning select mode off shouldn't close the bags).
+	if selecting and not was then
+		OpenAllBags()
+		C_Timer.After(0, Settings.RefreshOverlays)
+	end
 	if Settings.selectButton then
-		Settings.selectButton:SetText(selecting and "Stop selecting" or "Select items in bags")
+		Settings.selectButton:SetText(selecting and "Select mode: on" or "Select mode: off")
 	end
 end
 
@@ -551,9 +561,9 @@ local function BuildWeightsPage(page)
 	hint:SetPoint("LEFT", selectButton, "RIGHT", 8, 0)
 	hint:SetPoint("RIGHT", page, "RIGHT", -4, 0)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Then click items in your bags to set their weights. Orange numbers use the default.")
+	hint:SetText("Turn it on, then click items in your bags to set their weights. Orange numbers use the default.")
 	page.refreshers[#page.refreshers + 1] = function()
-		selectButton:SetText(selecting and "Stop selecting" or "Select items in bags")
+		selectButton:SetText(selecting and "Select mode: on" or "Select mode: off")
 	end
 
 	local ladderHint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -696,12 +706,16 @@ local function BuildSortingPage(page)
 			{ value = "finish", label = "Finish now", help = "Everything left goes out at once, so the bag "
 				.. "settles within about half a second of opening. Expect a short stutter." },
 		})
-	CheckRow(page, -280, "Show testing tools", function() return SedimentDB.testingTools and true or false end,
+	local _, debugText = CheckRow(page, -280, "Debug mode",
+		function() return SedimentDB.testingTools and true or false end,
 		function(on)
 			SedimentDB.testingTools = on
 			tabs.Testing:SetShown(on)
+			tabs.Commands:SetShown(on)
 			ns.Popup.BenchRefresh()
 		end)
+	HelpText(page, debugText, "Adds the Testing tab (seeded scrambles, recent sorts, a status line in the bag) and "
+		.. "the Commands tab (every /sed command).")
 end
 
 local function BuildTestingPage(page)
@@ -784,8 +798,108 @@ local function BuildTestingPage(page)
 	end
 end
 
+-- Commands tab (debug mode): every /sed command and the mouse shortcuts, from the same lists /sed help
+-- uses (ns.COMMANDS, ns.SHORTCUTS in Sediment.lua).
+local function BuildCommandsPage(page)
+	local last
+	local function Line(template, text, gap)
+		local fs = page:CreateFontString(nil, "OVERLAY", template)
+		if last then
+			fs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -(gap or 4))
+		else
+			fs:SetPoint("TOPLEFT", 4, 0)
+		end
+		fs:SetPoint("RIGHT", page, "RIGHT", -8, 0)
+		fs:SetJustifyH("LEFT")
+		fs:SetText(text)
+		last = fs
+	end
+	Line("GameFontNormal", "Commands")
+	for _, c in ipairs(ns.COMMANDS) do
+		Line("GameFontHighlightSmall", ("|cffffd100%s|r   %s"):format(c.usage, c.text))
+	end
+	Line("GameFontNormal", "Mouse", 14)
+	for _, c in ipairs(ns.SHORTCUTS) do
+		Line("GameFontHighlightSmall", ("|cffffd100%s|r   %s"):format(c.usage, c.text))
+	end
+end
+
+-- Welcome: shown when the settings window opens, until "Don't show this again" is ticked; the ? button
+-- next to the title brings it back. Sits on top of the window's contents.
+local welcome
+
+local function BuildWelcome()
+	welcome = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	welcome:SetPoint("TOPLEFT", 8, -38)
+	welcome:SetPoint("BOTTOMRIGHT", -8, 8)
+	welcome:SetFrameLevel(frame:GetFrameLevel() + 50)
+	welcome:EnableMouse(true) -- nothing behind it is clickable while it's up
+	welcome:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+	welcome:SetBackdropColor(0.04, 0.04, 0.04, 0.98)
+	welcome:Hide()
+
+	local title = welcome:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	title:SetPoint("TOPLEFT", 16, -14)
+	title:SetText("Sediment sorts your bags for you")
+
+	local body = welcome:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	body:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+	body:SetPoint("RIGHT", -16, 0)
+	body:SetJustifyH("LEFT")
+	body:SetSpacing(3)
+	body:SetText("Every item has a |cffffd100weight|r. Light items |cffffd100float|r to the top of your bags, "
+		.. "heavy ones |cffffd100sink|r to the bottom, and the space in between is where new loot lands.\n\n"
+		.. "While your bags are closed, Sediment keeps them in order quietly in the background. "
+		.. "Nothing moves while they're open, and nothing ever moves in combat.\n\n"
+		.. "|cffffd100Get started:|r give your items weights. Turn on |cffffd100Select mode|r on the Weights tab, "
+		.. "then click any item in your bags to set its weight. Lower numbers float, higher numbers sink.\n\n"
+		.. "|cffffd100Tips:|r Alt+right-click any bag item to set its weight without opening this window. "
+		.. "Right-click the sort button to turn auto-sort on or off. The gear next to it opens this window.")
+
+	local start = CreateFrame("Button", nil, welcome, "UIPanelButtonTemplate")
+	start:SetSize(130, 24)
+	start:SetPoint("BOTTOMLEFT", 16, 46)
+	start:SetText("Set weights")
+	start:SetScript("OnClick", function()
+		welcome:Hide()
+		ShowTab("Weights")
+		Settings.SetSelectMode(true)
+	end)
+
+	local ok = CreateFrame("Button", nil, welcome, "UIPanelButtonTemplate")
+	ok:SetSize(90, 24)
+	ok:SetPoint("BOTTOMRIGHT", -16, 14)
+	ok:SetText("OK")
+	ok:SetScript("OnClick", function()
+		welcome:Hide()
+	end)
+
+	local dontShow = CreateFrame("CheckButton", nil, welcome, "UICheckButtonTemplate")
+	dontShow:SetSize(24, 24)
+	dontShow:SetPoint("BOTTOMLEFT", 12, 14)
+	dontShow:SetScript("OnClick", function(self)
+		SedimentDB.welcomeHidden = self:GetChecked() and true or nil
+	end)
+	local dontShowText = welcome:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	dontShowText:SetPoint("LEFT", dontShow, "RIGHT", 4, 0)
+	dontShowText:SetText("Don't show this again")
+	welcome:SetScript("OnShow", function()
+		dontShow:SetChecked(SedimentDB.welcomeHidden and true or false)
+	end)
+end
+
+function Settings.ShowWelcome()
+	if not frame then
+		return
+	end
+	if not welcome then
+		BuildWelcome()
+	end
+	welcome:Show()
+end
+
 function ShowTab(name)
-	if name == "Testing" and not SedimentDB.testingTools then
+	if (name == "Testing" or name == "Commands") and not SedimentDB.testingTools then
 		name = "Sorting"
 	end
 	for key, page in pairs(pages) do
@@ -829,17 +943,32 @@ local function Build()
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -2, -2)
 
-	local x = 110
-	for _, name in ipairs({ "Weights", "Sorting", "Testing" }) do
+	-- ? brings the welcome back.
+	local help = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	help:SetSize(22, 22)
+	help:SetPoint("LEFT", title, "RIGHT", 8, 0)
+	help:SetText("?")
+	help:SetScript("OnClick", function()
+		Settings.ShowWelcome()
+	end)
+	help:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, "How Sediment works")
+		GameTooltip:Show()
+	end)
+	help:SetScript("OnLeave", GameTooltip_Hide)
+
+	local x = 132 -- after the title and ?; four 72px tabs end clear of the close button
+	for _, name in ipairs({ "Weights", "Sorting", "Testing", "Commands" }) do
 		local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		tab:SetSize(80, 22)
+		tab:SetSize(72, 22)
 		tab:SetPoint("TOPLEFT", x, -10)
 		tab:SetText(name)
 		tab:SetScript("OnClick", function()
 			ShowTab(name)
 		end)
 		tabs[name] = tab
-		x = x + 84
+		x = x + 75
 
 		local page = CreateFrame("Frame", nil, frame)
 		page:SetPoint("TOPLEFT", 14, -42)
@@ -848,9 +977,11 @@ local function Build()
 		pages[name] = page
 	end
 	tabs.Testing:SetShown(SedimentDB.testingTools and true or false)
+	tabs.Commands:SetShown(SedimentDB.testingTools and true or false)
 	BuildWeightsPage(pages.Weights)
 	BuildSortingPage(pages.Sorting)
 	BuildTestingPage(pages.Testing)
+	BuildCommandsPage(pages.Commands)
 	frame:SetScript("OnShow", function()
 		Settings.Refresh()
 	end)
@@ -914,8 +1045,12 @@ function Settings.Open(tab)
 	if not frame then
 		Build()
 	end
+	local wasShown = frame:IsShown()
 	frame:Show()
 	ShowTab(tab or Settings.currentTab or "Sorting")
+	if not wasShown and not SedimentDB.welcomeHidden then
+		Settings.ShowWelcome()
+	end
 end
 
 function Settings.Toggle(tab)
