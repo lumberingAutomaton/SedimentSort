@@ -41,6 +41,21 @@ local function Changed()
 	Settings.Refresh()
 end
 
+-- Editing safety. The ladder re-sorts when a weight changes, so a row can change hands: the same row
+-- frame then shows a different rule. A number box still focused across that used to save its stale
+-- text onto the new rule (blank = remove), which silently removed two of the user's weights
+-- (2026-11-24). Now: a box remembers which rule it was focused on and what it showed; it only saves
+-- if it's still that rule and the text actually changed. Any focused box is finished before the ladder
+-- re-sorts. Removing a rule doesn't re-sort at all: the row stays in place, greyed, with Undo.
+local rebuilding = false        -- inside RefreshLadder: commits mustn't trigger another refresh
+local committedWhileRebuilding = false
+local lastRebuild = 0           -- clicks right after a re-sort are ignored (the list just moved)
+local CLICK_GUARD = 0.3
+
+local function EntryId(entry)
+	return entry and (entry.kind .. ":" .. tostring(entry.key)) or nil
+end
+
 local function ItemLabel(itemID)
 	local name = C_Item.GetItemNameByID(itemID)
 	if not name then
@@ -132,9 +147,12 @@ local function NewBox(parent, width)
 	box:SetSize(width or 54, 20)
 	box:SetAutoFocus(false)
 	box:SetMaxLetters(10)
+	box:SetScript("OnEditFocusGained", function(self)
+		self.startText = self:GetText()
+	end)
 	box:SetScript("OnEscapePressed", function(self)
+		self:SetText(self.startText or self:GetText()) -- cancel: put back what it showed
 		self:ClearFocus()
-		Settings.Refresh()
 	end)
 	return box
 end
@@ -159,19 +177,35 @@ local function GetRow(i)
 
 	row.box = NewBox(row)
 	row.box:SetPoint("LEFT", 6, 0)
+	row.box:SetScript("OnEditFocusGained", function(box)
+		row.editId, row.editStart = EntryId(row.entry), box:GetText()
+	end)
 	local function Commit(box)
-		local entry = row.entry
-		if not entry then
+		local entry, editId, editStart = row.entry, row.editId, row.editStart
+		row.editId, row.editStart = nil, nil
+		if not entry or editId ~= EntryId(entry) or box:GetText() == editStart then
+			-- Not an edit of this rule (the row changed hands, or nothing was typed): show its value.
+			if entry and not row.removed then
+				box:SetText(FormatWeight(entry.weight))
+				box:SetCursorPosition(0)
+			end
 			return
 		end
 		local ok, value = ParseBox(box:GetText())
 		if ok and (value ~= nil or (entry.kind ~= "default" and entry.kind ~= "sinkLine")) then
 			ns.Weights.SetLevel(entry.kind, entry.key, value)
 		end
-		Changed()
+		if rebuilding then
+			committedWhileRebuilding = true
+		else
+			Changed()
+		end
 	end
 	row.box:SetScript("OnEnterPressed", function(box)
-		Commit(box)
+		box:ClearFocus() -- saves through OnEditFocusLost
+	end)
+	row.box:SetScript("OnEscapePressed", function(box)
+		box:SetText(row.editStart or box:GetText()) -- cancel: unchanged text saves nothing
 		box:ClearFocus()
 	end)
 	row.box:SetScript("OnEditFocusLost", Commit)
@@ -194,9 +228,35 @@ local function GetRow(i)
 	row.remove:SetPoint("RIGHT", -2, 0)
 	row.remove:SetScript("OnClick", function()
 		local entry = row.entry
+		if GetTime() - lastRebuild < CLICK_GUARD or row.removed then
+			return
+		end
 		if entry and entry.kind ~= "default" and entry.kind ~= "sinkLine" and not entry.missing then
+			if row.box:HasFocus() then
+				row.box:SetText(row.editStart or row.box:GetText())
+				row.box:ClearFocus()
+			end
 			ns.Weights.SetLevel(entry.kind, entry.key, nil)
-			Changed()
+			Settings.ShowRemoved(row)
+			ns.Popup.Refresh()
+			ns.AutoSort.Resume() -- no ladder re-sort: nothing moves under the mouse
+		end
+	end)
+
+	-- Shown in place of x on a removed row; puts the rule back.
+	row.undo = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+	row.undo:SetSize(52, 18)
+	row.undo:SetPoint("RIGHT", -2, 0)
+	row.undo:SetText("Undo")
+	row.undo:Hide()
+	row.undo:SetScript("OnClick", function()
+		local entry = row.entry
+		if entry and row.removed then
+			ns.Weights.SetLevel(entry.kind, entry.key, entry.weight)
+			row.removed = nil
+			Settings.ShowEntryRow(row, entry, row.y)
+			ns.Popup.Refresh()
+			ns.AutoSort.Resume()
 		end
 	end)
 
@@ -209,14 +269,13 @@ local function GetRow(i)
 end
 
 local function ShowEntryRow(row, entry, y)
-	row.entry = entry
+	row.entry, row.y, row.removed = entry, y, nil
+	row.undo:Hide()
 	row:ClearAllPoints()
 	row:SetPoint("TOPLEFT", 0, y)
 	row:Show()
-	if not row.box:HasFocus() then
-		row.box:SetText(FormatWeight(entry.weight))
-		row.box:SetCursorPosition(0)
-	end
+	row.box:SetText(FormatWeight(entry.weight)) -- no box is focused here: RefreshLadder finished any edit
+	row.box:SetCursorPosition(0)
 	row.box:Show()
 	row.line:Hide()
 	row.label:ClearAllPoints()
@@ -252,9 +311,21 @@ local function ShowEntryRow(row, entry, y)
 	row.label:SetTextColor(color[1], color[2], color[3])
 	row.remove:SetShown(entry.kind ~= "default" and not entry.missing)
 end
+Settings.ShowEntryRow = ShowEntryRow
+
+-- A just-removed rule: greyed, in place, with Undo instead of x. It goes away at the next re-sort.
+function Settings.ShowRemoved(row)
+	row.removed = true
+	row.box:Hide()
+	row.remove:Hide()
+	row.undo:Show()
+	row.label:SetText(row.entry.label .. " |cff888888(removed)|r")
+	row.label:SetTextColor(0.5, 0.5, 0.5)
+end
 
 local function ShowHeadingRow(row, text, y)
-	row.entry = nil
+	row.entry, row.removed = nil, nil
+	row.undo:Hide()
 	row:ClearAllPoints()
 	row:SetPoint("TOPLEFT", 0, y)
 	row:Show()
@@ -274,6 +345,19 @@ function Settings.RefreshLadder()
 	if not ladderChild then
 		return
 	end
+	-- Finish any edit in progress first, while each box is still on its own rule.
+	rebuilding, committedWhileRebuilding = true, false
+	for _, r in ipairs(ladderRows) do
+		if r.box:HasFocus() then
+			r.box:ClearFocus()
+		end
+	end
+	rebuilding = false
+	if committedWhileRebuilding then
+		ns.Popup.Refresh()
+		ns.AutoSort.Resume()
+	end
+	lastRebuild = GetTime()
 	local sinkLine = ns.Weights.SinkLine()
 	local entries = LadderEntries()
 	local i, y = 0, 0
@@ -499,6 +583,20 @@ function Settings.Refresh()
 	if pages.General:IsShown() then
 		for _, f in ipairs(pages.General.refreshers) do
 			f()
+		end
+	end
+end
+
+-- Item names that weren't loaded yet: relabel in place.
+function Settings.RefreshNames()
+	if not frame or not frame:IsShown() then
+		return
+	end
+	for _, row in ipairs(ladderRows) do
+		local entry = row.entry
+		if row:IsShown() and entry and entry.kind == "item" and not row.removed then
+			entry.label = ItemLabel(entry.key)
+			row.label:SetText(entry.label)
 		end
 	end
 end

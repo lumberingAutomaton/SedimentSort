@@ -24,7 +24,8 @@ local quiet    -- auto-sort: no chat on success, and stream the swaps
 local cpuMs = 0 -- our own Lua time during the current sort
 local movesByKind = {} -- this sort's moves per phase (merge, transfer, place, restack), for tests
 local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
-local avgSwapMs = 5 -- running average swap cost, kept across sorts; feeds the progress estimate
+local movesDone = 0 -- swaps sent so far in this sort, for the progress sweep
+local ReportProgress -- defined further down; declared here so Unpause (above it) can use it
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
 local paused   -- an auto-sort waiting for the bags to close, plan and progress kept
 local mode = "sort" -- or "scramble": a test-bench scramble aimed at scrambleTargets
@@ -596,7 +597,7 @@ local function Unpause()
 	ns.Sound.MuteItemSounds()
 	if sending then
 		if StillValid(sending.batch, sending.i, ns.Bags.Read()) then
-			ns.OnSortProgress(Sort.EstimateSeconds(#sending.batch - sending.i + 1))
+			ReportProgress(#sending.batch - sending.i + 1)
 			Sort.sender:Show()
 		else
 			sending, plan = nil, nil
@@ -643,7 +644,20 @@ local function Execute(move)
 	if spent > maxSwapMs then
 		maxSwapMs = spent
 	end
-	avgSwapMs = avgSwapMs * 0.8 + spent * 0.2
+	movesDone = movesDone + 1
+end
+
+-- Progress for the sweep: swaps done out of swaps known (done + left in this round + planned rounds).
+-- Work, not a time estimate: estimates made the sweep finish early (then start a second one) or
+-- crawl long after the sort was done.
+function ReportProgress(leftInRound)
+	local planned = 0
+	if plan then
+		for r = plan.round, #plan.rounds do
+			planned = planned + #plan.rounds[r]
+		end
+	end
+	ns.OnSortProgress(movesDone, movesDone + leftInRound + planned)
 end
 
 function ExecuteSwap(move)
@@ -806,7 +820,7 @@ function StepWork()
 		return
 	end
 
-	ns.OnSortProgress(Sort.EstimateSeconds(#batch))
+	ReportProgress(#batch)
 	if quiet then
 		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
 		sending = { batch = batch, keys = keys, i = 1 }
@@ -823,6 +837,7 @@ function StepWork()
 		if GetCursorInfo() and not HandleFailedMove(move, keys[i]) then
 			return
 		end
+		ReportProgress(#batch - i)
 	end
 	waitingForUpdate = true
 	waitStarted = GetTime()
@@ -892,6 +907,7 @@ Sort.sender:SetScript("OnUpdate", function(self)
 			return
 		end
 		sending.i = i + 1
+		ReportProgress(#batch - i)
 	until sending.i > #batch or (quiet and allowance < budget)
 	cpuMs = cpuMs + (debugprofilestop() - start)
 	if sending.i > #batch then
@@ -901,31 +917,6 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		waitStarted = GetTime()
 	end
 end)
-
--- Rough seconds left, from the round about to go out plus any planned rounds after it: each round
--- waits about ROUND_WAIT for the server, and a streamed round also takes (swaps x average swap
--- cost / budget) frames to send. Phases not yet planned (restacking) aren't counted; the progress
--- sweep re-aims every round, so that only makes the last stretch a little late.
-local ROUND_WAIT = 0.3
-
-function Sort.EstimateSeconds(batchSize)
-	local swaps, roundsLeft = batchSize, 1
-	if plan then
-		for r = plan.round, #plan.rounds do
-			swaps = swaps + #plan.rounds[r]
-			roundsLeft = roundsLeft + 1
-		end
-	end
-	local seconds = roundsLeft * ROUND_WAIT
-	if quiet then
-		local fps = GetFramerate and GetFramerate() or 60
-		if fps < 1 then
-			fps = 60
-		end
-		seconds = seconds + swaps * (avgSwapMs / Sort.BudgetMs()) / fps
-	end
-	return seconds
-end
 
 function Sort.OnBagUpdateDelayed()
 	waitingForUpdate = false
@@ -953,6 +944,7 @@ function Sort.Start(isQuiet)
 		return
 	end
 	quiet = isQuiet or false
+	movesDone = 0
 	perfFrames, perfTime, perfWorst, perfBase = 0, 0, 0, baselineFrame
 	perfHitches, perfMinWindowFps = 0, math.huge
 	allowance = Sort.BudgetMs() -- the sort's first swap can go straight away

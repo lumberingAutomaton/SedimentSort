@@ -71,14 +71,7 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   Rock Chipper are unbound weapons).
 
 ## To do (updated 2026-11-24)
-Waiting on an in-game look:
-- 0.10.1 gliding progress sweep (uncommitted): mail test, a Drift scramble, a button sort on a mess. Expect
-  one smooth sweep each, bling when the items settle.
-
-In-game tests left:
-- Two identical items, one in a set (e.g. one Patterned Bronze Bracers): the set copy sorts with the set.
-- Combat mid-sort (since the per-swap combat fix): "auto-sort paused for combat", no blocked-action error,
-  finishes after the fight.
+In-game tests left: none.
 
 Code left:
 - Speed slider ("smoother <-> faster") replacing the raw /sed budget number; per-second budget underneath.
@@ -93,7 +86,8 @@ Ideas / parked (decided not now):
   matching (2.3%); splitting pick-up/put-down across frames (per-swap cost isn't noticeable).
 - An exact 99th-percentile frame time in the bench (worst frame already bounds it).
 
-Done in game: herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
+Done in game: editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the
+set flag is read per slot from the game and is part of an item's identity, so it can't land on the wrong copy); herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
 checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
 pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
@@ -127,7 +121,15 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
-- 0.10.1 (uncommitted): progress sweep shows work, not time: swaps done out of swaps known, never backwards,
+- 0.10.2: editing safety. Bug (2026-11-24): two weights (Miscellaneous class 15, Blacksmith Hammer 0.02)
+  vanished from the ladder unseen. Cause: the ladder re-sorts on every change, so a row frame can change
+  hands; a still-focused number box saved its stale text (blank = remove) onto whatever rule now owned the
+  row. Fix: a box remembers the rule and text it was focused with and only saves if both still apply; any
+  focused box is finished before a re-sort; removing doesn't re-sort (row stays, greyed, with Undo); clicks
+  within 0.3s of a re-sort are ignored; late item names relabel in place. The weight popup gets the same
+  guard (it follows its item when a sort moves it). Escape now cancels instead of saving, everywhere.
+  Recovered from SavedVariables/SedimentSort.before-accidental-removal.lua (the 13:26 save) by diffing.
+- 0.10.1: progress sweep shows work, not time: swaps done out of swaps known, never backwards,
   held below full until the sort really ends, kept across pauses. It glides smoothly (user: plain steps per
   swap "isn't useful"): toward the next swap's mark at this sort's pace, waiting there if the swap is late,
   catching up in a straight line within 0.15s when behind. Tested with a fake clock: never backwards, never

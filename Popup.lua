@@ -119,24 +119,35 @@ local function GetRow(i)
 	row.mark = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	row.mark:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
 
+	-- Same safety as the settings ladder: a box only saves if it's still on the rule it was focused
+	-- on and the text changed. The popup follows its item when a sort moves it, so rows can change
+	-- hands. Escape cancels.
+	local function LevelId(level)
+		return level and (level.kind .. ":" .. tostring(level.key)) or nil
+	end
+	row.box:SetScript("OnEditFocusGained", function(box)
+		row.editId, row.editStart = LevelId(row.level), box:GetText()
+	end)
 	local function Commit(box)
-		if not row.level then
+		local level, editId, editStart = row.level, row.editId, row.editStart
+		row.editId, row.editStart = nil, nil
+		if not level or editId ~= LevelId(level) or box:GetText() == editStart then
+			Popup.Refresh()
 			return
 		end
 		local ok, value = ParseBox(box:GetText())
-		local level = row.level
 		if ok and (value ~= nil or (level.kind ~= "default" and level.kind ~= "sinkLine")) then
 			ns.Weights.SetLevel(level.kind, level.key, value)
 		end
 		Popup.Refresh()
+		ns.Settings.Refresh()
 	end
 	row.box:SetScript("OnEnterPressed", function(box)
-		Commit(box)
-		box:ClearFocus()
+		box:ClearFocus() -- saves through OnEditFocusLost
 	end)
 	row.box:SetScript("OnEscapePressed", function(box)
+		box:SetText(row.editStart or box:GetText()) -- cancel: unchanged text saves nothing
 		box:ClearFocus()
-		Popup.Refresh()
 	end)
 	row.box:SetScript("OnEditFocusLost", Commit)
 
