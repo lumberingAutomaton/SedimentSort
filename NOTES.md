@@ -70,39 +70,36 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
   class weight. The user will give item weights to anything that shouldn't be in the BoE group (tools like
   Rock Chipper are unbound weapons).
 
-## To do (updated 2026-11-22)
-In-game tests left:
-- Herb bag character (0.7.0 fix): sort; feathers and other non-herbs stay in the normal bags, no errors. Put an
-  herb in the normal bags and sort: it moves into the herb bag.
-- Loot a quest item: counts settle, item lands with quest items. Tune /sed delay, then make that the default.
-- Alt+right-click a bank item opens the popup.
-- Two identical items, one in a set (e.g. one Patterned Bronze Bracers in a set): the set copy sorts with the
-  set, the spares with the other gear.
-- Combat mid-sort, since the per-swap combat fix: let an auto-sort start, pull a mob. Expect "auto-sort paused
-  for combat", no blocked-action error, and the sort finishing after the fight.
+## To do (updated 2026-11-24)
+Waiting on an in-game look:
+- 0.10.1 gliding progress sweep (uncommitted): mail test, a Drift scramble, a button sort on a mess. Expect
+  one smooth sweep each, bling when the items settle.
 
-In-game tests done: WoW Task Manager off (no change in swap cost); partial stacks go last; GCD sweep; bags-open
-pause; pause keeps the plan (cloak test); reagent bag (silk test); test bench.
+In-game tests left:
+- Herb bag character (0.7.0 fix): sort; feathers stay in the normal bags, no errors. An herb in the normal
+  bags moves into the herb bag.
+- Quest items: loot one; counts settle, it lands with the quest items. Tune /sed delay -> make it the default.
+- Alt+right-click a bank item opens the popup.
+- Two identical items, one in a set (e.g. one Patterned Bronze Bracers): the set copy sorts with the set.
+- Combat mid-sort (since the per-swap combat fix): "auto-sort paused for combat", no blocked-action error,
+  finishes after the fight.
 
 Code left:
-- 0.9.0: auto-sort partial order, plus bench improvements (below). In game 2026-11-22: a ring moved to the top
-  came back to the front of its band (Armor 51, after Weapon 50 in the user's weights) in 2 moves; correct,
-  though putting it back in its old slot would have been 1 move (see the never-worse idea). Measure in game with Drift
-  scrambles: sort, Drift seed 42 with Auto: Full, close bags, note; sort; same with Auto: Partial. Stand still
-  somewhere quiet, two or three runs each. Headline number: worst second.
-- Decided (user, 2026-11-22): optimize for everyday drift; full/maximal scrambles are rare (first run only).
-  Parked: never-worse partial order (also try the full order's arrangement per band; mainly helps undo
-  scrambles), time-based swap spacing (with the speed slider).
-- Auto-sort speed slider (smoother <-> faster), per-second budget underneath. Waiting on the user.
-- 0.10.0: settings window (verified in game 2026-11-22: "looks good").
-  Still to do: Options > AddOns stub; drag-to-add items; a full category browser (only bag categories show
-  under "Not set" today).
-- Idea (user, 2026-11-22, consider only): replace numbers with a stackable ranking (rungs, several rules per
-  rung, sink line as a divider). Plan: keep numbers internally; a ranking UI assigns a number between
-  neighbours (or equal, to join a rung). The ladder tab is laid out to become that.
-- Make the tuned /sed delay the default.
-- Later/parked: ladder view tab; Buff food and Drink flags; category row breaks; neutral-buoyancy layer;
-  splitting a swap's pick-up and put-down across frames.
+- Speed slider ("smoother <-> faster") replacing the raw /sed budget number; per-second budget underneath.
+  Waiting on the user.
+- Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
+  browser (today "Not set" only lists categories in the bags).
+- Make the tuned delay the default (after the quest-item test).
+
+Ideas / parked (decided not now):
+- Ranking instead of numbers (rungs, sink line as a divider); the ladder is laid out to become that.
+- Buff food and Drink flags; category row breaks; neutral-buoyancy layer.
+- Never-worse partial order; improved target-choice planner (~10% fewer swaps, not noticeable); exact
+  matching (2.3%); splitting pick-up/put-down across frames (per-swap cost isn't noticeable).
+- An exact 99th-percentile frame time in the bench (worst frame already bounds it).
+
+Done in game: Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
+pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
 ## Matching vs the proven minimum (2026-11-24)
 External review (pasted by the user): PlanPlacement matches identical items/empties greedily (fixed points,
