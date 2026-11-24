@@ -1,10 +1,12 @@
--- Settings: the Sediment window. Opened with /sed, or the Settings button in the weight popup.
+-- Settings: the Sediment window. Opened with the button left of the bag's sort button (Sorting tab),
+-- /sed, or the Settings button in the weight popup (Weights tab). It closes in combat.
 --
--- Ladder tab: every weight you've set (items, flags, subclasses, classes, the default), sorted light to
+-- Weights tab: select mode (click bag items to set their weights), and the ladder: every weight you've set (items, flags, subclasses, classes, the default), sorted light to
 -- heavy, with the sink line drawn across at its value. Edit any number in place, or clear a rule with
 -- the x. Under it, "Not set": the categories among your current bag items that fall through to the
 -- default weight, with a box to give each one a weight. So you see what's set and what's missing.
--- General tab: auto-sort, its wait and speed, the default weight, the sink line, reset.
+-- Sorting tab: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
+-- "Show testing tools", which reveals the Testing tab (seeded scrambles, status text, recent sorts).
 --
 -- Numbers are still what's stored and edited. The ladder is laid out so it could become a ranking
 -- (move rules between rungs instead of typing numbers) without changing anything underneath.
@@ -12,6 +14,7 @@
 local _, ns = ...
 local Settings = {}
 ns.Settings = Settings
+local Print = function(msg) ns.Print(msg) end
 
 local WIDTH, HEIGHT = 470, 520
 local ROW_HEIGHT = 22
@@ -405,22 +408,174 @@ function Settings.RefreshLadder()
 	ladderChild:SetHeight(-y + 4)
 end
 
+-- Select mode ---------------------------------------------------------------------------------
+-- On the Weights tab: while it's on, every bag slot gets a light highlight and its current weight, and
+-- clicking an item opens its weight popup (clicking the next item switches to it). The clicks land on
+-- Sediment's own catcher frames laid over the slots (children of the item buttons, so they move and
+-- hide with them); Blizzard's item buttons are never changed, so nothing is tainted. While it's on, a
+-- plain click can't use or pick up an item. It ends when toggled off, when the window closes, and when
+-- combat starts (all Sediment windows close then, so a potion always works when it matters).
+
+local selecting = false
+local hookedFrames = {}
+local DEFAULT_COLOR = { 1, 0.55, 0.1 } -- weight number for items using the default (nothing set)
+local SET_COLOR = { 1, 1, 1 }
+
+-- Every bag window: the combined backpack, the numbered ones, and anything else in Blizzard's own list
+-- (the reagent bag's window among them), without duplicates.
+local function ContainerFrames()
+	local list, seen = {}, {}
+	local function Add(f)
+		if f and not seen[f] then
+			seen[f] = true
+			list[#list + 1] = f
+		end
+	end
+	Add(ContainerFrameCombinedBags)
+	for i = 1, NUM_CONTAINER_FRAMES or 13 do
+		Add(_G["ContainerFrame" .. i])
+	end
+	if ContainerFrameContainer and ContainerFrameContainer.ContainerFrames then
+		for _, f in ipairs(ContainerFrameContainer.ContainerFrames) do
+			Add(f)
+		end
+	end
+	return list
+end
+
+local function Catcher(button)
+	local c = button.SedimentSelect
+	if c then
+		return c
+	end
+	c = CreateFrame("Button", nil, button)
+	c:SetAllPoints(button)
+	c:SetFrameLevel(button:GetFrameLevel() + 10)
+	c:RegisterForClicks("AnyUp")
+	c.glow = c:CreateTexture(nil, "OVERLAY")
+	c.glow:SetAllPoints()
+	c.glow:SetColorTexture(0.3, 0.7, 1, 0.16)
+	c.weight = c:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	c.weight:SetPoint("TOPLEFT", 2, -2)
+	c:SetScript("OnClick", function(self)
+		local b = self:GetParent()
+		ns.Popup.Open(b:GetBagID(), b:GetID())
+	end)
+	c:SetScript("OnEnter", function(self)
+		local b = self:GetParent()
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetBagItem(b:GetBagID(), b:GetID())
+		GameTooltip:Show()
+	end)
+	c:SetScript("OnLeave", GameTooltip_Hide)
+	button.SedimentSelect = c
+	return c
+end
+
+function Settings.RefreshOverlays()
+	for _, f in ipairs(ContainerFrames()) do
+		if f.EnumerateValidItems then
+			if selecting and not hookedFrames[f] and f.UpdateItems then
+				-- Bag windows rebuild their buttons as they open and change; follow along.
+				hooksecurefunc(f, "UpdateItems", Settings.RefreshOverlays)
+				hookedFrames[f] = true
+			end
+			-- Every bag window, the reagent bag's included. A window's slot list can run past the buttons
+			-- it has (a closed window keeps its old size), so skip empty entries rather than stop: an
+			-- error here used to end the loop before it reached the reagent bag.
+			for _, b in f:EnumerateValidItems() do
+				local c = b and b.SedimentSelect
+				local item = b and selecting and f:IsShown() and b.GetBagID
+					and ns.Bags.ReadSlot(b:GetBagID(), b:GetID())
+				if item then
+					c = Catcher(b)
+					local levels, winner = ns.Weights.Explain(item)
+					c.weight:SetText(FormatWeight(levels[winner].weight))
+					local color = levels[winner].kind == "default" and DEFAULT_COLOR or SET_COLOR
+					c.weight:SetTextColor(color[1], color[2], color[3])
+					c:Show()
+				elseif c then
+					c:Hide()
+				end
+			end
+		end
+	end
+end
+
+function Settings.IsSelecting()
+	return selecting
+end
+
+function Settings.SetSelectMode(on)
+	if on and InCombatLockdown() then
+		Print("not in combat.")
+		on = false
+	end
+	selecting = on and true or false
+	Settings.RefreshOverlays()
+	if Settings.selectButton then
+		Settings.selectButton:SetText(selecting and "Stop selecting" or "Select items in bags")
+	end
+end
+
+-- Combat: close every Sediment window and end select mode, so nothing of ours can catch a click.
+function Settings.OnCombat()
+	Settings.SetSelectMode(false)
+	if frame then
+		frame:Hide()
+	end
+	ns.Popup.Close()
+end
+
 -- Pages ---------------------------------------------------------------------------------------
 
-local function BuildLadderPage(page)
+local function HelpText(page, anchor, text)
+	local help = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	help:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -3)
+	help:SetPoint("RIGHT", page, "RIGHT", -8, 0)
+	help:SetJustifyH("LEFT")
+	help:SetText(text)
+	return help
+end
+
+local function BuildWeightsPage(page)
+	page.refreshers = {}
+	local selectButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	selectButton:SetSize(170, 22)
+	selectButton:SetPoint("TOPLEFT", 2, 0)
+	selectButton:SetScript("OnClick", function()
+		Settings.SetSelectMode(not selecting)
+	end)
+	Settings.selectButton = selectButton
 	local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("TOPLEFT", 4, 0)
-	hint:SetPoint("RIGHT", -4, 0)
+	hint:SetPoint("LEFT", selectButton, "RIGHT", 8, 0)
+	hint:SetPoint("RIGHT", page, "RIGHT", -4, 0)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Light at the top, heavy at the bottom. Edit a number and press Enter; x clears a rule. "
-		.. "Item weights are added with Alt+right-click on an item.")
+	hint:SetText("Then click items in your bags to set their weights. Orange numbers use the default.")
+	page.refreshers[#page.refreshers + 1] = function()
+		selectButton:SetText(selecting and "Stop selecting" or "Select items in bags")
+	end
+
+	local ladderHint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	ladderHint:SetPoint("TOPLEFT", selectButton, "BOTTOMLEFT", 2, -6)
+	ladderHint:SetPoint("RIGHT", -4, 0)
+	ladderHint:SetJustifyH("LEFT")
+	ladderHint:SetText("Light at the top, heavy at the bottom. Edit a number and press Enter; x removes a rule.")
 
 	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 0, -30)
-	scroll:SetPoint("BOTTOMRIGHT", -26, 0)
+	scroll:SetPoint("TOPLEFT", 0, -46)
+	scroll:SetPoint("BOTTOMRIGHT", -26, 34)
 	ladderChild = CreateFrame("Frame", nil, scroll)
 	ladderChild:SetSize(WIDTH - 60, 100)
 	scroll:SetScrollChild(ladderChild)
+
+	local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	reset:SetSize(170, 24)
+	reset:SetPoint("BOTTOMLEFT", 2, 2)
+	reset:SetText("Reset to starter weights")
+	reset:SetScript("OnClick", function()
+		StaticPopup_Show("SEDIMENT_RESET_WEIGHTS")
+	end)
 end
 
 local function LabeledBox(page, y, label, help, get, set)
@@ -428,12 +583,8 @@ local function LabeledBox(page, y, label, help, get, set)
 	text:SetPoint("TOPLEFT", 4, y)
 	text:SetText(label)
 	local box = NewBox(page, 60)
-	box:SetPoint("TOPLEFT", 220, y + 3)
-	local helpText = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	helpText:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -3)
-	helpText:SetPoint("RIGHT", page, "RIGHT", -8, 0)
-	helpText:SetJustifyH("LEFT")
-	helpText:SetText(help)
+	box:SetPoint("TOPLEFT", 240, y + 3)
+	HelpText(page, text, help)
 	local function Commit(self)
 		local n = tonumber(self:GetText())
 		if n then
@@ -443,7 +594,6 @@ local function LabeledBox(page, y, label, help, get, set)
 		self:SetText(FormatWeight(get()))
 	end
 	box:SetScript("OnEnterPressed", function(self)
-		Commit(self)
 		self:ClearFocus()
 	end)
 	box:SetScript("OnEditFocusLost", Commit)
@@ -452,6 +602,53 @@ local function LabeledBox(page, y, label, help, get, set)
 			box:SetText(FormatWeight(get()))
 		end
 	end
+end
+
+-- A label with a button that cycles through choices, and help text that follows the choice.
+local function ChoiceRow(page, y, label, width, get, set, choices)
+	local text = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	text:SetPoint("TOPLEFT", 4, y)
+	text:SetText(label)
+	local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	button:SetSize(width, 22)
+	button:SetPoint("TOPLEFT", 240, y + 4)
+	local help = HelpText(page, text, "")
+	local function Show()
+		local current = get()
+		for _, c in ipairs(choices) do
+			if c.value == current then
+				button:SetText(c.label)
+				help:SetText(c.help)
+			end
+		end
+	end
+	button:SetScript("OnClick", function()
+		local current = get()
+		for i, c in ipairs(choices) do
+			if c.value == current then
+				set(choices[i % #choices + 1].value)
+				break
+			end
+		end
+		Show()
+	end)
+	page.refreshers[#page.refreshers + 1] = Show
+end
+
+local function CheckRow(page, y, label, get, set)
+	local check = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+	check:SetSize(24, 24)
+	check:SetPoint("TOPLEFT", 0, y)
+	check:SetScript("OnClick", function(self)
+		set(self:GetChecked() and true or false)
+	end)
+	local text = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	text:SetPoint("LEFT", check, "RIGHT", 4, 0)
+	text:SetText(label)
+	page.refreshers[#page.refreshers + 1] = function()
+		check:SetChecked(get())
+	end
+	return check, text
 end
 
 StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
@@ -467,71 +664,130 @@ StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
 	hideOnEscape = true,
 }
 
-local function BuildGeneralPage(page)
+local ShowTab -- defined below
+
+local function BuildSortingPage(page)
 	page.refreshers = {}
-	local auto = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
-	auto:SetSize(24, 24)
-	auto:SetPoint("TOPLEFT", 0, 0)
-	auto:SetScript("OnClick", function()
-		ns.AutoSort.Toggle()
+	CheckRow(page, 0, "Sort automatically while the bags are closed", ns.AutoSort.IsEnabled, function(on)
+		if on ~= ns.AutoSort.IsEnabled() then
+			ns.AutoSort.Toggle()
+		end
 	end)
-	local autoText = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	autoText:SetPoint("LEFT", auto, "RIGHT", 4, 0)
-	autoText:SetText("Sort automatically while the bags are closed")
-	page.refreshers[#page.refreshers + 1] = function()
-		auto:SetChecked(ns.AutoSort.IsEnabled())
-	end
-
-	LabeledBox(page, -40, "Wait after changes (seconds)",
-		"How long the bags must be quiet before auto-sort starts. Longer lets a burst of looting finish "
-		.. "and new quest items register.",
+	ChoiceRow(page, -36, "Auto-sort order", 100,
+		function() return SedimentDB.autoOrder or "partial" end,
+		function(v) SedimentDB.autoOrder = v ns.AutoSort.Resume() end, {
+			{ value = "partial", label = "Partial", help = "Only what the weights require: items of equal "
+				.. "weight keep their order, identical stacks stay together. Fewest moves." },
+			{ value = "full", label = "Full", help = "The exact order, the same as the sort button. More "
+				.. "moves, but every item always has the same spot." },
+		})
+	LabeledBox(page, -96, "Wait after changes (seconds)",
+		"How long the bags must be quiet before auto-sort starts. Long enough for a burst of looting to "
+		.. "finish and new quest items to register.",
 		ns.AutoSort.Delay, function(n) SedimentDB.autoSortDelay = math.max(0, math.min(30, n)) end)
-	LabeledBox(page, -96, "Speed (lower = smoother)",
-		"How much time per frame auto-sort may spend moving items, in milliseconds. Lower spreads a sort "
-		.. "over longer and keeps the frame rate steadier. The sort button always goes full speed.",
+	LabeledBox(page, -152, "Smoothness (ms per frame)",
+		"How much time per frame, on average, auto-sort may spend moving items. Lower is smoother but "
+		.. "slower. The sort button always goes full speed.",
 		ns.Sort.BudgetMs, function(n) SedimentDB.streamBudgetMs = math.max(0.01, math.min(50, n)) end)
-	LabeledBox(page, -164, "Sink line",
-		"Items lighter than this float to the top of the bags; this heavy or heavier sink to the bottom.",
-		ns.Weights.SinkLine, function(n) ns.Weights.SetLevel("sinkLine", nil, n) end)
-	LabeledBox(page, -220, "Default weight",
-		"The weight of anything with no item, flag, subclass or class weight of its own.",
-		function() return SedimentDB.weights.default end, function(n) ns.Weights.SetLevel("default", nil, n) end)
-
-	-- What an auto-sort does if the bags open while it's running.
-	local openText = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	openText:SetPoint("TOPLEFT", 4, -280)
-	openText:SetText("If the bags open during an auto-sort")
-	local openButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	openButton:SetSize(100, 22)
-	openButton:SetPoint("TOPLEFT", 220, -276)
-	local openHelp = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	openHelp:SetPoint("TOPLEFT", openText, "BOTTOMLEFT", 0, -3)
-	openHelp:SetPoint("RIGHT", page, "RIGHT", -8, 0)
-	openHelp:SetJustifyH("LEFT")
-	local function ShowOpenMode()
-		local finish = ns.Sort.OpenBagsMode() == "finish"
-		openButton:SetText(finish and "Finish now" or "Pause")
-		openHelp:SetText(finish
-			and "Everything left goes out at once, so the bag settles within about half a second of opening. "
-				.. "Expect a short stutter and items still moving for a moment."
-			or "Nothing moves while the bags are open; the sort carries on once they close.")
-	end
-	openButton:SetScript("OnClick", function()
-		SedimentDB.openBags = ns.Sort.OpenBagsMode() == "finish" and "pause" or "finish"
-		ShowOpenMode()
-	end)
-	page.refreshers[#page.refreshers + 1] = ShowOpenMode
-
-	local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	reset:SetSize(170, 24)
-	reset:SetPoint("TOPLEFT", 4, -350)
-	reset:SetText("Reset to starter weights")
-	reset:SetScript("OnClick", function()
-		StaticPopup_Show("SEDIMENT_RESET_WEIGHTS")
-	end)
+	ChoiceRow(page, -212, "If the bags open during an auto-sort", 100,
+		ns.Sort.OpenBagsMode, function(v) SedimentDB.openBags = v end, {
+			{ value = "pause", label = "Pause", help = "Nothing moves while the bags are open; the sort "
+				.. "carries on once they close." },
+			{ value = "finish", label = "Finish now", help = "Everything left goes out at once, so the bag "
+				.. "settles within about half a second of opening. Expect a short stutter." },
+		})
+	CheckRow(page, -280, "Show testing tools", function() return SedimentDB.testingTools and true or false end,
+		function(on)
+			SedimentDB.testingTools = on
+			tabs.Testing:SetShown(on)
+			ns.Popup.BenchRefresh()
+		end)
 end
 
-local function ShowTab(name)
+local function BuildTestingPage(page)
+	page.refreshers = {}
+	local intro = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	intro:SetPoint("TOPLEFT", 4, 0)
+	intro:SetPoint("RIGHT", -4, 0)
+	intro:SetJustifyH("LEFT")
+	intro:SetText("Scramble the bags with a seed (the same seed on the same sorted bag makes the same mess), "
+		.. "close them, and let auto-sort clean up. Drift is the everyday case.")
+
+	local modeButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	modeButton:SetSize(90, 22)
+	modeButton:SetPoint("TOPLEFT", 2, -34)
+	local function ShowMode()
+		modeButton:SetText(SedimentDB.benchMode or "Drift")
+	end
+	modeButton:SetScript("OnClick", function()
+		local modes, current = ns.Popup.BENCH_MODES, SedimentDB.benchMode or "Drift"
+		for i, m in ipairs(modes) do
+			if m == current then
+				SedimentDB.benchMode = modes[i % #modes + 1]
+				break
+			end
+		end
+		ShowMode()
+	end)
+	page.refreshers[#page.refreshers + 1] = ShowMode
+
+	local seedLabel = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	seedLabel:SetPoint("LEFT", modeButton, "RIGHT", 12, 0)
+	seedLabel:SetText("Seed")
+	local seedBox = NewBox(page, 50)
+	seedBox:SetPoint("LEFT", seedLabel, "RIGHT", 8, 0)
+	seedBox:SetNumeric(true)
+	seedBox:SetMaxLetters(6)
+	seedBox:SetScript("OnEnterPressed", seedBox.ClearFocus)
+	seedBox:SetScript("OnEditFocusLost", function(self)
+		SedimentDB.benchSeed = tonumber(self:GetText()) or 42
+		self:SetText(tostring(SedimentDB.benchSeed))
+	end)
+	page.refreshers[#page.refreshers + 1] = function()
+		if not seedBox:HasFocus() then
+			seedBox:SetText(tostring(SedimentDB.benchSeed or 42))
+		end
+	end
+
+	local scramble = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	scramble:SetSize(90, 22)
+	scramble:SetPoint("LEFT", seedBox, "RIGHT", 12, 0)
+	scramble:SetText("Scramble")
+	scramble:SetScript("OnClick", function()
+		seedBox:ClearFocus()
+		local seed = tonumber(seedBox:GetText()) or 42
+		SedimentDB.benchSeed = seed
+		ns.Sort.Scramble(ns.Popup.ScrambleTargets(SedimentDB.benchMode or "Drift", seed))
+	end)
+
+	CheckRow(page, -66, "Status text in the bag (last sort's cost)",
+		function() return SedimentDB.benchStatusText ~= false end,
+		function(on) SedimentDB.benchStatusText = on ns.Popup.BenchRefresh() end)
+
+	local heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	heading:SetPoint("TOPLEFT", 4, -100)
+	heading:SetText("Recent sorts")
+	page.history = {}
+	for i = 1, 10 do
+		local line = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		line:SetPoint("TOPLEFT", 8, -100 - i * 16)
+		line:SetPoint("RIGHT", -4, 0)
+		line:SetJustifyH("LEFT")
+		line:SetWordWrap(false)
+		page.history[i] = line
+	end
+	page.refreshers[#page.refreshers + 1] = function()
+		local history = SedimentDB.benchHistory or {}
+		for i, line in ipairs(page.history) do
+			line:SetText(history[i] and ns.Popup.BenchRunText(history[i]) or "")
+		end
+	end
+end
+
+function ShowTab(name)
+	if name == "Testing" and not SedimentDB.testingTools then
+		name = "Sorting"
+	end
 	for key, page in pairs(pages) do
 		page:SetShown(key == name)
 	end
@@ -542,6 +798,7 @@ local function ShowTab(name)
 			tab:UnlockHighlight()
 		end
 	end
+	Settings.currentTab = name
 	Settings.Refresh()
 end
 
@@ -573,7 +830,7 @@ local function Build()
 	close:SetPoint("TOPRIGHT", -2, -2)
 
 	local x = 110
-	for _, name in ipairs({ "Ladder", "General" }) do
+	for _, name in ipairs({ "Weights", "Sorting", "Testing" }) do
 		local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 		tab:SetSize(80, 22)
 		tab:SetPoint("TOPLEFT", x, -10)
@@ -590,25 +847,47 @@ local function Build()
 		page:Hide()
 		pages[name] = page
 	end
-	BuildLadderPage(pages.Ladder)
-	BuildGeneralPage(pages.General)
+	tabs.Testing:SetShown(SedimentDB.testingTools and true or false)
+	BuildWeightsPage(pages.Weights)
+	BuildSortingPage(pages.Sorting)
+	BuildTestingPage(pages.Testing)
 	frame:SetScript("OnShow", function()
 		Settings.Refresh()
 	end)
-	ShowTab("Ladder")
+	frame:SetScript("OnHide", function()
+		Settings.SetSelectMode(false) -- select mode never outlives the window
+	end)
+	ShowTab("Sorting")
+end
+
+local function RunRefreshers(page)
+	for _, f in ipairs(page.refreshers or {}) do
+		f()
+	end
 end
 
 function Settings.Refresh()
+	if selecting then
+		Settings.RefreshOverlays() -- weights may have changed: update the numbers on the slots
+	end
 	if not frame or not frame:IsShown() then
 		return
 	end
-	if pages.Ladder:IsShown() then
+	if pages.Weights:IsShown() then
 		Settings.RefreshLadder()
+		RunRefreshers(pages.Weights)
 	end
-	if pages.General:IsShown() then
-		for _, f in ipairs(pages.General.refreshers) do
-			f()
-		end
+	if pages.Sorting:IsShown() then
+		RunRefreshers(pages.Sorting)
+	end
+	if pages.Testing:IsShown() then
+		RunRefreshers(pages.Testing)
+	end
+end
+
+function Settings.RefreshTesting()
+	if frame and frame:IsShown() and pages.Testing:IsShown() then
+		RunRefreshers(pages.Testing)
 	end
 end
 
@@ -626,16 +905,23 @@ function Settings.RefreshNames()
 	end
 end
 
-function Settings.Toggle()
-	if not frame then
-		Build()
+-- tab: "Weights", "Sorting" or "Testing"; nil keeps the last one.
+function Settings.Open(tab)
+	if InCombatLockdown() then
+		Print("settings are closed during combat.")
+		return
 	end
-	frame:SetShown(not frame:IsShown())
-end
-
-function Settings.Open()
 	if not frame then
 		Build()
 	end
 	frame:Show()
+	ShowTab(tab or Settings.currentTab or "Sorting")
+end
+
+function Settings.Toggle(tab)
+	if frame and frame:IsShown() then
+		frame:Hide()
+	else
+		Settings.Open(tab)
+	end
 end

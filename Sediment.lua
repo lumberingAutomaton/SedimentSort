@@ -1,6 +1,6 @@
 -- Sediment core: saved data, the bag sort button, slash commands.
 --
--- /sed          Open the settings window (ladder of weights, general settings). /sed help lists the rest.
+-- /sed          Open the settings window (also the button left of the bag's sort button). /sed help: the rest.
 -- /sed sort     Sort the bags (same as clicking the bag sort button).
 -- /sed cancel   Stop a sort in progress.
 -- /sed auto     Toggle auto-sort on loot (same as right-clicking the bag sort button).
@@ -297,7 +297,14 @@ SlashCmdList.SEDIMENT = function(msg)
 	elseif cmd == "auto?" or cmd == "status" then
 		ns.AutoSort.Status()
 	elseif cmd == "bench" then
-		ns.Popup.ToggleBench(ns.Popup.benchButton)
+		if not SedimentDB.testingTools then
+			Print("turn on \"Show testing tools\" in the Sorting tab first.")
+			ns.Settings.Open("Sorting")
+		else
+			ns.Settings.Open("Testing")
+		end
+	elseif cmd == "icon" then
+		ns.Popup.NextIcon()
 	elseif cmd == "mutetest" then
 		ns.Sound.Test()
 	elseif cmd == "why" then
@@ -342,18 +349,22 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		end
 		TakeOverSortButton()
 		ns.Popup.Hook()
-		ns.Popup.CreateBenchButton()
+		ns.Popup.CreateBagButton()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
 	elseif event == "GET_ITEM_INFO_RECEIVED" then
 		ns.Settings.RefreshNames() -- item names in the ladder that weren't loaded yet (no re-sort)
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		ns.Sort.OnCombatStart()
+		ns.Settings.OnCombat()
 	elseif event == "QUEST_LOG_UPDATE" then
 		ns.AutoSort.OnQuestLogChanged()
 	elseif event == "BAG_UPDATE_DELAYED" then
 		ns.Sort.OnBagUpdateDelayed()
 		ns.AutoSort.OnBagUpdateDelayed()
 		ns.Popup.OnBagUpdate()
+		if ns.Settings.IsSelecting() then
+			ns.Settings.RefreshOverlays()
+		end
 	end
 end)

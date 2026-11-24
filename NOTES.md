@@ -72,6 +72,7 @@ the bags, items at or above it sink to the bottom, and the free space stays in t
 
 ## To do (updated 2026-11-24)
 In-game tests left:
+- Pick a bag-button icon: /sed icon cycles candidates (placeholder: gear).
 - Settings > General > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with Auto: Full:
   does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
 
@@ -96,7 +97,8 @@ Ideas / parked (decided not now):
   matching (2.3%); splitting pick-up/put-down across frames (per-swap cost isn't noticeable).
 - An exact 99th-percentile frame time in the bench (worst frame already bounds it).
 
-Done in game: editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the
+Done in game: settings rework, select mode incl. the reagent bag, windows closing in combat (2026-11-24;
+the combat close had been cut short by the same select-mode error); editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the
 set flag is read per slot from the game and is part of an item's identity, so it can't land on the wrong copy); herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
 checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
 pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
@@ -131,6 +133,17 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.12.0: settings streamlined (user, 2026-11-24). One window, three tabs: Weights (ladder + select mode +
+  reset; sink line and default edited only in the ladder), Sorting (auto on/off, Partial/Full order moved
+  from the bench, wait, smoothness, open-bags behaviour, "Show testing tools"), Testing (hidden by default:
+  scramble mode/seed, status text toggle, recent sorts). The separate bench window and dice button are gone;
+  a bag button (placeholder icon, /sed icon cycles candidates) opens Settings on the Sorting tab. Select mode
+  (user's idea; a one-shot picker was rejected as too many clicks): Sediment's own click-catchers parented to
+  each bag item button (follow them, no taint), highlight + weight number (orange = default), click opens
+  the popup. Every Sediment window closes when combat starts. Fix found in game: a bag window's slot list
+  (EnumerateValidItems) can run past its buttons (a closed window keeps its old size), so a nil entry
+  errored (Settings.lua:476) and ended the loop before the reagent bag's window; entries are now skipped
+  if empty or the window isn't shown, and bag windows also come from ContainerFrameContainer.ContainerFrames.
 - 0.11.0 also: smoothness budget default 0.3ms/frame (was 0.1), picked in game: Drift clean-ups ~1s instead
   of 2s+, worst second about -6%. Speed slider dropped from the to-do: a good default is enough.
 - 0.11.0: setting for opening the bags during an auto-sort (SedimentDB.openBags): "pause" (default, as before)

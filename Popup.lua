@@ -77,7 +77,7 @@ local function Build()
 	frame.settingsButton:SetText("Settings")
 	frame.settingsButton:SetPoint("RIGHT", frame.sortButton, "LEFT", -6, 0)
 	frame.settingsButton:SetScript("OnClick", function()
-		ns.Settings.Open()
+		ns.Settings.Open("Weights")
 	end)
 
 	frame:SetScript("OnHide", function()
@@ -269,6 +269,12 @@ function Popup.Hook()
 	end)
 end
 
+function Popup.Close()
+	if frame then
+		frame:Hide()
+	end
+end
+
 -- Keep an open popup current when the item moves or the bags change.
 function Popup.OnBagUpdate()
 	if frame and frame:IsShown() then
@@ -276,20 +282,19 @@ function Popup.OnBagUpdate()
 	end
 end
 
--- Test bench ----------------------------------------------------------------------------------
--- A small dice button next to the bag sort button opens a tiny window: a mode button (Minimal,
--- Full, Maximal), a seed box and Scramble. Scrambles are seeded, so the same seed on the same
--- sorted bag always makes the same mess, which makes before/after comparisons fair:
---   Minimal: swap a few items between the top and bottom thirds (everyday drift).
+-- Test bench (shown in the settings window's Testing tab) ------------------------------------
+-- Seeded scrambles, so the same seed on the same sorted bag always makes the same mess, which makes
+-- before/after comparisons fair:
+--   Drift:   a few items leave their spot for the top of the gap, where loot lands: a hole plus an
+--            arrival, the everyday case auto-sort really faces.
+--   Minimal: swap a few items between the top and bottom thirds.
 --   Full:    shuffle every normal-bag slot.
 --   Maximal: reverse the whole order, then a few top/bottom swaps (worst case for a full sort).
---   Drift:   a few items leave their spot for the top of the gap, where loot lands: a hole plus an
---            arrival, the everyday case auto-sort really faces. The fair partial-vs-full test.
--- Only the normal bags are scrambled. While the bench is open, the last sort's cost shows in the
--- strip under the bag's search box; the last 20 runs are kept in SedimentDB.benchHistory.
+-- Only the normal bags are scrambled. A one-line status text under the bag's search box shows what the
+-- last sort cost (testing tools on + "Status text"); the last 20 runs are kept in SedimentDB.benchHistory.
 
 local BENCH_MODES = { "Drift", "Minimal", "Full", "Maximal" }
-local bench
+Popup.BENCH_MODES = BENCH_MODES
 
 -- Park-Miller generator: WoW's math.random can't be seeded. Returns a function giving 1..n.
 local function SeededRandom(seed)
@@ -393,141 +398,9 @@ local function BenchRunTooltip(run)
 	end
 end
 
-local function BuildBench(anchor)
-	bench = CreateFrame("Frame", "SedimentBench", UIParent, "BackdropTemplate")
-	bench:SetSize(250, 84)
-	bench:SetFrameStrata("DIALOG")
-	bench:SetClampedToScreen(true)
-	bench:SetMovable(true)
-	bench:EnableMouse(true)
-	bench:RegisterForDrag("LeftButton")
-	bench:SetScript("OnDragStart", bench.StartMoving)
-	bench:SetScript("OnDragStop", bench.StopMovingOrSizing)
-	bench:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 },
-	})
-	bench:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-	-- Above the bag, so it covers nothing; the readout goes inside the bag.
-	local bag = ContainerFrameCombinedBags
-	if bag then
-		bench:SetPoint("BOTTOMRIGHT", bag, "TOPRIGHT", 0, 4)
-	else
-		bench:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
-	end
-	bench:Hide()
-	tinsert(UISpecialFrames, "SedimentBench")
-
-	local title = bench:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	title:SetPoint("TOPLEFT", 10, -10)
-	title:SetText("Sediment test bench")
-	local close = CreateFrame("Button", nil, bench, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -2, -2)
-	close:SetScale(0.8)
-
-	local modeButton = CreateFrame("Button", nil, bench, "UIPanelButtonTemplate")
-	modeButton:SetSize(76, 22)
-	modeButton:SetPoint("TOPLEFT", 10, -28)
-	local function ShowMode()
-		modeButton:SetText(SedimentDB.benchMode or "Drift")
-	end
-	modeButton:SetScript("OnClick", function()
-		local current = SedimentDB.benchMode or "Drift"
-		for i, m in ipairs(BENCH_MODES) do
-			if m == current then
-				SedimentDB.benchMode = BENCH_MODES[i % #BENCH_MODES + 1]
-				break
-			end
-		end
-		ShowMode()
-	end)
-	modeButton:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Scramble mode (click to change)")
-		GameTooltip_AddNormalLine(GameTooltip, "Drift: a few items move to where loot lands, leaving holes. "
-			.. "The everyday case.")
-		GameTooltip_AddNormalLine(GameTooltip, "Minimal: swap a few items between top and bottom.")
-		GameTooltip_AddNormalLine(GameTooltip, "Full: shuffle everything.")
-		GameTooltip_AddNormalLine(GameTooltip, "Maximal: reverse the order, then a few swaps.")
-		GameTooltip:Show()
-	end)
-	modeButton:SetScript("OnLeave", GameTooltip_Hide)
-	ShowMode()
-
-	local seedBox = CreateFrame("EditBox", nil, bench, "InputBoxTemplate")
-	seedBox:SetSize(46, 20)
-	seedBox:SetPoint("LEFT", modeButton, "RIGHT", 12, 0)
-	seedBox:SetAutoFocus(false)
-	seedBox:SetNumeric(true)
-	seedBox:SetMaxLetters(6)
-	seedBox:SetText(tostring(SedimentDB.benchSeed or 42))
-	seedBox:SetScript("OnEnterPressed", seedBox.ClearFocus)
-	seedBox:SetScript("OnEscapePressed", seedBox.ClearFocus)
-	seedBox:SetScript("OnEditFocusLost", function(self)
-		SedimentDB.benchSeed = tonumber(self:GetText()) or 42
-		self:SetText(tostring(SedimentDB.benchSeed))
-	end)
-	seedBox:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Seed")
-		GameTooltip_AddNormalLine(GameTooltip, "The same seed on the same sorted bag always makes the same mess.")
-		GameTooltip:Show()
-	end)
-	seedBox:SetScript("OnLeave", GameTooltip_Hide)
-
-	local scramble = CreateFrame("Button", nil, bench, "UIPanelButtonTemplate")
-	scramble:SetSize(80, 22)
-	scramble:SetPoint("LEFT", seedBox, "RIGHT", 8, 0)
-	scramble:SetText("Scramble")
-	scramble:SetScript("OnClick", function()
-		seedBox:ClearFocus()
-		local seed = tonumber(seedBox:GetText()) or 42
-		SedimentDB.benchSeed = seed
-		ns.Sort.Scramble(ScrambleTargets(SedimentDB.benchMode or "Drift", seed))
-	end)
-
-	-- Which order auto-sort uses: Partial (the default) or Full, so the two can be compared on the
-	-- same seeded scramble. Button sorts always use the full order.
-	local orderButton = CreateFrame("Button", nil, bench, "UIPanelButtonTemplate")
-	orderButton:SetSize(110, 22)
-	orderButton:SetPoint("TOPLEFT", modeButton, "BOTTOMLEFT", 0, -4)
-	local function ShowOrder()
-		orderButton:SetText((SedimentDB.autoOrder or "partial") == "partial" and "Auto: Partial" or "Auto: Full")
-	end
-	orderButton:SetScript("OnClick", function()
-		SedimentDB.autoOrder = (SedimentDB.autoOrder or "partial") == "partial" and "full" or "partial"
-		ShowOrder()
-	end)
-	orderButton:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Auto-sort order (click to change)")
-		GameTooltip_AddNormalLine(GameTooltip, "Partial: only what the weights require. Items of equal weight keep "
-			.. "their order; identical stacks stay together. Far fewer moves.")
-		GameTooltip_AddNormalLine(GameTooltip, "Full: the exact order, same as the sort button.")
-		GameTooltip:Show()
-	end)
-	orderButton:SetScript("OnLeave", GameTooltip_Hide)
-	ShowOrder()
-
-	-- "Status text": show the last sort's numbers in the bag (see Readout below).
-	local statusCheck = CreateFrame("CheckButton", nil, bench, "UICheckButtonTemplate")
-	statusCheck:SetSize(22, 22)
-	statusCheck:SetPoint("LEFT", orderButton, "RIGHT", 10, 0)
-	statusCheck:SetChecked(SedimentDB.benchStatusText ~= false)
-	statusCheck:SetScript("OnClick", function(self)
-		SedimentDB.benchStatusText = self:GetChecked() and true or false
-		Popup.BenchRefresh()
-	end)
-	local statusLabel = bench:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	statusLabel:SetPoint("LEFT", statusCheck, "RIGHT", 2, 0)
-	statusLabel:SetText("Status text")
-end
-
--- The status text: two small lines in the strip between the bag's search box and its first row.
--- Shown with the bag whenever the bench's "Status text" checkbox is on (SedimentDB.benchStatusText,
--- on by default), whether or not the bench is open. Display only, just text.
+-- The status text: one line in the strip between the bag's search box and its first row.
+-- Shown with the bag while testing tools are on (Settings > Sorting) and the Testing tab's "Status text"
+-- checkbox is on (SedimentDB.benchStatusText, on by default). Display only, just text.
 local readout
 
 local function Readout()
@@ -568,47 +441,63 @@ end
 
 function Popup.BenchRefresh()
 	local r = Readout()
-	if not r then
-		return
+	if r then
+		if SedimentDB.testingTools and SedimentDB.benchStatusText ~= false then
+			r.text:SetText(BenchRunText(ns.Sort.lastRun or (SedimentDB.benchHistory or {})[1]))
+			r:Show()
+		else
+			r:Hide()
+		end
 	end
-	if SedimentDB.benchStatusText ~= false then
-		r.text:SetText(BenchRunText(ns.Sort.lastRun or (SedimentDB.benchHistory or {})[1]))
-		r:Show()
-	else
-		r:Hide()
-	end
+	ns.Settings.RefreshTesting()
 end
 
-function Popup.ToggleBench(anchor)
-	if not bench then
-		BuildBench(anchor or UIParent)
-	end
-	bench:SetShown(not bench:IsShown())
-	Popup.BenchRefresh()
-end
+Popup.ScrambleTargets = ScrambleTargets
+Popup.BenchRunText = BenchRunText
 
--- The dice button, a child of the bag sort button so it shows and moves with it.
-function Popup.CreateBenchButton()
+-- The bag button: a small icon left of the sort button (a child of it, so it shows and moves with
+-- it) that opens the settings window on the Sorting tab. The icon is a placeholder until one is
+-- picked: /sed icon cycles through candidates.
+local ICONS = {
+	"Interface\\Icons\\INV_Misc_Gear_01",
+	"Interface\\Icons\\INV_Misc_Dust_02",
+	"Interface\\Icons\\INV_Stone_15",
+	"Interface\\Icons\\INV_Misc_PocketWatch_01",
+	"Interface\\Icons\\INV_Ore_Copper_01",
+	"Interface\\Icons\\Spell_Nature_EarthBind",
+}
+
+function Popup.CreateBagButton()
 	local sortButton = BagItemAutoSortButton
-	if not sortButton or Popup.benchButton then
+	if not sortButton or Popup.bagButton then
 		return
 	end
-	local dice = CreateFrame("Button", nil, sortButton)
-	dice:SetSize(20, 20)
-	dice:SetPoint("RIGHT", sortButton, "LEFT", -2, 0)
-	dice:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Up")
-	dice:SetPushedTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Down")
-	dice:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Dice-Highlight", "ADD")
-	dice:SetScript("OnClick", function(self)
-		Popup.ToggleBench(self)
+	local b = CreateFrame("Button", nil, sortButton)
+	b:SetSize(20, 20)
+	b:SetPoint("RIGHT", sortButton, "LEFT", -2, 0)
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetAllPoints()
+	b.icon:SetTexture(ICONS[SedimentDB.bagIcon or 1] or ICONS[1])
+	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	b:SetScript("OnClick", function()
+		ns.Settings.Open("Sorting")
 	end)
-	dice:SetScript("OnEnter", function(self)
+	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Sediment test bench")
-		GameTooltip_AddNormalLine(GameTooltip, "Scramble the bags to test a full cleanup.")
+		GameTooltip_SetTitle(GameTooltip, "Sediment settings")
+		GameTooltip_AddNormalLine(GameTooltip, "Sorting, weights, and (if switched on) testing tools.")
 		GameTooltip:Show()
 	end)
-	dice:SetScript("OnLeave", GameTooltip_Hide)
-	Popup.benchButton = dice
+	b:SetScript("OnLeave", GameTooltip_Hide)
+	Popup.bagButton = b
 	Popup.BenchRefresh() -- put the status text in the bag from the start, if it's on
+end
+
+-- /sed icon: try the next candidate icon on the bag button (temporary, to pick one by eye).
+function Popup.NextIcon()
+	SedimentDB.bagIcon = (SedimentDB.bagIcon or 1) % #ICONS + 1
+	if Popup.bagButton then
+		Popup.bagButton.icon:SetTexture(ICONS[SedimentDB.bagIcon])
+	end
+	ns.Print(("bag button icon %d of %d: %s"):format(SedimentDB.bagIcon, #ICONS, ICONS[SedimentDB.bagIcon]))
 end

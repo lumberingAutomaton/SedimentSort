@@ -25,21 +25,33 @@ your bags, heavy items sink to the bottom, and the free space stays in the middl
   Sediment takes this button over from the built-in sort.
 - **Auto-sort** (on by default) keeps the bags sorted by itself, but only while they're closed. A
   second after your bags change, it sorts quietly, moving only what the weights require.
-  Opening your bags pauses it; it finishes when you close them. It never runs in combat or while a
+  Opening your bags pauses it (or, if you choose, finishes it at once). It never runs in combat or while a
   vendor, bank, mail, trade or auction window is open. Right-click the sort button to turn it on or off
   (the button greys out while it's off).
 - Sorting is silent (the item clinks are muted), and a cooldown sweep on the sort button and the
   backpack button shows a sort in progress.
 
-## Setting weights
+## Settings
 
-- **Alt+right-click** any bag item: a popup shows every rule that applies to it, which one wins, and
-  lets you edit any of them. Clear a box to let that rule inherit.
-- **`/sed`** (or **Settings** in that popup) opens the settings window:
-  - **Ladder:** every weight you've set, light to heavy, with the sink line drawn across. Edit in
-    place; x clears a rule. **Not set** lists the categories in your bags that still use the default.
-  - **General:** auto-sort on/off, how long it waits, how smoothly it runs, the sink line, the default
-    weight, and a reset to the starter weights.
+The small button left of the bag's sort button opens the settings window (so does `/sed`). It closes
+in combat, along with everything else Sediment opens, so a click in combat always does what you expect.
+
+- **Weights:** every weight you've set, light to heavy, with the sink line drawn across. Edit numbers in
+  place; x removes a rule (with Undo). **Select items in bags** turns on select mode: each bag slot
+  shows its current weight (orange = using the default), and clicking an item opens its weight popup;
+  click the next item to switch. **Reset to starter weights** asks first.
+- **Sorting:** auto-sort on/off; its order (**Partial**: only what the weights require, fewest moves, or
+  **Full**: the exact order, like the sort button); how long it waits after changes; how smoothly it
+  runs; and whether opening the bags mid-sort pauses it or finishes it at once. **Show testing tools**
+  reveals the Testing tab.
+- **Testing** (hidden unless switched on): scramble the bags with a seed (Drift, Minimal, Full or
+  Maximal; the same seed on the same sorted bag makes the same mess), then let auto-sort clean up. An
+  optional one-line status text under the bag's search box shows what the last sort cost (hover for
+  details), and the tab lists recent sorts.
+
+**Alt+right-click** any bag item for the same weight popup without opening the settings: it shows every
+rule that applies, which one wins, and lets you edit any of them (clear a box to inherit; Escape
+cancels).
 
 ## Commands
 
@@ -52,14 +64,8 @@ your bags, heavy items sink to the bottom, and the free space stays in the middl
 | `/sed delay [seconds]` | Show or set auto-sort's wait |
 | `/sed budget [ms]` | Show or set auto-sort's smoothness (lower is smoother) |
 | `/sed why` | Hover an item, then run this: its weight rules in chat |
+| `/sed bench` | Open the Testing tab |
 | `/sed help` | List commands |
-
-## Test bench
-
-The small dice button next to the sort button opens a test bench: scramble the bags (Drift, Minimal,
-Full or Maximal) with a seed, so the same mess can be repeated, then let auto-sort clean up. A one-line
-readout under the bag's search box shows what the last sort cost; hover it for details. Useful for
-comparing changes; not needed for normal play.
 
 ## Install
 
