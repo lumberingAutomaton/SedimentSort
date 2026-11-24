@@ -33,11 +33,7 @@ User-facing overview: README.md. This section is the developer's view; history i
   (Popup.lua). Every Sediment window closes and Select mode ends in combat.
 
 ## To do (updated 2026-11-24)
-In-game tests left:
-- 0.13.0: welcome screen on opening Settings ("Set weights" jumps to Weights with Select mode on;
-  "Don't show this again"; ? brings it back); "Select mode: off/on", which opens the bags when it starts
-  and leaves them open when it ends (user: turning it off shouldn't close them); Debug mode revealing
-  Testing + Commands; tabs clear of the close button.
+In-game tests left: none.
 
 Code left:
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
