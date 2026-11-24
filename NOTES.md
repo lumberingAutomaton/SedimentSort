@@ -38,8 +38,6 @@ In-game tests left:
   "Don't show this again"; ? brings it back); "Select mode: off/on", which opens the bags when it starts
   and leaves them open when it ends (user: turning it off shouldn't close them); Debug mode revealing
   Testing + Commands; tabs clear of the close button.
-- Settings > Sorting > "If the bags open during an auto-sort: Finish now" (0.11.0) in play, with auto-sort order
-  Full: does the open-bags shuffle/stutter bother you? (Default Pause is unchanged.)
 
 Code left:
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
