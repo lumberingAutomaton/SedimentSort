@@ -104,7 +104,28 @@ Code left:
 - Later/parked: ladder view tab; Buff food and Drink flags; category row breaks; neutral-buoyancy layer;
   splitting a swap's pick-up and put-down across frames.
 
+## Matching vs the proven minimum (2026-11-24)
+External review (pasted by the user): PlanPlacement matches identical items/empties greedily (fixed points,
+direct pairs, then slot order), which can make fewer, longer chains; swaps = misplaced - chains, so it can
+use more swaps than needed for the same target. Its example (B C A B C D -> D B C A B C: 5 swaps vs 4) is
+correct. Measured with dev/min_swaps.lua (exhaustive max-cycle search, checked against brute force; run
+`SEDIMENT_MEASURE=1 lua dev/sim.lua <SV> <seed> bench`), everyday bench events, 20 seeds:
+- auto-sort (partial): 21290 swaps vs proven minimum 20821 = 2.3% extra; 90% of plans already optimal;
+  worst plan +2 swaps.
+- full order: 1.3% extra; 14% of plans above minimum; worst +2.
+Decision (user): real but small; not worth acting on for now. The review's second point (BestBands scores
+wrong slots, not swaps) was not measured.
+
 ## Version log
+- 0.10.1 (uncommitted): progress sweep shows work, not time: swaps done out of swaps known, never backwards,
+  held below full until the sort really ends, kept across pauses. It glides smoothly (user: plain steps per
+  swap "isn't useful"): toward the next swap's mark at this sort's pace, waiting there if the swap is late,
+  catching up in a straight line within 0.15s when behind. Tested with a fake clock: never backwards, never
+  full early, never past the next mark. User report: after sending mail and
+  closing the bags, a full sweep then a smaller second one (a too-short time estimate let the cooldown finish,
+  then the next round put up a new one); and a slow sweep on a fast sort (too-long estimate). The time
+  estimate (Sort.EstimateSeconds) is gone. Sim also checks auto-sort settles: right after an auto-sort, a
+  second one never moves anything (it didn't; not the cause).
 - Renamed 2026-11-22 to match the GitHub repo: folder ~/Source/SedimentSort, SedimentSort.toc, AddOns symlink
   SedimentSort, saved settings in SavedVariables/SedimentSort.lua (copied from Sediment.lua with the game
   closed; the old file is left as a backup). Display name, chat prefix, /sed and SedimentDB unchanged.

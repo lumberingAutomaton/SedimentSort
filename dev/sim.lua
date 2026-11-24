@@ -211,8 +211,39 @@ C_Timer.After = function(_, fn) fn() end
 -- SEDIMENT_AUTO=full makes auto-sorts use the full order (as the test bench's toggle does), to
 -- compare against the default partial order.
 local ORDER = os.getenv("SEDIMENT_AUTO") or "partial"
+-- SEDIMENT_MEASURE=1: after every placement plan, compare Sediment's swap count with the proven
+-- minimum for the same target (dev/min_swaps.lua). Results in Measured, printed by bench mode.
+local MEASURE = os.getenv("SEDIMENT_MEASURE") == "1"
+local MinSwaps = MEASURE and dofile(root .. "/dev/min_swaps.lua").MinSwaps
+Measured = { plans = 0, ours = 0, best = 0, worse = 0, unproven = 0, oursUnproven = 0, worst = 0 }
 for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
-	assert(loadfile(root .. "/" .. f))("Sediment", ns)
+	local fh = assert(io.open(root .. "/" .. f))
+	local src = fh:read("a")
+	fh:close()
+	if MEASURE and f == "Sort.lua" then
+		src = src:gsub("(\t\twant%[p%] = targets%[p%] or EMPTY\n\tend\n)", "%1\tlocal cur0 = {} for i = 1, n do cur0[i] = cur[i] end\n", 1)
+		src = src:gsub("(\n\tlocal rounds = {}\n)", "\n\tif SimMeasure then SimMeasure(cur0, want, #round1 + #round2) end%1", 1)
+		assert(src:find("SimMeasure%(cur0"), "measurement hook not inserted")
+	end
+	assert(load(src, "@" .. f))("Sediment", ns)
+end
+if MEASURE then
+	function SimMeasure(cur, want, ours)
+		if ours == 0 then return end
+		local best = MinSwaps(cur, want)
+		Measured.plans = Measured.plans + 1
+		if not best then
+			Measured.unproven = Measured.unproven + 1
+			Measured.oursUnproven = Measured.oursUnproven + ours
+			return
+		end
+		assert(ours >= best, "Sediment beat the proven minimum: the solver is wrong")
+		Measured.ours, Measured.best = Measured.ours + ours, Measured.best + best
+		if ours > best then
+			Measured.worse = Measured.worse + 1
+			Measured.worst = math.max(Measured.worst, ours - best)
+		end
+	end
 end
 ns.Weights.Init()
 SedimentDB.autoOrder = ORDER
@@ -366,6 +397,30 @@ end
 print("first sort: " .. Run())
 Check(arg[3] == "show")
 print("second sort: " .. Run())
+-- Auto-sort must be satisfied by its own result: right after an auto-sort, another auto-sort
+-- (triggered by any later bag or quest-log event) must find nothing to move. Messed up first so the
+-- auto-sort has real work to do.
+do
+	local function Mess()
+		local filled, empty = {}, {}
+		for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do
+			if bags[b][s] then filled[#filled + 1] = { b, s } else empty[#empty + 1] = { b, s } end
+		end end end
+		for _ = 1, 4 do
+			if #filled == 0 or #empty == 0 then break end
+			local f = table.remove(filled, math.random(#filled))
+			local e = table.remove(empty, 1)
+			bags[e[1]][e[2]], bags[f[1]][f[2]] = bags[f[1]][f[2]], nil
+		end
+	end
+	for round = 1, 15 do
+		Mess()
+		Run(true)
+		Run(true)
+		assert(ns.Sort.lastMoves == 0, ("auto-sort moved %d more after its own result (round %d)"):format(ns.Sort.lastMoves, round))
+	end
+	print("auto-sort settles: 15 rounds, a second auto-sort never moved anything")
+end
 
 -- Scramble test: shuffle the normal bags into a seeded target (as the test bench does), check every
 -- slot got its target, then let auto-sort clean up.
@@ -432,6 +487,7 @@ end
 
 if arg[3] == "bench" then
 	-- Realistic events from a sorted bag; each followed by an auto-sort. Moves per event averaged.
+	Measured = { plans = 0, ours = 0, best = 0, worse = 0, unproven = 0, oursUnproven = 0, worst = 0 } -- everyday events only
 	local nextID = 900000
 	local function MainSlots()
 		local list = {}
@@ -514,6 +570,11 @@ if arg[3] == "bench" then
 		end
 		Record("use 3", Moves())
 		Check(false)
+	end
+	if MEASURE then
+		local m = Measured
+		print(("MEASURE plans %d ours %d best %d worse %d worst %d unproven %d oursUnproven %d"):format(
+			m.plans, m.ours, m.best, m.worse, m.worst, m.unproven, m.oursUnproven))
 	end
 	for _, name in ipairs({ "loot + use", "set swap", "weight edit", "loot 3", "use 3" }) do
 		local r = results[name]
