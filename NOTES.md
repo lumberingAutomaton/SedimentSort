@@ -135,8 +135,10 @@ parked for the same reason (per-swap cost isn't noticeable).
 - 0.12.1: bag button = Blizzard's button-style gear, Interface\Buttons\UI-OptionsButton (user's pick after trying
   candidates in game). The old dice fit because it was a button graphic (small art, transparent padding);
   item icons fill their square and looked heavy. 15px in a 20x20 click area, centred on the search bar: the
-  bar's height is odd, so a 16px icon sat half a pixel low (the user's guess: odd container, even icon);
-  15px with no nudge lines up. Tuning commands (/sed icon, nudge, iconsize) removed and their saved values
+  bar is 18 units (even), so not an odd/even centring issue as first thought; 16 looked about half a pixel
+  low, 15 with no nudge lines up (probably uneven border art in the input box, or UI-scale rounding). UI
+  units scale with the bag, so a large UI scale keeps the proportions; "search bar height - 3" would also
+  follow a skinned/resized search bar (not done). Tuning commands (/sed icon, nudge, iconsize) removed and their saved values
   cleared.
 - 0.12.0: settings streamlined (user, 2026-11-24). One window, three tabs: Weights (ladder + select mode +
   reset; sink line and default edited only in the ladder), Sorting (auto on/off, Partial/Full order moved

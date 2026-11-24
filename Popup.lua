@@ -459,8 +459,10 @@ Popup.BenchRunText = BenchRunText
 -- it) that opens the settings window on the Sorting tab. Picked in game (2026-11-24):
 -- - Blizzard's button-style gear: people read a gear as "settings", and a button graphic has
 --   transparent padding like the old dice, so it sits lightly where a full-square item icon looked heavy.
--- - 15px, not 16: the search bar's height is odd, so its centre falls between pixel rows; an odd-sized
---   icon's centre does too and lines up exactly, where an even one sat half a pixel low.
+-- - 15 units, not 16: an empirical fit (16 looked about half a pixel low). The search bar is 18 units
+--   tall, so not an odd/even centring issue; most likely its border art isn't centred in its frame, or
+--   the UI scale's rounding onto screen pixels. Sizes are in UI units, so the gear scales with the bag
+--   at any UI scale; at other scales the rounding may land half a pixel differently.
 -- - Vertically centred on the search bar (the sort button sits a little lower), re-measured when shown
 --   and whenever Blizzard repositions the sort button.
 local ICON = "Interface\\Buttons\\UI-OptionsButton"
