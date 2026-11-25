@@ -7,6 +7,8 @@
 -- the plan, so looting or the user moving something mid-sort just triggers a fresh plan.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Sort.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Sort = {}
 ns.Sort = Sort
 
@@ -214,8 +216,15 @@ end
 
 -- Partial order for this sort? Auto-sorts, unless switched to the full order in the test bench
 -- (SedimentDB.autoOrder = "full") for comparisons.
+-- Auto-sort's order (SedimentDB.autoOrder): "full" unless "partial" was picked. Full is the default for
+-- everyone since 0.17.0 (user, 2026-11-25: the defaults should be right without visiting Sorting); before,
+-- a save that never picked one got Partial.
+function Sort.AutoOrder()
+	return SedimentDB.autoOrder == "partial" and "partial" or "full"
+end
+
 local function UsePartialOrder()
-	return quiet and (SedimentDB.autoOrder or "partial") == "partial"
+	return quiet and Sort.AutoOrder() == "partial"
 end
 
 -- The target signature for every position: floaters from the top, sinkers at the bottom.
@@ -528,7 +537,7 @@ local function Stop(msg, success)
 		local beforeFps = perfBase and 1 / perfBase or 0
 		local run = {
 			kind = wasScramble and "scramble" or (quiet and "auto" or "button"),
-			order = quiet and (SedimentDB.autoOrder or "partial") or "full",
+			order = quiet and Sort.AutoOrder() or "full",
 			moves = moves, rounds = rounds, seconds = seconds, ourMs = cpuMs,
 			worstMs = perfWorst * 1000,
 			normalMs = perfBase and perfBase * 1000 or 0,
@@ -634,7 +643,7 @@ end
 -- keeping the plan, and finish once they close) or "finish" (send everything left at once, keeping
 -- auto-sort's own order; the bag settles within a round or two of opening).
 function Sort.OpenBagsMode()
-	return SedimentDB.openBags == "finish" and "finish" or "pause"
+	return SedimentDB.openBags == "pause" and "pause" or "finish"
 end
 
 -- The bags are open during an auto-sort: pause it, or hurry it to the end.
@@ -1002,6 +1011,37 @@ function Sort.Start(isQuiet)
 	waitingForUpdate, cursorSince, plan, paused, hurry = false, nil, nil, false, false
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
+end
+
+-- A sort right now at button speed, to show the result of a change the player just made: a Setup answer, a
+-- Weight typed or removed in the settings or the weight popup, a History save loaded (user, 2026-11-25: show
+-- the outcome as soon as a Weight changes, bags open or not). A sort already running planned with the old
+-- rules, so wait for it to end (taking over a paused auto-sort so it ends quickly), then sort again.
+local sortWaiting = false
+
+function Sort.StartSoon()
+	if sortWaiting or InCombatLockdown() then
+		return
+	end
+	if not ticker then
+		Sort.Start()
+		return
+	end
+	if quiet then
+		Sort.Start() -- a paused auto-sort: finish it at full speed
+	end
+	sortWaiting = true
+	local function Try()
+		if ticker then
+			C_Timer.After(0.2, Try)
+			return
+		end
+		sortWaiting = false
+		if not InCombatLockdown() then
+			Sort.Start()
+		end
+	end
+	C_Timer.After(0.2, Try)
 end
 
 -- Test bench: rearrange the normal bags into targets (one item signature or nil per normal-bag

@@ -10,12 +10,19 @@ local locs = { "", "INVTYPE_NON_EQUIP_IGNORE", "INVTYPE_WRIST", "INVTYPE_BAG", "
 for i = 1, 20000 do
 	-- Randomly clear or set levels so every path gets hit.
 	if i % 50 == 0 then
-		for _, f in ipairs({ "equipmentSet", "quest", "gray", "unboundGear" }) do
-			w.flags[f] = math.random() < 0.3 and nil or math.random(0, 100)
+		-- (Not "c and nil or x": that's always x, so levels were never cleared; fixed 2026-11-25.)
+		local function Maybe(chance, value)
+			if math.random() < chance then
+				return nil
+			end
+			return value
 		end
-		w.subclasses["0:1"] = math.random() < 0.5 and nil or 8
-		w.classes[4] = math.random() < 0.5 and nil or 40
-		w.items[6948] = math.random() < 0.5 and nil or 0
+		for _, f in ipairs({ "equipmentSet", "quest", "gray", "unboundGear" }) do
+			w.flags[f] = Maybe(0.3, math.random(0, 100))
+		end
+		w.subclasses["0:1"] = Maybe(0.5, 8)
+		w.classes[4] = Maybe(0.5, 40)
+		w.items[6948] = Maybe(0.5, 0)
 	end
 	local item = {
 		itemID = math.random() < 0.1 and 6948 or math.random(1, 100),

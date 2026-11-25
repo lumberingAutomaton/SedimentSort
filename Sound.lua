@@ -8,6 +8,8 @@
 -- File IDs from the community listfile (github.com/wowdev/wow-listfile), sound/interface/pickup/.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Sound.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Sound = {}
 ns.Sound = Sound
 

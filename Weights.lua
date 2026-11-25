@@ -3,10 +3,19 @@
 -- A level applies only if it has a weight. Weights are account-wide (SedimentDB.weights).
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Weights.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Weights = {}
 ns.Weights = Weights
 
--- The default rule set: no rules. Copied into SedimentDB on first load, and by "Reset to default"; after
+-- Text.lua (the words) is new in 0.17.1, and a /reload doesn't load new files. Without it, words show as
+-- their keys instead of erroring, and Sediment.lua's login check says to restart the game.
+if not ns.L then
+	ns.L = function(key) return key end
+	ns.Noun, ns.Btn = ns.L, ns.L
+end
+
+-- The default rule set: no rules. Copied into SedimentDB on first load, and by Start Fresh; after
 -- that the saved copy is what counts. With no rules every item ties, and ties fall back to the full order
 -- (class > subclass > item), so Sediment starts out as an ordinary by-type bag sort; rules add the
 -- player's own preferences. (It used to ship with the developer's own opinions, hearthstone on top and
@@ -81,13 +90,27 @@ function Weights.Init()
 		h[#h + 1] = { time = b.time or "?", reason = b.reason, weights = b.weights, keepOut = b.keepOut }
 		SedimentDB.rulesBackup = nil
 	end
+	-- Older entries: ids (for Active / Previous); one pin only, the most recently pinned (0.17.0 "Kept"
+	-- entries, named, count as pinned).
+	local keep, keepTime
+	for _, e in ipairs(Weights.History()) do
+		if not e.id then
+			SedimentDB.nextSaveId = (SedimentDB.nextSaveId or 0) + 1
+			e.id = SedimentDB.nextSaveId
+		end
+		local t = (e.pinned or (e.name and e.keptTime ~= nil) or e.name) and (e.pinnedTime or e.keptTime or e.time or "")
+		if t and (not keepTime or t > keepTime) then
+			keep, keepTime = e, t
+		end
+		e.pinned, e.pinnedTime, e.keptTime = nil, nil, nil
+	end
+	if keep then
+		keep.pinned = true
+	end
+	Weights.PurgeDeleted() -- deletes not undone before the last logout
+	Weights.NoteActive()
 end
 
--- At login (PLAYER_LOGIN, when the character's name is known): a version if the rules changed since the
--- newest one, labelled with the character ("Thrall login"), since rules are account-wide (user, 2026-11-24).
-function Weights.LoginSnapshot(character)
-	Weights.Snapshot((character or "?") .. " login")
-end
 
 -- For the settings panel: flags in priority order with their labels, and a full reset.
 Weights.FLAG_ORDER = FLAG_ORDER
@@ -109,14 +132,16 @@ function Weights.HasRules()
 end
 
 -- History ------------------------------------------------------------------------------------
--- Versions of the rules (weights, sink line, default, keep-out), newest first, in SedimentDB.history:
--- { time, reason, name, weights, keepOut }. One is saved before anything replaces the rules (Reset to
--- default, the setup questions starting or starting over, loading a version), when the setup questions are
--- done, at login if the rules changed ("<character> login"), and by the player ("Save a copy", optionally named). Never twice in a
--- row with the same rules, and never an empty rule set unless the player asks. The newest 20 unnamed
--- versions are kept; named ones stay until deleted. Auto-sort settings aren't part of a version.
--- (Replaced a single backup slot, 2026-11-24: a second setup run, or a reset after one, overwrote the rules
--- from before.)
+-- A safety net of the rules (weights, sink line, default, keep-out), newest first, in SedimentDB.history.
+-- Two kinds of entry (user, 2026-11-25; a design with named rulesets was parked as "Profiles"):
+--   Created:  made when Setup is done. Always a new entry, even if identical to another.
+--   Snapshot: made automatically at logout (and /reload), before Load and Start Fresh, and at login as a
+--             safety net; only if no entry already holds the rules in use.
+-- Each entry: { id, kind, character, time, pinned, deleted, weights, keepOut }; entries from before this
+-- (0.17.0/early 0.17.1) may have reason/name instead of kind/character and show those. One entry can be
+-- pinned: it's listed first and never dropped. Of the rest, the newest 20 are kept. A delete only marks the
+-- entry (the row shows Undo) until the settings window closes (PurgeDeleted). Auto-sort settings aren't part
+-- of an entry. Titles: "Rook — Snapshot — Nov 25, 10:32" (EntryTitle).
 local HISTORY_KEEP = 20
 
 -- The same text for the same contents, whatever order pairs() visits them in.
@@ -147,6 +172,15 @@ local function CurrentKey()
 	return VersionKey(SedimentDB.weights, SedimentDB.keepOut)
 end
 
+local function Now()
+	return date("%Y-%m-%d %H:%M")
+end
+
+-- The character entries are labelled with (set at login; rules themselves are account-wide).
+function Weights.SetCharacter(name)
+	Weights.character = name
+end
+
 function Weights.History()
 	SedimentDB.history = SedimentDB.history or {}
 	return SedimentDB.history
@@ -158,13 +192,13 @@ function Weights.IsCurrent(entry)
 end
 
 local function Prune(h)
-	local unnamed, i = 0, 1
+	local unpinned, i = 0, 1
 	while i <= #h do
-		if h[i].name then
+		if h[i].pinned then
 			i = i + 1
 		else
-			unnamed = unnamed + 1
-			if unnamed > HISTORY_KEEP then
+			unpinned = unpinned + 1
+			if unpinned > HISTORY_KEEP then
 				table.remove(h, i)
 			else
 				i = i + 1
@@ -173,80 +207,168 @@ local function Prune(h)
 	end
 end
 
--- Save the rules in use as a version. Returns the new entry; or nil plus the newest entry if that already
--- holds these rules; or nil if there are no rules and evenEmpty isn't set.
-function Weights.Snapshot(reason, name, evenEmpty)
-	local h = Weights.History()
-	if h[1] and Weights.IsCurrent(h[1]) then
-		return nil, h[1]
-	end
-	if not evenEmpty and not Weights.HasRules() then
-		return nil
-	end
-	table.insert(h, 1, {
-		time = date("%Y-%m-%d %H:%M"),
-		reason = reason,
-		name = name,
-		weights = DeepCopy(SedimentDB.weights),
-		keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
-	})
-	Prune(h)
-	return h[1]
-end
-Weights.Backup = Weights.Snapshot -- before something replaces the rules wholesale
-
--- "Save a copy": always ends with a version holding the current rules, named if a name is given (an
--- unchanged rule set just names the newest version). Returns the entry and whether it was new.
-function Weights.SaveCopy(name)
-	name = name and name:match("^%s*(.-)%s*$")
-	if name == "" then
-		name = nil
-	end
-	local entry, same = Weights.Snapshot("saved by you", name, true)
-	if entry then
-		return entry, true
-	end
-	if name then
-		same.name = name
-	end
-	return same, false
-end
-
-function Weights.RenameVersion(entry, name)
-	name = name and name:match("^%s*(.-)%s*$")
-	if name == "" then
-		name = nil
-	end
-	entry.name = name
-end
-
-function Weights.DeleteVersion(entry)
-	local h = Weights.History()
-	for i, e in ipairs(h) do
-		if e == entry then
-			table.remove(h, i)
-			return
-		end
-	end
-end
-
--- Put a version's rules back. The rules in use are saved first, so loading can be undone.
-function Weights.LoadVersion(entry)
-	Weights.Snapshot("before loading the " .. entry.time .. " version")
-	SedimentDB.weights = DeepCopy(entry.weights)
-	SedimentDB.keepOut = entry.keepOut and DeepCopy(entry.keepOut) or nil
-end
-
--- The newest version that differs from the rules in use ("Restore previous rules"), or nil.
-function Weights.PreviousVersion()
+-- The entry holding the rules in use, if any (the newest such).
+function Weights.ActiveSave()
 	for _, e in ipairs(Weights.History()) do
-		if not Weights.IsCurrent(e) then
+		if not e.deleted and Weights.IsCurrent(e) then
 			return e
 		end
 	end
 end
 
--- How a version reads in a list: "23 rules, sink line 40, 1 kept out".
+local function SaveById(id)
+	if id then
+		for _, e in ipairs(Weights.History()) do
+			if e.id == id and not e.deleted then
+				return e
+			end
+		end
+	end
+end
+
+-- Which entry is Active, and which was Active before it (Previous: what you'd roll back to). Kept by id
+-- (SedimentDB.activeSaveId / previousSaveId; table references don't survive a reload), updated whenever the
+-- rules or History change. While the rules match no entry (edited, not saved yet), the last Active one stays
+-- recorded, so it's Previous: the rules from before the edits.
+function Weights.NoteActive()
+	local a = Weights.ActiveSave()
+	if a and a.id ~= SedimentDB.activeSaveId then
+		SedimentDB.previousSaveId = SedimentDB.activeSaveId
+		SedimentDB.activeSaveId = a.id
+	end
+end
+
+local function AddEntry(kind)
+	local h = Weights.History()
+	SedimentDB.nextSaveId = (SedimentDB.nextSaveId or 0) + 1
+	table.insert(h, 1, {
+		id = SedimentDB.nextSaveId,
+		kind = kind,
+		character = Weights.character,
+		time = Now(),
+		weights = DeepCopy(SedimentDB.weights),
+		keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
+	})
+	Prune(h)
+	Weights.NoteActive()
+	return h[1]
+end
+
+-- A Snapshot of the rules in use, unless an entry already holds them (then that one is returned second) or
+-- there are no rules at all.
+function Weights.Snapshot()
+	local same = Weights.ActiveSave()
+	if same then
+		Weights.NoteActive()
+		return nil, same
+	end
+	if not Weights.HasRules() then
+		return nil
+	end
+	return AddEntry("snapshot")
+end
+
+-- A Created entry (Setup done): always new.
+function Weights.Created()
+	return AddEntry("created")
+end
+
+-- One pin at a time: pinning an entry unpins any other (user, 2026-11-25).
+function Weights.Pin(entry)
+	for _, e in ipairs(Weights.History()) do
+		e.pinned = nil
+	end
+	entry.pinned = true
+end
+
+function Weights.Unpin(entry)
+	entry.pinned = nil
+end
+
+-- History as the section lists it: the pinned entry first, then the rest newest first. Entries waiting to be
+-- deleted stay in place (shown greyed, with Undo).
+function Weights.HistoryForDisplay()
+	local list, pinned = {}, nil
+	for _, e in ipairs(Weights.History()) do
+		if e.pinned and not pinned then
+			pinned = e
+		else
+			list[#list + 1] = e
+		end
+	end
+	if pinned then
+		table.insert(list, 1, pinned)
+	end
+	return list
+end
+
+local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
+
+-- "2026-11-25 10:32" -> "Nov 25, 10:32".
+local function ShortTime(t)
+	local _, m, d, hm = (t or ""):match("^(%d+)%-(%d+)%-(%d+) (%d+:%d+)$")
+	if not m then
+		return t or "?"
+	end
+	return ("%s %d, %s"):format(MONTHS[tonumber(m)] or m, tonumber(d), hm)
+end
+
+-- "Rook — Snapshot — Nov 25, 10:32". Older entries without kind/character show their name or reason.
+function Weights.EntryTitle(entry)
+	local parts = {}
+	if entry.character then
+		parts[#parts + 1] = entry.character
+	elseif entry.name or entry.reason then
+		parts[#parts + 1] = entry.name or entry.reason
+	end
+	parts[#parts + 1] = ns.L(entry.kind == "created" and "EntryCreated" or "EntrySnapshot")
+	parts[#parts + 1] = ShortTime(entry.time)
+	return table.concat(parts, " — ")
+end
+
+-- x marks an entry; Undo unmarks it; closing the settings window removes the marked ones for good.
+function Weights.DeleteVersion(entry)
+	entry.deleted = true
+end
+
+function Weights.UndeleteVersion(entry)
+	entry.deleted = nil
+end
+
+function Weights.PurgeDeleted()
+	local h = Weights.History()
+	for i = #h, 1, -1 do
+		if h[i].deleted then
+			table.remove(h, i)
+		end
+	end
+end
+
+-- What you'd roll back to (History marks it Previous): the entry that was Active before the current one; or,
+-- while the rules match no entry, the last Active one. Falls back to the newest entry that isn't in use.
+function Weights.PreviousSave()
+	Weights.NoteActive()
+	local active = Weights.ActiveSave()
+	local p = SaveById(active and SedimentDB.previousSaveId or SedimentDB.activeSaveId)
+	if p and not Weights.IsCurrent(p) then
+		return p
+	end
+	for _, e in ipairs(Weights.History()) do
+		if not e.deleted and not Weights.IsCurrent(e) then
+			return e
+		end
+	end
+end
+
+-- Put an entry's rules back. The rules in use get a Snapshot first (if not saved), so loading can be undone.
+function Weights.LoadVersion(entry)
+	Weights.Snapshot()
+	SedimentDB.weights = DeepCopy(entry.weights)
+	SedimentDB.keepOut = entry.keepOut and DeepCopy(entry.keepOut) or nil
+	Weights.NoteActive()
+end
+
+-- How an entry reads in a list: "23 Weights, sink line 40, 1 kept out".
 function Weights.VersionSummary(entry)
 	local w, n = entry.weights, 0
 	for _, t in ipairs({ w.items, w.flags, w.subclasses, w.classes }) do
@@ -260,23 +382,20 @@ function Weights.VersionSummary(entry)
 			k = k + 1
 		end
 	end
-	local text = ("%d rule%s, sink line %s"):format(n, n == 1 and "" or "s", tostring(w.sinkLine))
+	local text = ("%d %s, %s at %s"):format(n, n == 1 and ns.L("SortValue") or ns.L("SortValues"), ns.L("LootGap"),
+		tostring(w.sinkLine))
 	if k > 0 then
-		text = text .. (", %d kept out"):format(k)
+		text = text .. (", %d kept out"):format(k) -- short: the row has little room; hover lists them
 	end
 	return text
 end
 
--- Start the rules over: the default weights, keep-out rules untouched (Setup's Start over).
-function Weights.ClearWeights()
-	SedimentDB.weights = DeepCopy(DEFAULTS)
-end
-
--- "Reset to default": back up, then the default (empty) rules and no keep-out rules.
-function Weights.ResetToDefault()
-	Weights.Backup("before Reset to default")
+-- Start Fresh: a Snapshot of the rules (if not saved), then the default (empty) weights and no keep-out rules.
+function Weights.ClearAll()
+	Weights.Snapshot()
 	SedimentDB.weights = DeepCopy(DEFAULTS)
 	SedimentDB.keepOut = nil
+	Weights.NoteActive()
 end
 
 function Weights.SinkLine()
@@ -321,7 +440,7 @@ function Weights.Explain(item)
 	local subKey = item.classID .. ":" .. item.subclassID
 	Add("subclass", subKey, item.subclassName or ("Subclass " .. subKey), w.subclasses[subKey], true)
 	Add("class", item.classID, item.className or ("Class " .. item.classID), w.classes[item.classID], true)
-	Add("default", nil, "Default", w.default, true)
+	Add("default", nil, "Not set (default)", w.default, true)
 
 	for i, level in ipairs(levels) do
 		if level.applies and level.weight ~= nil then
@@ -380,7 +499,7 @@ function Weights.Resolve(item)
 	if v ~= nil then
 		return v, item.className or "Class"
 	end
-	return w.default, "Default"
+	return w.default, "Not set (default)"
 end
 
 -- Does this item have a rule of its own (anything but the default)? The setup questions outline the

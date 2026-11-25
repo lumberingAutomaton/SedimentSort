@@ -5,6 +5,7 @@
 Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
 local ns = {}
+assert(loadfile("Text.lua"))("Sediment", ns)
 assert(loadfile("Weights.lua"))("Sediment", ns)
 local W = ns.Weights
 local HS = 6948

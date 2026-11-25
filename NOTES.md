@@ -43,9 +43,10 @@ User-facing overview: README.md. This section is the developer's view; history i
   closed, no combat, empty cursor, no vendor/bank/mail/trade/auction/guild bank window, 1.1s of bag quiet,
   2s after login. Bags opening mid-sort: pause (default; the plan is kept) or finish now (SedimentDB.openBags).
   Quiet in chat; item sounds muted during sorts (Sound.lua); the gliding sweep shows progress.
-- **UI**: sort button (left: sort, right: toggle auto-sort); a gear next to it opens Settings (Settings.lua):
-  a section list like WoW's Options window: Weights (Select mode, ladder, reset), Sorting (auto-sort
-  options, Debug mode), Special bags (bags, fill switch, keep-out rules), and in debug mode Testing
+- **UI**: sort button (left: sort, right: toggle auto-sort); a gear next to it (or /sed) opens the setup
+  questions while there are no rules or a run is unfinished, else Settings (Settings.lua) at Weights:
+  a section list like WoW's Options window: Weights (Select mode, ladder, reset), Special bags (bags, fill
+  switch, keep-out rules), Sorting (auto-sort options, Debug mode), History, and in debug mode Testing
   (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
   /sed help). Alt+right-click popup (Popup.lua). Every Sediment window closes and Select mode ends in combat.
 - **Setup questions** (Setup.lua, 0.17.0; replaced the welcome screen): their own window, opened with the
@@ -58,23 +59,37 @@ User-facing overview: README.md. This section is the developer's view; history i
   orange outline = no rule of its own, gold = what the question is about; frames that take no clicks.
   dev/setup_check.lua clicks through it against mocked frames.
 
-## To do (updated 2026-11-24)
-In-game tests left (0.17.0, the setup questions; new file, so a full client restart):
-- Layout and look: the window beside the bags (not over them), text fitting (titles, choice descriptions,
-  the intro), the review list and its Move buttons; dragging it and its remembered position.
-- The highlights: orange outlines on unruled slots, gold on the current question's items, normal clicks
-  still working through them; they go when the window closes. Reagent bag window included.
-- A full run on a fresh rule set (Reset to default first; Restore previous rules after): each answer sorts
-  live; neighbours (picks numbered in the bag, H on the hearthstone, OK); Back undoes; Split; Finish later
-  and Continue; combat closes it and keeps the place; Done.
-- On the real bags: do the generated questions come in a sensible order, and is their number bearable?
-- History: tested in game 2026-11-24 ("fairly easy"); the kept mark and "<character> login" labels came
-  after and are untested. The old backup slot had already been overwritten by test answers at 17:25 (the
-  bug History fixes), so the original 23 rules were added back from a file copy as a named version.
-- Setup questions: first in-game pass 2026-11-24 found and fixed: neighbour order with the hearthstone last,
-  "near the start / end" and "no rule yet" wording, the movable "Everything else" row (now pinned to the
-  empty space), Start over keeping answers, Back skipping a split class. A clean full run on 0.17.0 as it
-  is now is still to do.
+## Writing style (user, 2026-11-25)
+- Every word for one of Sediment's own things, and every button label, lives in Text.lua (ns.TEXT), under
+  keys named for a role, never the word (SaveInUse = "Active", ClearAllButton = "Start Fresh"): a word change
+  is one edit in that one file, and keys are never renamed with it (user, 2026-11-25, after a rename touched
+  two files). dev/text_check.lua fails on a key used but not defined (it would show as the key in game) or
+  defined but unused. Section ids "Weights" and "History" are internal; their shown names come from Text.lua. L(key) plain (titles, button labels),
+  N(key) a noun in a sentence (sand `c8a96e`, the chat prefix's colour), B(key) a button name in a sentence
+  (gold `ffd100`, like button text). README: nouns **bold**, button names `code style`. No quotation marks.
+- The nouns, and only these: **Sediment**, **Weight(s)**, **Select Mode**, **Setup** (the questions),
+  **History**, **Pinned** (a save kept at the top; was "Kept"), **Empty Space** (the gap where new loot
+  lands; also the name for the number that used to be shown as "sink line": user, 2026-11-25). Code still
+  calls it sinkLine. Buttons in Title Case (Start Fresh, Save Rules).
+- "Rules" means the whole set (all Weights plus keep-out), never one entry: "x removes a Weight", "Save
+  Rules", "Start Fresh clears your rules". A History entry is "a save".
+- The keep-out rule is "Keep out of special bags" (list heading "Kept out of special bags"). "Not set" is a
+  plain phrase, lowercase in sentences. No "kind" / "category": "all Cloth", "Silk Cloth", the game's own
+  class names. "Empty Space", not "gap" or "sink line". Not reformatted: these notes' history sections.
+
+## To do (updated 2026-11-25)
+In-game tests left (0.17.1, uncommitted; /reload is enough):
+- Layout: the 760x600 window, opaque now (solid WHITE8X8 background: the tooltip art is translucent itself),
+  Weights rows 430 wide and striped so each x sits by its item, and the new spacing on every section (Sorting's boxes no longer on their help
+  text); History rows (Pin / Unpin left, Load and x right; long reasons and summaries fit).
+- History: Pin asks for an optional name and moves the save to the top (no "(Pinned)" text: the Unpin button
+  says it; "Active" (was "in use"; "Current" read as "newest") leads the summary line, which cut it off at the end); Unpin; x greys the row
+  with Undo, and closing the window removes it; your "original rules" shows as Pinned (converted from Kept).
+- Start Fresh: on the first page and in Weights (asks first, then Setup); clears Weights and keep-out rules
+  (both are in the save); Combined Backpack: switch it to separate bags, then Start Fresh / Continue turns it
+  back on and the question page and chat say so (the CVar call is what Blizzard's bag menu does; untested).
+- The gear and /sed: Setup with no rules or an unfinished run, else Weights; first-page Settings button.
+- Earlier, still open: a clean full Setup run; does the generated-question order make sense on real bags.
 
 Code left:
 - Onboarding (see "Planned: onboarding questionnaire" below), agreed 2026-11-24, in this order:
@@ -86,6 +101,59 @@ Code left:
   browser (today "Not set" only lists categories in the bags).
 
 Ideas / parked (decided not now):
+- Profiles (user, 2026-11-25, parked): several named setups (Herbing, Raiding) to switch between, as their own
+  small section like other addons' profile lists, if anyone needs it. Came out of a History design with
+  named mains and snapshot lineage that grew too complicated for a bag sort (main/snapshot, Save on the main,
+  Make Main for rollback or fork, unique names, legacy users choosing a Main). History stays a safety net.
+- History order while on the page (user, 2026-11-25, parked; "moving under the mouse is gross"): hold the
+  list's order while the History page is open (a new entry right under the row you clicked, pin changes in
+  place, re-sort on reopening). Dropped for now: it only matters with unsaved changes plus a Load while on
+  the page, and Load ignores clicks right after a redraw.
+- Setup questions (user, 2026-11-25, the "skinning knife" case): a question lists, outlines and counts only
+  the items its answer would decide, so not items a more specific rule already places (an item's own
+  Weight, an earlier flag). A special question (sets, BoE, bags, quest items) with nothing left to decide is
+  skipped.
+- Setup redesign, agreed in discussion 2026-11-25, NOT built yet (user still thinking):
+  - Setup becomes just "Your order": the kinds of items in your bags in plain by-type order (no opinions),
+    plus the Empty Space row; Move Up / Move Down; click a row to outline its items; the bag sorts on each
+    move. The per-category questions (layout, hearthstone, neighbours, gray, trade goods, specials,
+    generated classes) go; single items are placed afterwards with Select Mode.
+  - The Empty Space row is movable, and its position is the layout: at the top = everything packs toward
+    the bottom; at the bottom = packed from the top; in between = float above / sink below. No layout
+    question, no float/sink or higher/lower wording. Underneath, one layout: the stored number stays 50 and
+    the divider's position does the rest (the 0 / 100 packed values go away).
+  - Unset items stay attached to the Empty Space (user: agreed), on the side that has items: just below it
+    when it's at the very top, just above it otherwise. Not a movable row (a movable "Everything else" was
+    tried and rejected the day before); add a movable "Not set" row only if someone asks.
+  - The same movable Empty Space row on the Weights page, so both work alike.
+  - Root cause noted by the user: the tester mostly wanted simple, and the old rules weren't consistent
+    (the hammer and pick had Weights, the skinning knife didn't). Idea, not decided: a "Profession tools"
+    flag from a fixed item-ID list, since WoW files tools under unrelated categories.
+- Setup review (user, 2026-11-25): clicking a row outlines its items in the bag gold (items whose winning
+  rule is in that row). The Empty Space row is just "Empty Space" (a parenthetical was removed; the user's
+  rule: no parentheticals in UI text without asking). Open, from the same feedback: "Higher up / Lower down"
+  says nothing about "than what" in the packed layouts (options: name the bag edges, use the Empty Space as
+  the reference, or skip float/sink there and order in the review); "Quest" (item class) and "Quest item"
+  (the game's flag) look like duplicates (proposed: one question and row). Other UI parentheticals
+  ("Not set (default)", "(question 4 of 9)", "(the version in the .toc)", "missing (restart the game)",
+  "(removed)", "(deleted)") left for now, pending the user.
+- History simplified (user, 2026-11-25), replacing everything below about names, Save Rules and several pins:
+  two kinds of entry, Created (Setup done; always new) and Snapshot (logout via PLAYER_LOGOUT, before Load
+  and Start Fresh, and a login safety net; only if no entry holds the rules in use); titles "<character> —
+  <kind> — Nov 25, 10:32" (EntryTitle), the date no longer in the summary line; one pin (pinning moves it);
+  newest 20 unpinned kept. Removed: Save Rules and the name box, names, the Pin dialog. Upgrade keeps the
+  most recently pinned entry; older entries show their name or reason in place of the character.
+- History, 2026-11-25 (user): Load has no "are you sure?" (it's safe; Load clicks are ignored for 0.3s after
+  the list redraws, so a double-click can't load the save it just made). No save is made when any save
+  already holds the rules in use (was: only the newest). Active / Previous are tracked by save id
+  (SedimentDB.activeSaveId / previousSaveId, NoteActive): Previous = the save Active before the current one,
+  or the last Active one while edited rules match no save.
+- History preview: dropped (user, 2026-11-25): Load already saves the rules first, so it's a safe way to
+  try a save; History marks the save to roll back to as Previous instead.
+- Unset items (user, 2026-11-25): the Weights list shows both the broad group and the narrower one for the
+  same item (Projectile and Arrow), and nothing ties them together. Options discussed: one orange row per
+  narrower group with an item icon (broad groups set from Select Mode / the popup), pointing to Select Mode
+  instead of listing them, or a step-by-step wizard for what's unset. Decide later.
 - Rules export and import (user, 2026-11-24): copy all rules (weights, flags, keep-out, sink line, default) as a
   text string to share or back up; paste a string to load one. Pairs with weight versions: an export string is
   a snapshot. Questions: replace vs merge on import; include settings (auto-sort options) or rules only.
@@ -191,6 +259,42 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.17.1 also (2026-11-25, user's calls): ns.TEXT names table (nouns + button labels); "Kept" -> "Pinned", with
+  a Pin / Unpin button (left, far from x) that asks for an optional name, pinned saves first by pin time; x in
+  History greys the row with Undo and deletes on window close (no dialog); "Restore previous rules" removed
+  (History's Load covers it); "Reset to default" became Start Fresh (save, clear Weights and keep-out, open
+  Setup); Start Fresh on the first page clears keep-out too; Start Fresh and Continue turn on Blizzard's
+  Combined Backpack (CVar combinedBags, as Blizzard's bag menu sets it) and say so; window 760x600 with one
+  spacing system (Flow, GAP_HELP 6, GAP_GROUP 18, controls centred on their label); wording per "Writing
+  style". Found by the tests: Setup's Combined Backpack notice came back on later runs (cleared per start).
+  A Weight change (typed or removed in Weights, Undo, the weight popup, a History load) now sorts at once,
+  bags open or not (Sort.StartSoon, moved from Setup; user, 2026-11-25: show the outcome). Other settings
+  don't sort.
+  Weights section: one list (user, 2026-11-25). Unset groups are orange rows right after the default's row
+  (where they sort), both the broad and the narrow group for now; once given a Weight a row sorts normally.
+  Above the list, a bright orange line "N items in your bags have no Weight yet." whose space is always kept
+  (text empty when none), so the list never shifts. (Tried and rejected the same day: a separate "Not set"
+  section, first below then above the list, that vanished when everything was set and made the list jump.)
+  Text.lua holds the words under role keys (new file; without it words show as keys and the login check says
+  to restart). Debug > Files (user's idea, 2026-11-25): the .toc version and each expected file loaded or
+  missing. Each file marks ns.loadedFiles itself; ns.FILES (Sediment.lua) drives this and the login check;
+  dev/files_check.lua keeps it equal to the .toc. Open question it answers: does a /reload load a new file
+  on Forever? Answered 2026-11-25: yes. After adding Text.lua to the .toc, a plain /reload (no restart) showed
+  "All 10 files loaded" in Debug > Files. The older "new files need a full client restart" (from 0.0.x/0.7.0)
+  no longer holds, or never did on this client; the login check stays as a safety net.
+  Fixed (user, 2026-11-25): "Fill reagent and profession bags automatically" couldn't be ticked again once
+  off, since 0.14.0: it saved `on and nil or false`, which is always false. The same idiom in
+  dev/resolve_check.lua meant its random levels were never cleared; fixed, and it still passes.
+- 0.17.1 (2026-11-25, user's calls): the gear and /sed open the setup questions' first page while there are
+  no weight rules or a run is unfinished (unless "Don't show this" is ticked: SedimentDB.setupHidden, a new
+  flag so the old welcome's welcomeHidden doesn't hide them), else Settings at Weights; the first page's
+  "Not now" became "Settings". Sections ordered Weights, Special bags, Sorting, History. Defaults as the
+  user's screenshot: auto-sort order Full for everyone who never picked one (Sort.AutoOrder; was Partial
+  for saves older than 0.16.0), Finish now when the bags open mid-sort (was Pause). Done no longer sets
+  the "don't show" flag (with rules set, the gear opens Weights anyway). The first page's buttons are a
+  fixed Start fresh / Continue pair with a status line (see 0.17.0 notes). Weights section: "Click below to
+  enter Select Mode." above the button, what to do while it's on below it. Writing style applied (see
+  "Writing style"); History reasons read "before Setup", "Setup done", "before Start fresh".
 - 0.17.0: the setup questions (the questionnaire planned below), in a new Setup.lua with its own window;
   its first page (the pitch) replaced the welcome screen. Decisions made while building, open to change:
   - Answers are places in an order (Weights ranking), not numbers: float = end of the top part, sink =
@@ -211,14 +315,19 @@ parked for the same reason (per-swap cost isn't noticeable).
   - Generated questions are per item class among unruled items; "Split this up" appears with 2+ subclasses.
     The class question stays in the list marked split, so Back from its first subclass question returns to
     it un-split (it used to be replaced, so Back skipped it).
-  - Start over saves the rules to History, clears the weights (keep-out rules stay) and asks everything
-    again (user, 2026-11-24). It first kept the answers, so classes already answered were never asked again
+  - Starting over (now Start fresh mid-run) saves the rules to History, clears the weights (keep-out rules
+    stay) and asks everything again (user, 2026-11-24). It first kept the answers, so classes already answered were never asked again
     ("consumes didn't resplit"). A new run after Done still keeps earlier answers by design, so only unset
     classes get generated questions.
   - History (user's call, 2026-11-24) replaced the single backup slot, which a reset or a second run after
     Done could overwrite with test answers. The user picked the triggers: setup Done, login, a button, names.
-  - Open: on the first page, users who already have rules could choose "Start fresh" (save, clear, ask
-    everything) or "Keep my rules" (ask only what's unset). Proposed 2026-11-24, not decided.
+  - The first page has two fixed buttons, Start fresh (save to History, clear the weights, keep-out stays,
+    ask everything) and Continue (keep the rules: resume a run, or start one that asks only what's unset;
+    greyed with no rules and no run), with a status line saying which applies (user, 2026-11-25: labels
+    that changed per state, Continue / Start over / Start fresh / Keep my rules / Set up my bags, were
+    confusing). Anyone with rules always gets a fresh start (user, 2026-11-24). The first outside run had no such option: her old rules carried into
+    the review, a likely source of a "random" Light Feather in the list (unconfirmed; the other candidate is
+    a feather in her reagent bag, since the questions count special bags too).
   Settings: Select mode takes an optional click handler and slot labels (used by the neighbours question);
   Settings.SetHighlight. dev/ranking_check.lua, dev/setup_check.lua (mocked frames).
 - 0.16.0: onboarding groundwork. The default rule set is empty (it shipped the developer's opinions; the first

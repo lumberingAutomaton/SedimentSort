@@ -323,6 +323,7 @@ SedimentDB.weights = {
 	classes = { [0] = 10, [2] = 40, [4] = 40, [7] = 30, [12] = 51, [15] = 15 },
 }
 SedimentDB.autoOrder = ORDER
+SedimentDB.openBags = "pause" -- the pause test needs it; the addon's default is "finish" since 0.17.0
 
 local function Total()
 	local n = {}
@@ -616,7 +617,7 @@ do
 	Run(true, true)
 	local finished = ns.Sort.lastMovesByKind.place or 0
 	Check(false)
-	SedimentDB.openBags = nil
+	SedimentDB.openBags = "pause"
 	print(("finish-now test: placement moves %d (uninterrupted %d), pauses %d"):format(finished, plain, (simPauses or 0) - pausesBefore))
 	assert(finished == plain, "finish-now changed the number of placement moves")
 	assert((simPauses or 0) == pausesBefore, "finish-now paused")

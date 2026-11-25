@@ -12,6 +12,8 @@
 -- So whenever the bags are closed, they're in exact order.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["AutoSort.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local AutoSort = {}
 ns.AutoSort = AutoSort
 

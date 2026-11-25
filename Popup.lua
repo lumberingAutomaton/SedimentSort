@@ -4,8 +4,11 @@
 -- to set it; clear the box to make that level inherit. The winning level is marked.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Popup.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Popup = {}
 ns.Popup = Popup
+local N, L = ns.Noun, ns.L -- nouns in sentences, plain words (see Text.lua)
 
 local ROW_HEIGHT = 24
 local WIDTH = 300
@@ -71,13 +74,13 @@ local function Build()
 
 	frame.sortButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.sortButton:SetSize(90, 22)
-	frame.sortButton:SetText("Sort now")
+	frame.sortButton:SetText(L("SortNowButton"))
 	frame.sortButton:SetScript("OnClick", function()
 		ns.Sort.Start()
 	end)
 
 	frame.keepOutHeading = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	frame.keepOutHeading:SetText("Keep in my normal bags:")
+	frame.keepOutHeading:SetText(L("KeepOutRule") .. ":")
 	frame.keepOutHeading:Hide()
 	local function KeepOutBox(tip)
 		local box = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
@@ -102,7 +105,7 @@ local function Build()
 		end)
 		box:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip_SetTitle(GameTooltip, "Keep " .. self.label:GetText() .. " in my normal bags")
+			GameTooltip_SetTitle(GameTooltip, "Keep " .. self.label:GetText() .. " out of special bags")
 			GameTooltip_AddNormalLine(GameTooltip, tip)
 			GameTooltip:Show()
 		end)
@@ -110,14 +113,14 @@ local function Build()
 		box:Hide()
 		return box
 	end
-	frame.keepOutSub = KeepOutBox("Never move items of this kind into a reagent or profession bag. Ones already in "
-		.. "one move back out (when there's room).")
+	frame.keepOutSub = KeepOutBox("Never move any of these into a reagent or profession bag. Ones already in one "
+		.. "move back out (when there's room).")
 	frame.keepOutItem = KeepOutBox("Never move this item (every stack of it) into a reagent or profession bag; "
-		.. "other items of its kind still go in.")
+		.. "the others like it still go in.")
 
 	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.settingsButton:SetSize(80, 22)
-	frame.settingsButton:SetText("Settings")
+	frame.settingsButton:SetText(L("OpenSettingsButton"))
 	frame.settingsButton:SetPoint("RIGHT", frame.sortButton, "LEFT", -6, 0)
 	frame.settingsButton:SetScript("OnClick", function()
 		ns.Settings.Open("Weights")
@@ -181,6 +184,7 @@ local function GetRow(i)
 		local ok, value = ParseBox(box:GetText())
 		if ok and (value ~= nil or (level.kind ~= "default" and level.kind ~= "sinkLine")) then
 			ns.Weights.SetLevel(level.kind, level.key, value)
+			ns.Sort.StartSoon() -- show the outcome now, bags open or not
 		end
 		Popup.Refresh()
 		ns.Settings.Refresh()
@@ -226,7 +230,7 @@ function Popup.Refresh()
 	local levels, winner = ns.Weights.Explain(item)
 	local weight = levels[winner].weight
 	local sinkLine = ns.Weights.SinkLine()
-	frame.summary:SetText(("Weight %s from %s: %s"):format(FormatWeight(weight), levels[winner].label,
+	frame.summary:SetText(("%s %s from %s: %s"):format(N("SortValue"), FormatWeight(weight), levels[winner].label,
 		weight < sinkLine and "floats" or "sinks"))
 
 	-- Rows: every level that applies to this item, then the sink line.
@@ -236,7 +240,7 @@ function Popup.Refresh()
 			shown[#shown + 1] = { level = level, wins = i == winner }
 		end
 	end
-	shown[#shown + 1] = { level = { kind = "sinkLine", label = "Sink line", weight = sinkLine } }
+	shown[#shown + 1] = { level = { kind = "sinkLine", label = L("LootGap"), weight = sinkLine } }
 
 	local y = -76
 	for i, entry in ipairs(shown) do
@@ -268,7 +272,7 @@ function Popup.Refresh()
 		rows[i].level = nil
 	end
 
-	-- "Keep in my normal bags:" a heading, then two short checkboxes on one line: the whole subclass
+	-- "Keep out of special bags:" a heading, then two short checkboxes on one line: the whole subclass
 	-- ("all Cloth", people think "my cloth") and this item ("Mageweave Cloth", every stack of it). The
 	-- heading says what they mean once, so the labels stay short; a long item name is cut off rather than
 	-- spilling out. They're mutually exclusive (one or the other, or neither). Shown only for items a special
@@ -285,7 +289,7 @@ function Popup.Refresh()
 		frame.keepOutHeading:ClearAllPoints()
 		frame.keepOutHeading:SetPoint("TOPLEFT", 12, y - 4)
 		frame.keepOutHeading:Show()
-		frame.keepOutSub.label:SetText("all " .. (item.subclassName or "of this kind"))
+		frame.keepOutSub.label:SetText("all " .. (item.subclassName or "like this"))
 		frame.keepOutSub.kind, frame.keepOutSub.key = "subclass", item.subKey
 		frame.keepOutSub.other = frame.keepOutItem
 		frame.keepOutSub:SetChecked(subOn)
@@ -456,7 +460,7 @@ end
 
 local function RunLabel(run)
 	if run.kind == "auto" then
-		return (run.order or "partial") == "full" and "Full" or "Partial"
+		return (run.order or "partial") == "full" and L("OrderExact") or L("OrderMinimal")
 	end
 	return run.kind == "button" and "Button" or "Scramble"
 end
@@ -589,12 +593,13 @@ function Popup.CreateBagButton()
 	b.icon:SetTexture(ICON)
 	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	b:SetScript("OnClick", function()
-		ns.Settings.Open("Sorting")
+		ns.Settings.OpenDefault() -- the setup questions while there are no rules, else Weights
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "Sediment settings")
-		GameTooltip_AddNormalLine(GameTooltip, "Weights and sorting options.")
+		GameTooltip_AddNormalLine(GameTooltip, "Your " .. N("SortValues") .. " and other settings; " .. N("Onboarding")
+			.. " while you have no rules.")
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)

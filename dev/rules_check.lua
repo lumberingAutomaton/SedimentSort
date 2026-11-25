@@ -4,6 +4,7 @@ Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
 local function Load()
 	local ns = {}
+	assert(loadfile("Text.lua"))("Sediment", ns)
 	assert(loadfile("Weights.lua"))("Sediment", ns)
 	return ns.Weights
 end
@@ -35,78 +36,105 @@ W = Load()
 W.Init()
 assert(SedimentDB.weights.classes[7] == 80 and next(SedimentDB.weights.flags) == nil, "a version-2 save changed")
 
--- History: reset to default saves a version first; restoring loads it and saves the rules it replaces.
+-- History (user, 2026-11-25): Created at Setup done (always new); Snapshot before Load / Start Fresh and at
+-- logout / login, only if no entry holds the rules in use; one pin; Active / Previous.
 local function Count() return #W.History() end
+W.SetCharacter("Rook")
 SedimentDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
 local before = Count()
-W.ResetToDefault()
-assert(not W.HasRules(), "reset left rules behind")
-assert(SedimentDB.keepOut == nil, "reset left keep-out rules")
-assert(Count() == before + 1, "reset didn't save a version")
+W.ClearAll() -- Start Fresh
+assert(not W.HasRules() and SedimentDB.keepOut == nil, "Start Fresh left rules behind")
+assert(Count() == before + 1, "Start Fresh didn't take a Snapshot first")
 local saved = W.History()[1]
-assert(saved.reason == "before Reset to default" and saved.weights.classes[7] == 80 and saved.keepOut.subclasses["7:5"],
-	"the saved version lacks the rules or keep-out")
-assert(W.PreviousVersion() == saved, "previous version isn't the one just saved")
-W.LoadVersion(W.PreviousVersion())
+assert(saved.kind == "snapshot" and saved.character == "Rook" and saved.weights.classes[7] == 80
+	and saved.keepOut.subclasses["7:5"], "the Snapshot lacks kind, character, rules or keep-out")
+assert(W.EntryTitle(saved):match("^Rook — Snapshot — %a%a%a %d+, %d+:%d+$"), "title: " .. W.EntryTitle(saved))
+W.LoadVersion(saved)
 assert(SedimentDB.weights.classes[7] == 80 and SedimentDB.keepOut.subclasses["7:5"], "loading didn't bring rules back")
-assert(W.IsCurrent(saved), "the loaded version isn't marked in use")
-assert(Count() == before + 1, "loading saved the empty rules it replaced")
+assert(W.ActiveSave() == saved, "the loaded entry isn't Active")
+assert(Count() == before + 1, "loading took a Snapshot of empty rules")
 
--- Loading over real rules saves them, so it can be undone (restore twice = back where you were).
-SedimentDB.weights.classes[7] = 55
-W.LoadVersion(W.PreviousVersion())
-assert(SedimentDB.weights.classes[7] == 80, "didn't load the saved version")
-assert(W.PreviousVersion().weights.classes[7] == 55, "the replaced rules weren't saved")
-W.LoadVersion(W.PreviousVersion())
-assert(SedimentDB.weights.classes[7] == 55, "loading back didn't undo")
+-- Load when the rules in use are already an entry: no Snapshot; Previous follows what was Active.
+SedimentDB.weights.classes[7] = 61
+local x = W.Snapshot()
+SedimentDB.weights.classes[7] = 62
+local y = W.Snapshot()
+assert(x and y and x ~= y, "Snapshots of different rules weren't made")
+assert(W.Snapshot() == nil and Count() == Count(), "a Snapshot of rules already saved")
+W.LoadVersion(x)
+local count = Count()
+W.LoadVersion(y)
+assert(Count() == count, "Load took a Snapshot of rules already saved")
+assert(W.ActiveSave() == y and W.PreviousSave() == x, "Previous isn't the entry Active before the Load")
+SedimentDB.weights.classes[7] = 63 -- an edit: nothing Active
+assert(W.ActiveSave() == nil and W.PreviousSave() == y, "after an edit, Previous isn't the last Active entry")
+W.LoadVersion(x)
+assert(Count() == count + 1 and W.History()[1].weights.classes[7] == 63, "Load didn't take a Snapshot of unsaved rules")
 
--- No duplicates in a row; nothing empty unless asked; Save a copy names an unchanged version.
-W.Snapshot("once")
+-- Created: always a new entry, even with rules identical to another.
 local n = Count()
-assert(W.Snapshot("again") == nil and Count() == n, "saved the same rules twice in a row")
-local e, new = W.SaveCopy("  mine ")
-assert(not new and e == W.History()[1] and e.name == "mine", "Save a copy didn't name the unchanged version")
-SedimentDB.weights.classes[7] = 56
-e, new = W.SaveCopy("")
-assert(new and e.name == nil and e.reason == "saved by you", "Save a copy didn't save changed rules")
-W.RenameVersion(e, "named")
-assert(e.name == "named")
-W.DeleteVersion(e)
-assert(W.History()[1] ~= e, "delete didn't remove the version")
-W.ClearWeights()
-assert(SedimentDB.keepOut.subclasses["7:5"], "clearing the weights cleared keep-out rules")
-SedimentDB.keepOut = nil
-assert(W.Snapshot("empty") == nil, "saved an empty rule set")
-assert(W.SaveCopy("blank") and W.History()[1].name == "blank", "Save a copy refused an empty rule set")
+local c1 = W.Created()
+local c2 = W.Created()
+assert(Count() == n + 2 and c1.kind == "created" and c2 ~= c1, "Created didn't always add an entry")
+assert(W.EntryTitle(c1):match("^Rook — Created — "), "Created title: " .. W.EntryTitle(c1))
+assert(W.Snapshot() == nil, "a Snapshot right after Created (same rules)")
 
--- The newest 20 unnamed versions are kept; named ones aren't dropped.
+-- One pin: pinning another moves it; pinned is listed first.
+W.Pin(x)
+W.Pin(y)
+local pins = 0
+for _, e in ipairs(W.History()) do if e.pinned then pins = pins + 1 end end
+assert(pins == 1 and y.pinned and not x.pinned, "more than one pin, or the pin didn't move")
+assert(W.HistoryForDisplay()[1] == y, "the pinned entry isn't first")
+W.Unpin(y)
+assert(not y.pinned, "Unpin didn't")
+W.Pin(y)
+
+-- x marks; Undo unmarks; purge removes.
+W.DeleteVersion(x)
+assert(x.deleted, "x removed at once")
+W.UndeleteVersion(x)
+assert(not x.deleted, "Undo didn't")
+W.DeleteVersion(x)
+W.PurgeDeleted()
+for _, e in ipairs(W.History()) do assert(e ~= x, "purge didn't remove") end
+W.ClearAll()
+assert(W.Snapshot() == nil, "a Snapshot of no rules")
+
+-- The newest 20 unpinned entries are kept; the pinned one isn't dropped.
 for i = 1, 30 do
 	SedimentDB.weights.classes[9] = i
-	W.Snapshot("loop " .. i)
+	W.Snapshot()
 end
-local unnamed, named = 0, 0
-for _, v in ipairs(W.History()) do
-	if v.name then named = named + 1 else unnamed = unnamed + 1 end
-end
-assert(unnamed == 20, "kept " .. unnamed .. " unnamed versions")
-assert(named == 2, "a named version was dropped: " .. named)
-assert(W.History()[1].reason == "loop 30", "newest isn't first")
+local unpinned = 0
+for _, e in ipairs(W.History()) do if not e.pinned then unpinned = unpinned + 1 end end
+assert(unpinned == 20 and y.pinned and W.HistoryForDisplay()[1] == y, "limit or pin wrong: " .. unpinned)
 
--- Login: a version only if the rules changed; the old single backup slot becomes the oldest version.
-n = Count()
+-- Upgrading: older named / pinned entries keep only the most recently pinned; ids are given; marked deletes go.
+W.History()[2].pinned, W.History()[2].name, W.History()[2].pinnedTime = true, "old", "2099-01-01 00:00"
+W.History()[2].character, W.History()[2].kind = nil, nil -- as an entry from before kinds existed
+W.History()[3].deleted = true
+local gone = W.History()[3]
 W.Init()
-W.LoginSnapshot("Testchar")
-assert(Count() == n, "login saved unchanged rules")
--- (An upgrade from 0.16.0: no History yet, the old backup slot filled.)
+pins = 0
+for _, e in ipairs(W.History()) do
+	if e.pinned then pins = pins + 1 end
+	assert(e ~= gone, "a marked delete survived login")
+	assert(e.id, "an entry without an id")
+end
+assert(pins == 1 and W.History()[2].pinned, "upgrade didn't keep exactly the most recently pinned entry")
+assert(W.EntryTitle(W.History()[2]):match("^old — Snapshot — "), "legacy title: " .. W.EntryTitle(W.History()[2]))
+
+-- Upgrading from 0.16.0's single backup slot: it becomes the oldest entry.
 SedimentDB = { weightsVersion = 3, weights = { sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {},
 	classes = { [9] = 99 } } }
 SedimentDB.rulesBackup = { time = "old", reason = "before Reset to default", weights = { sinkLine = 40, default = 39,
 	items = {}, flags = {}, subclasses = {}, classes = { [7] = 1 } } }
 W.Init()
-W.LoginSnapshot("Testchar")
+W.Snapshot() -- login safety net
 local h = W.History()
-assert(#h == 2, "upgrade should give two versions (the old backup, the rules at login), got " .. #h)
-assert(h[1].reason == "Testchar login" and h[1].weights.classes[9] == 99, "login didn't save changed rules")
-assert(h[#h].time == "old" and h[#h].weights.classes[7] == 1, "the old backup didn't become the oldest version")
+assert(#h == 2, "upgrade should give two entries (the old backup, the rules at login), got " .. #h)
+assert(h[1].kind == "snapshot" and h[1].weights.classes[9] == 99, "login didn't snapshot changed rules")
+assert(h[#h].time == "old" and h[#h].weights.classes[7] == 1, "the old backup didn't become the oldest entry")
 assert(SedimentDB.rulesBackup == nil, "the old backup slot is still there")
 print("rules check: new install, migrations, history, reset and restore all OK")

@@ -10,10 +10,10 @@ GameTooltip_AddBlankLineToTooltip GameTooltip_AddInstructionLine GameTooltip_Add
 GameTooltip_SetTitle GameTooltip_Hide HIGHLIGHT_FONT_COLOR SOUNDKIT PlaySound MuteSoundFile UnmuteSoundFile
 BagItemAutoSortButton ContainerFrameCombinedBags BagItemSearchBox IsAnyBagOpen GetInventoryItemID
 NUM_CONTAINER_FRAMES ContainerFrameContainer OpenAllBags
-GetCursorInfo ClearCursor GetCursorPosition GetMouseButtonClicked GetMouseFoci GetMouseFocus
+C_AddOns GetAddOnMetadata GetCursorInfo ClearCursor GetCursorPosition GetMouseButtonClicked GetMouseFoci GetMouseFocus
 UnitName IsAltKeyDown IsControlKeyDown IsShiftKeyDown InCombatLockdown GetTime GetFramerate debugprofilestop
 SlashCmdList SLASH_SEDIMENT1 SLASH_SEDIMENT2 SedimentDB
-StaticPopupDialogs StaticPopup_Show YES NO ACCEPT CANCEL"
+StaticPopupDialogs StaticPopup_Show YES NO ACCEPT CANCEL GetCVar GetCVarBool SetCVar"
 status=0
 for f in *.lua; do
 	luac -p "$f" || { status=1; continue; }

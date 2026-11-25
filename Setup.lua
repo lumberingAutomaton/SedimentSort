@@ -15,13 +15,16 @@
 -- the rules they're about. Back undoes the step it returns to (each step keeps a copy of the weights from
 -- when it was shown); Skip changes nothing; closing the window ("Finish later") keeps the place, saved in
 -- SedimentDB.setup. While it's open, bag slots whose item has no rule of its own are outlined orange and
--- the items the current question is about gold, so you can watch the answers cover the bag. Starting,
--- starting over and Done each save a version of the rules to History (Weights.Snapshot). Start over then
--- clears the weights (keep-out rules stay) and asks everything again.
+-- the items the current question is about gold, so you can watch the answers cover the bag. The first page
+-- has two fixed buttons: Start Fresh (save the rules to History, clear them all, keep-out rules too, ask
+-- everything) and Continue (keep the rules). Starting either way and Done save a version to History.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Setup.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Setup = {}
 ns.Setup = Setup
+local N, B, L = ns.Noun, ns.Btn, ns.L -- nouns, button names in sentences, plain words (see Text.lua)
 
 local HEARTHSTONE = 6948
 local TRADE_GOODS = Enum.ItemClass and Enum.ItemClass.Tradegoods or 7
@@ -38,6 +41,9 @@ local picks = {}      -- the hearthstone neighbours clicked so far, in order (it
 local ownSelect = false
 local reviewSelected  -- the review's selected rung, by its first rule's id
 local Render          -- defined below
+local HasWeightRules    -- defined below
+local noticeIndex       -- the step showing "Sediment turned on Combined Backpack", if any
+local ReviewFocus       -- defined below
 
 local function State()
 	return SedimentDB.setup
@@ -66,8 +72,8 @@ local RULE_TEXT = {
 local function Words()
 	if ns.Weights.Layout() == "middle" then
 		return { float = "Float", sink = "Sink", floats = "floats", sinks = "sinks",
-			floatHelp = "To the top part of your bags, above the empty space.",
-			sinkHelp = "To the bottom part of your bags, below the empty space." }
+			floatHelp = "To the top part of your bags, above the " .. N("LootGap") .. ".",
+			sinkHelp = "To the bottom part of your bags, below the " .. N("LootGap") .. "." }
 	end
 	-- Plain directions only: "above anything that has no rule yet" (where it really goes) meant nothing to
 	-- the user (2026-11-24); the review shows the exact place.
@@ -85,12 +91,9 @@ local function Slots()
 	return slotsCache or ns.Bags.Read()
 end
 
-local function Matches(step, item)
-	if step.t == "hearth" then
-		return item.itemID == HEARTHSTONE
-	elseif step.t ~= "rule" then
-		return false
-	elseif step.kind == "flag" then
+-- Does this question's rule cover the item at all?
+local function Covers(step, item)
+	if step.kind == "flag" then
 		return ns.Weights.ItemFlags(item)[step.key] == true
 	elseif step.kind == "class" then
 		return item.classID == step.key
@@ -100,18 +103,46 @@ local function Matches(step, item)
 	return false
 end
 
+-- Would answering this question decide where the item goes? Only if no more specific rule already does (its
+-- own Weight, or an earlier flag): answering BoE gear can't move a skinning knife you placed yourself, so the
+-- question mustn't list, outline or count it (user, 2026-11-25: it looked like being asked twice).
+local function Matches(step, item)
+	if step.t == "hearth" then
+		return item.itemID == HEARTHSTONE
+	elseif step.t ~= "rule" or not Covers(step, item) then
+		return false
+	end
+	local levels = ns.Weights.Explain(item)
+	for _, level in ipairs(levels) do
+		if level.kind == step.kind and level.key == step.key then
+			return true
+		end
+		if level.applies and level.weight ~= nil then
+			return false -- a more specific rule decides it
+		end
+	end
+	return false
+end
+
 -- The bag items a step is about, and how many of them have no rule of their own.
+-- The items this question would decide, how many of those have no Weight yet, and how many it covers in all
+-- (covered but not decided = placed by a more specific rule).
 local function MatchingItems(step)
-	local list, unruled = {}, 0
+	local list, unruled, covered = {}, 0, 0
 	for _, s in ipairs(Slots()) do
-		if s.item and Matches(step, s.item) then
-			list[#list + 1] = s.item
-			if not ns.Weights.HasOwnRule(s.item) then
-				unruled = unruled + 1
+		if s.item then
+			if step.t == "rule" and Covers(step, s.item) then
+				covered = covered + 1
+			end
+			if Matches(step, s.item) then
+				list[#list + 1] = s.item
+				if not ns.Weights.HasOwnRule(s.item) then
+					unruled = unruled + 1
+				end
 			end
 		end
 	end
-	return list, unruled
+	return list, unruled, covered
 end
 
 local function HasItem(itemID)
@@ -246,41 +277,10 @@ local function Progress(st)
 	return at, n + #Categories(st)
 end
 
--- Sorting live -----------------------------------------------------------------------------------
--- After an answer: a button-speed sort. One that's already running planned with the old weights, so
--- wait for it to end (taking over a paused auto-sort so it ends quickly), then sort again.
-
-local sortWaiting = false
-
-local function SortSoon()
-	if sortWaiting or InCombatLockdown() then
-		return
-	end
-	if not ns.Sort.IsRunning() then
-		ns.Sort.Start()
-		return
-	end
-	if ns.Sort.IsQuiet() then
-		ns.Sort.Start() -- a paused auto-sort: finish it at full speed
-	end
-	sortWaiting = true
-	local function Try()
-		if ns.Sort.IsRunning() then
-			C_Timer.After(0.2, Try)
-			return
-		end
-		sortWaiting = false
-		if not InCombatLockdown() then
-			ns.Sort.Start()
-		end
-	end
-	C_Timer.After(0.2, Try)
-end
-
 local function AfterChange()
 	ns.Popup.Refresh()
 	ns.Settings.Refresh() -- the ladder, if it's open, and the slot highlights
-	SortSoon()
+	ns.Sort.StartSoon()
 end
 
 -- Navigation ---------------------------------------------------------------------------------------
@@ -507,59 +507,73 @@ local function BuildIntro(pane)
 	local body = Text(pane, "GameFontHighlight")
 	body:SetPoint("TOPLEFT")
 	body:SetSpacing(3)
-	body:SetText("Sediment keeps your bags sorted all the time, quietly, while they're closed. You decide the "
-		.. "order: what |cffffd100floats|r to the top, what |cffffd100sinks|r to the bottom, and what sticks "
-		.. "together. New loot lands in the gap between, so you always see what's new.\n\n"
+	body:SetText(N("AddonName") .. " keeps your bags sorted all the time, quietly, while they're closed. You "
+		.. "decide the order: what floats to the top, what sinks to the bottom, and what sticks together. New "
+		.. "loot lands in the " .. N("LootGap") .. " between, so you always see what's new.\n\n"
 		.. "Start broad (\"trade goods sink\") and add exceptions (\"but keep my fishing pole up top\"): the "
 		.. "most specific rule wins. Nothing moves while your bags are open unless you ask, and nothing ever "
 		.. "moves in combat.\n\n"
-		.. "A few questions set it up for what's in your bags now. Each answer sorts them right away, so you "
-		.. "see what it does. Anything not set yet is outlined in orange.")
+		.. N("Onboarding") .. " asks a few questions about what's in your bags now. Each answer sorts them right "
+		.. "away, so you see what it does. Anything not set yet is outlined in orange.")
 	pane.body = body
 
 	local tips = Text(pane, "GameFontDisableSmall")
 	tips:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -14)
-	tips:SetText("Later: Alt+right-click any bag item to change its rule. Right-click the sort button turns "
-		.. "auto-sort on or off; the gear next to it opens the settings, and ? there brings this back.")
+	tips:SetText("Later: Alt+right-click any bag item to change its " .. N("SortValue") .. ". Right-click the sort "
+		.. "button turns auto-sort on or off; the gear next to it opens your " .. N("SortValues") .. ", and ? there "
+		.. "brings this back.")
 
-	pane.start = Button(pane, "Set up my bags", 150)
-	pane.start:SetPoint("BOTTOMLEFT", 0, 34)
-	pane.start:SetScript("OnClick", function()
-		Setup.Start()
-	end)
-	pane.startOver = Button(pane, "Start over", 100)
-	pane.startOver:SetPoint("LEFT", pane.start, "RIGHT", 8, 0)
-	pane.startOver:SetScript("OnClick", function()
-		Setup.Start(true)
-	end)
-	pane.startOver:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Start over")
-		GameTooltip_AddNormalLine(GameTooltip, "Clears your rules and asks everything again from the first question. "
-			.. "Your rules as they are now are saved to History first.")
-		GameTooltip:Show()
-	end)
-	pane.startOver:SetScript("OnLeave", GameTooltip_Hide)
-	pane.notNow = Button(pane, "Not now", 90)
-	pane.notNow:SetPoint("BOTTOMRIGHT", 0, 34)
-	pane.notNow:SetScript("OnClick", function()
+	-- The same two buttons every time (user, 2026-11-25: buttons that change from visit to visit confuse);
+	-- the status line above says what Continue would do. Start fresh: save the rules to History, clear the
+	-- weights, ask everything. Continue: keep the rules, and carry on a run in progress or start one that
+	-- asks only what isn't set; greyed when there's nothing to continue (no rules, no run).
+	local function IntroButton(text, width, action, tip)
+		local b = Button(pane, text, width)
+		b:SetScript("OnClick", action)
+		b:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip_SetTitle(GameTooltip, text)
+			GameTooltip_AddNormalLine(GameTooltip, tip)
+			GameTooltip:Show()
+		end)
+		b:SetScript("OnLeave", GameTooltip_Hide)
+		b:SetMotionScriptsWhileDisabled(true) -- the tooltip explains a greyed Continue too
+		return b
+	end
+	pane.fresh = IntroButton(L("ClearAllButton"), 120, function() Setup.Start(true) end,
+		"Saves your rules to " .. N("SavedRules") .. " (if you have any), clears them (" .. N("SortValues") .. " and "
+		.. L("KeepOutRule") .. "), and asks everything from the first question.")
+	pane.fresh:SetPoint("BOTTOMLEFT", 0, 34)
+	pane.continue = IntroButton(L("ResumeButton"), 110, function() Setup.Start() end,
+		"Keeps your rules. Carries on where you left off, or asks only about what isn't set yet. Nothing to "
+		.. "continue until you have rules or have started.")
+	pane.continue:SetPoint("LEFT", pane.fresh, "RIGHT", 8, 0)
+	pane.status = Text(pane, "GameFontHighlight") -- white, so the gold button names show
+	pane.status:SetPoint("BOTTOMLEFT", pane.fresh, "TOPLEFT", 0, 10)
+	-- The gear opens this page while there are no rules, so it needs a way on to the settings (the X just closes).
+	pane.settings = Button(pane, L("OpenSettingsButton"), 90)
+	pane.settings:SetPoint("BOTTOMRIGHT", 0, 34)
+	pane.settings:SetScript("OnClick", function()
 		frame:Hide()
+		ns.Settings.Open("Weights")
 	end)
 
 	local dontShow = CreateFrame("CheckButton", nil, pane, "UICheckButtonTemplate")
 	dontShow:SetSize(24, 24)
 	dontShow:SetPoint("BOTTOMLEFT", -4, 0)
 	dontShow:SetScript("OnClick", function(self)
-		SedimentDB.welcomeHidden = self:GetChecked() and true or nil
+		SedimentDB.setupHidden = self:GetChecked() and true or nil
 	end)
 	local dontShowText = pane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	dontShowText:SetPoint("LEFT", dontShow, "RIGHT", 4, 0)
-	dontShowText:SetText("Don't show this when the settings open")
+	dontShowText:SetText("Don't show this; open the settings instead")
 	pane.dontShow = dontShow
 end
 
 local function BuildQuestion(pane)
+	pane.notice = Text(pane, "GameFontGreenSmall")
 	pane.text = Text(pane, "GameFontHighlight")
+	pane.text.gapAbove = 8
 	pane.help = Text(pane, "GameFontDisableSmall")
 	pane.now = Text(pane, "GameFontNormalSmall")
 	pane.now.gapAbove = 6
@@ -619,21 +633,22 @@ local function BuildQuestion(pane)
 	pane.legend:SetPoint("BOTTOMLEFT", 0, 32)
 	pane.legend:SetText("In your bags: |cffff8020orange|r = not set yet, |cffffd926gold|r = what this question is about.")
 
-	pane.back = Button(pane, "Back", 70)
+	pane.back = Button(pane, L("PrevQuestionButton"), 70)
 	pane.back:SetPoint("BOTTOMLEFT")
 	pane.back:SetScript("OnClick", Back)
-	pane.skip = Button(pane, "Skip", 70)
+	pane.skip = Button(pane, L("SkipQuestionButton"), 70)
 	pane.skip:SetPoint("LEFT", pane.back, "RIGHT", 6, 0)
 	pane.skip:SetScript("OnClick", Forward)
-	pane.later = Button(pane, "Finish later", 100)
+	pane.later = Button(pane, L("LeaveSetupButton"), 100)
 	pane.later:SetPoint("BOTTOMRIGHT")
 	pane.later:SetScript("OnClick", function()
 		frame:Hide()
 	end)
 	pane.later:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "Finish later")
-		GameTooltip_AddNormalLine(GameTooltip, "Your answers so far are kept. Open the settings and click ? to carry on.")
+		GameTooltip_SetTitle(GameTooltip, L("LeaveSetupButton"))
+		GameTooltip_AddNormalLine(GameTooltip, "Your answers so far are saved. Click the gear on your bag, then "
+			.. B("ResumeButton") .. ", to carry on.")
 		GameTooltip:Show()
 	end)
 	pane.later:SetScript("OnLeave", GameTooltip_Hide)
@@ -678,6 +693,24 @@ local function MoveTarget(i, dir)
 	return reviewList[j] and j or nil
 end
 
+-- In the review, the selected row's items get the gold outline: those whose winning rule is one of that
+-- row's rules (user, 2026-11-25: clicking a row should show what it covers in the bag).
+function ReviewFocus(item)
+	local i = reviewSelected and RungIndex(reviewSelected)
+	local rung = i and reviewList[i]
+	if not rung or not rung.rules then
+		return false
+	end
+	local levels, winner = ns.Weights.Explain(item)
+	local won = RuleId(levels[winner].kind, levels[winner].key)
+	for _, r in ipairs(rung.rules) do
+		if RuleId(r.kind, r.key) == won then
+			return true
+		end
+	end
+	return false
+end
+
 local function MoveSelected(dir)
 	local i = RungIndex(reviewSelected)
 	local j = i and MoveTarget(i, dir)
@@ -695,8 +728,8 @@ end
 local function BuildReview(pane)
 	pane.help = Text(pane, "GameFontDisableSmall")
 	pane.help:SetPoint("TOPLEFT")
-	pane.help:SetText("Top to bottom, the way your bags are now. Click a row, then move it; each move sorts "
-		.. "your bags. Rules nearer the top come first.")
+	pane.help:SetText("Top to bottom, the way your bags are now. Click a row, then " .. B("RowUpButton") .. " or "
+		.. B("RowDownButton") .. "; each move sorts your bags.")
 
 	local scroll = CreateFrame("ScrollFrame", nil, pane, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", 0, -34)
@@ -705,21 +738,21 @@ local function BuildReview(pane)
 	reviewChild:SetSize(PANE_W - 140, 100)
 	scroll:SetScrollChild(reviewChild)
 
-	pane.up = Button(pane, "Move up", 90)
+	pane.up = Button(pane, L("RowUpButton"), 90)
 	pane.up:SetPoint("TOPRIGHT", 0, -40)
 	pane.up:SetScript("OnClick", function()
 		MoveSelected(-1)
 	end)
-	pane.down = Button(pane, "Move down", 90)
+	pane.down = Button(pane, L("RowDownButton"), 90)
 	pane.down:SetPoint("TOPRIGHT", pane.up, "BOTTOMRIGHT", 0, -6)
 	pane.down:SetScript("OnClick", function()
 		MoveSelected(1)
 	end)
 
-	pane.back = Button(pane, "Back", 70)
+	pane.back = Button(pane, L("PrevQuestionButton"), 70)
 	pane.back:SetPoint("BOTTOMLEFT")
 	pane.back:SetScript("OnClick", Back)
-	pane.done = Button(pane, "Done", 90)
+	pane.done = Button(pane, L("FinishSetupButton"), 90)
 	pane.done:SetPoint("BOTTOMRIGHT")
 	pane.done:SetScript("OnClick", function()
 		Setup.Finish()
@@ -802,7 +835,7 @@ local function RenderReview(pane)
 			row.lines[1]:Show()
 			row.lines[2]:Show()
 			row.label:SetPoint("CENTER")
-			row.label:SetText("empty space (and anything not set)")
+			row.label:SetText(L("LootGap"))
 			row.label:SetTextColor(1, 0.7, 0.3)
 			row:EnableMouse(false)
 		else
@@ -854,12 +887,12 @@ local function Build()
 		SedimentDB.setupPos = { x = self:GetLeft(), y = self:GetTop() } -- kept, like the weight popup
 	end)
 	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		bgFile = "Interface\\Buttons\\WHITE8X8", -- solid, like the settings window
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
 		tile = true, tileSize = 16, edgeSize = 16,
 		insets = { left = 4, right = 4, top = 4, bottom = 4 },
 	})
-	frame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
+	frame:SetBackdropColor(0.05, 0.05, 0.05, 1) -- opaque, like the settings window
 	frame:Hide()
 	tinsert(UISpecialFrames, "SedimentSetup") -- Escape closes it (= Finish later)
 
@@ -942,8 +975,8 @@ local function NowText(kind, key)
 end
 
 local function RenderLayout(pane)
-	frame.title:SetText("Your empty space")
-	SetShownText(pane.text, "Where do you want the empty space in your bags? New loot lands there, so that's "
+	frame.title:SetText("Your " .. L("LootGap"))
+	SetShownText(pane.text, "Where do you want the " .. N("LootGap") .. " in your bags? New loot lands there, so that's "
 		.. "where you'll see what's new.")
 	SetShownText(pane.help, "Either way, things you put higher up come first. In the middle, the next questions "
 		.. "ask float or sink; otherwise, higher up or lower down.")
@@ -956,8 +989,8 @@ local function RenderLayout(pane)
 		end }
 	end
 	SetChoices(pane, {
-		Choice("middle", "In the middle", "Some things float to the top, others sink to the bottom; the gap is "
-			.. "between them."),
+		Choice("middle", "In the middle", "Some things float to the top, others sink to the bottom; the "
+			.. N("LootGap") .. " is between them."),
 		Choice("bottom", "At the bottom", "Everything packed from the top, like a normal bag sort."),
 		Choice("top", "At the top", "Everything packed toward the bottom of your bags."),
 	})
@@ -971,9 +1004,9 @@ local function RenderHearth(pane, step)
 	SetShownText(pane.now, now and ("Now: " .. NowText("item", HEARTHSTONE) .. ".") or "Now: not set.")
 	SetIcons(pane, { HEARTHSTONE })
 	local layout = ns.Weights.Layout()
-	local firstHelp = layout == "top" and "At the top, just below the empty space."
+	local firstHelp = layout == "top" and "At the top, just below the " .. N("LootGap") .. "."
 		or "Top left, before everything else."
-	local lastHelp = layout == "bottom" and "After everything else, just before the empty space."
+	local lastHelp = layout == "bottom" and "After everything else, just before the " .. N("LootGap") .. "."
 		or "Bottom right, after everything else."
 	SetChoices(pane, {
 		{ label = "First", help = firstHelp, onClick = function()
@@ -1003,12 +1036,14 @@ end
 local function RenderRule(pane, step)
 	local id = RuleId(step.kind, step.key)
 	local fixed = RULE_TEXT[id]
-	local items, unruled = MatchingItems(step)
+	local items, unruled, covered = MatchingItems(step)
 	local name = ns.Settings.RuleLabel(step.kind, step.key)
 	frame.title:SetText(fixed and fixed.title or name)
 	SetShownText(pane.text, fixed and fixed.text or "Where should these go?")
 	local count
-	if #items == 0 then
+	if #items == 0 and covered > 0 then
+		count = "Everything in your bags that this covers already has its own " .. N("SortValue") .. "."
+	elseif #items == 0 then
 		count = "None in your bags right now; this is for when you have some."
 	elseif unruled == #items then
 		count = ("In your bags: %d item%s, none set yet."):format(#items, #items == 1 and "" or "s")
@@ -1050,7 +1085,7 @@ local function RenderRule(pane, step)
 				local classID, subclassID = subKey:match("^(%-?%d+):(%-?%d+)$")
 				names[#names + 1] = C_Item.GetItemSubClassInfo(tonumber(classID), tonumber(subclassID)) or subKey
 			end
-			choices[3] = { label = "Split this up", help = ("One question each: %s."):format(table.concat(names, ", ")),
+			choices[3] = { label = L("SplitGroupButton"), help = ("One question each: %s."):format(table.concat(names, ", ")),
 				onClick = Split }
 		end
 	end
@@ -1067,15 +1102,18 @@ local function RenderIntro()
 		at, total = Progress(st)
 	end
 	if st and st.steps[st.index] then
-		pane.start:SetText(at and ("Continue (%d of %d)"):format(at, total) or "Continue")
-		pane.start:SetWidth(at and 170 or 120)
-		pane.startOver:Show()
+		pane.status:SetText(B("ResumeButton") .. " to finish " .. N("Onboarding")
+			.. (at and (" (question %d of %d)."):format(at, total) or "."))
+		pane.continue:SetEnabled(true)
+	elseif HasWeightRules() then
+		pane.status:SetText(B("ResumeButton") .. " to use your existing rules, or " .. B("ClearAllButton")
+			.. " to set them up from scratch.")
+		pane.continue:SetEnabled(true)
 	else
-		pane.start:SetText("Set up my bags")
-		pane.start:SetWidth(150)
-		pane.startOver:Hide()
+		pane.status:SetText(B("ClearAllButton") .. " to begin.")
+		pane.continue:SetEnabled(false)
 	end
-	pane.dontShow:SetChecked(SedimentDB.welcomeHidden and true or false)
+	pane.dontShow:SetChecked(SedimentDB.setupHidden and true or false)
 end
 
 local function RenderNow()
@@ -1102,6 +1140,8 @@ local function RenderNow()
 	ns.Settings.SetHighlight(true, function(item)
 		if step.t == "neighbors" then
 			return PickIndex(item.itemID) ~= nil
+		elseif step.t == "review" then
+			return ReviewFocus(item)
 		end
 		return Matches(step, item)
 	end)
@@ -1122,7 +1162,9 @@ local function RenderNow()
 	else
 		RenderRule(pane, step)
 	end
-	Stack(pane, { pane.text, pane.help, pane.now, pane.iconRow, pane.choices[1], pane.choices[2], pane.choices[3] }, 4)
+	SetShownText(pane.notice, noticeIndex == st.index and (N("AddonName") .. " turned on Blizzard's Combined Backpack: "
+		.. "it sorts in that window's order.") or nil)
+	Stack(pane, { pane.notice, pane.text, pane.help, pane.now, pane.iconRow, pane.choices[1], pane.choices[2], pane.choices[3] }, 4)
 end
 
 function Render()
@@ -1159,10 +1201,26 @@ function Setup.ShowIntro(auto)
 	Render()
 end
 
--- Start (or carry on). over: save the rules to History, clear the weights (keep-out rules stay; the
--- questions don't ask about them) and ask everything from the first question. (It first kept the answers,
--- which looked broken, then went back to the rules from before the run; the user wanted a fresh start,
--- 2026-11-24. The rules from before the run are in History either way.)
+-- Any weight rules (items, flags, subclasses, classes)? Keep-out rules don't count: Start fresh leaves them.
+function HasWeightRules()
+	local w = SedimentDB.weights
+	return next(w.items) ~= nil or next(w.flags) ~= nil or next(w.subclasses) ~= nil or next(w.classes) ~= nil
+end
+
+-- Sediment's top-to-bottom order is the Combined Backpack's, so Setup needs Blizzard's Combined Backpack on
+-- (user, 2026-11-25: turn it on when they start Setup, Start Fresh or Continue, never at login). The same
+-- call Blizzard's own bag menu makes; its bag code re-lays out open bags. Returns true if it was off.
+local function EnsureCombinedBackpack()
+	if GetCVar("combinedBags") ~= nil and not GetCVarBool("combinedBags") then
+		SetCVar("combinedBags", 1)
+		return true
+	end
+	return false
+end
+
+-- Start (or carry on). over (Start Fresh): save the rules to History, clear them all (Weights and keep-out
+-- rules: a fresh start, user 2026-11-25) and ask everything from the first question. Otherwise Continue: carry
+-- on a run, or start one that keeps the rules. (Start over first kept the answers, which looked broken.)
 function Setup.Start(over)
 	if InCombatLockdown() then
 		return
@@ -1173,19 +1231,18 @@ function Setup.Start(over)
 	local st = State()
 	local resume = st and st.steps[st.index] and not over
 	if not resume then
-		if st then
-			ns.Weights.Snapshot("before starting the setup questions over")
-			ns.Weights.ClearWeights()
-		else
-			ns.Weights.Snapshot("before the setup questions")
+		if over then
+			ns.Weights.ClearAll() -- a Snapshot of the rules first, if they aren't in History
 		end
 		SedimentDB.setup = { steps = StaticSteps(), index = 0 }
-		if st then
+		if over then
 			AfterChange()
 		end
 	end
 	page = "steps"
 	ns.Settings.Close() -- out of the way: the bags and this window are what matter now
+	local turnedOn = EnsureCombinedBackpack()
+	noticeIndex = nil -- only this start's notice, if any
 	OpenAllBags()
 	frame:Show()
 	frame:Raise()
@@ -1200,16 +1257,40 @@ function Setup.Start(over)
 	else
 		Forward()
 	end
+	if turnedOn then
+		-- Say so where they're looking (the question page) and in chat.
+		noticeIndex = State().index
+		ns.Print(N("AddonName") .. " turned on Blizzard's Combined Backpack (it sorts in that window's order).")
+		Render()
+	end
 end
 
 -- Done (the review's button): the run is over, the intro stops opening by itself.
 function Setup.Finish()
-	ns.Weights.Snapshot("setup questions done")
+	ns.Weights.Created()
 	SedimentDB.setup = nil
-	SedimentDB.welcomeHidden = true
 	page = "intro"
 	frame:Hide()
-	ns.Print("set up. Alt+right-click any bag item to change its rule; the gear on the bag opens the settings.")
+	ns.Print(N("Onboarding") .. " done. Alt+right-click any bag item to change its " .. N("SortValue")
+		.. "; the gear on the bag opens your " .. N("SortValues") .. ".")
+end
+
+-- Should the gear and /sed open this (rather than Weights)? While there are no rules or a run isn't finished,
+-- unless "Don't show this" is ticked. (SedimentDB.setupHidden: a new flag, so dismissing the old welcome
+-- screen, welcomeHidden, doesn't hide these.)
+function Setup.Wanted()
+	local st = State()
+	return not SedimentDB.setupHidden and (not HasWeightRules() or (st ~= nil and st.steps[st.index] ~= nil))
+end
+
+function Setup.IsShown()
+	return frame ~= nil and frame:IsShown()
+end
+
+function Setup.Raise()
+	if frame then
+		frame:Raise()
+	end
 end
 
 function Setup.Close()

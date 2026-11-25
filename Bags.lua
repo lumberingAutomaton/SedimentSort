@@ -7,6 +7,8 @@
 -- assumed from its slot.
 
 local _, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Bags.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Bags = {}
 ns.Bags = Bags
 

@@ -3,22 +3,42 @@
 -- tab (debug mode) both read that list, so they can't drift apart.
 
 local ADDON, ns = ...
+ns.loadedFiles = ns.loadedFiles or {}
+ns.loadedFiles["Sediment.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+local N = ns.Noun -- Sediment's nouns in its colour (see Text.lua)
 
 function ns.Print(msg)
 	print("|cffc8a96eSediment:|r " .. msg)
 end
 local Print = ns.Print
 
+-- Every file the addon expects, in .toc order. Each marks itself in ns.loadedFiles as it loads; the login
+-- check and the Debug > Files section compare the two (dev/files_check.lua keeps this list equal to the .toc).
+ns.FILES = { "Text.lua", "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Popup.lua",
+	"Settings.lua", "Setup.lua", "Sediment.lua" }
+ns.ADDON = ADDON
+
+-- Files in ns.FILES that didn't load (a /reload may not pick up a file new to the .toc; a restart does).
+function ns.MissingFiles()
+	local missing = {}
+	for _, file in ipairs(ns.FILES) do
+		if not ns.loadedFiles[file] then
+			missing[#missing + 1] = file
+		end
+	end
+	return missing
+end
+
 -- Every /sed command, in the order they're listed. usage = what to type; text = what it does.
 ns.COMMANDS = {
-	{ usage = "/sed", text = "Open the settings window (also /sed config, /sed settings)." },
+	{ usage = "/sed", text = "Open the settings at your " .. N("SortValues") .. ", or " .. N("Onboarding") .. " while you have no rules (also /sed config, /sed settings)." },
 	{ usage = "/sed sort", text = "Sort the bags now, the same as clicking the sort button." },
 	{ usage = "/sed cancel", text = "Stop a sort that's running." },
 	{ usage = "/sed auto", text = "Turn auto-sort on or off (or right-click the sort button)." },
 	{ usage = "/sed status", text = "What auto-sort is waiting for, and what the last sort cost (also /sed auto?)." },
 	{ usage = "/sed delay [seconds]", text = "Show or set how long auto-sort waits after the bags change." },
 	{ usage = "/sed budget [ms]", text = "Show or set auto-sort's smoothness: time per frame it may spend moving items." },
-	{ usage = "/sed why", text = "Hover a bag item, then run this: its weight rules in chat." },
+	{ usage = "/sed why", text = "Hover a bag item, then run this: its " .. N("SortValue") .. " rules in chat." },
 	{ usage = "/sed bench", text = "Open the Testing section (needs debug mode)." },
 	{ usage = "/sed scan", text = "List every item's class, subclass, quality and flags in chat." },
 	{ usage = "/sed mutetest", text = "Mute the item pick-up/put-down sounds for 15 seconds, to check muting works." },
@@ -28,8 +48,8 @@ ns.COMMANDS = {
 -- Mouse shortcuts, listed with the commands.
 ns.SHORTCUTS = {
 	{ usage = "Sort button", text = "Left-click: sort now. Right-click: turn auto-sort on or off." },
-	{ usage = "Gear button", text = "Open the settings window (next to the sort button)." },
-	{ usage = "Alt+right-click", text = "On any bag item: its weight popup." },
+	{ usage = "Gear button", text = "Next to the sort button: the settings at your " .. N("SortValues") .. ", or " .. N("Onboarding") .. " while you have no rules." },
+	{ usage = "Alt+right-click", text = "On any bag item: its " .. N("SortValue") .. " popup." },
 }
 
 local function PrintHelp()
@@ -45,7 +65,7 @@ end
 
 local function ShowButtonTooltip(button)
 	GameTooltip:SetOwner(button)
-	GameTooltip_SetTitle(GameTooltip, "Sediment: sort by weight", HIGHLIGHT_FONT_COLOR)
+	GameTooltip_SetTitle(GameTooltip, "Sediment: sort by Weight", HIGHLIGHT_FONT_COLOR)
 	if ns.Sort.IsRunning() and ns.Sort.IsQuiet() then
 		GameTooltip_AddNormalLine(GameTooltip, "Auto-sort waiting for the bags to close. Click to finish it now.")
 	elseif ns.Sort.IsRunning() then
@@ -259,8 +279,8 @@ local function Why()
 	end
 	local levels, winner = ns.Weights.Explain(item)
 	local weight = levels[winner].weight
-	Print(("%s: weight %s from %s (sink line %s, so it %s)."):format(item.link, FormatWeight(weight),
-		levels[winner].label, ns.Weights.SinkLine(), weight < ns.Weights.SinkLine() and "floats" or "sinks"))
+	Print(("%s: %s %s from %s (%s at %s, so it %s)."):format(item.link, N("SortValue"), FormatWeight(weight),
+		levels[winner].label, N("LootGap"), ns.Weights.SinkLine(), weight < ns.Weights.SinkLine() and "floats" or "sinks"))
 	for i, level in ipairs(levels) do
 		local mark = i == winner and "  <- wins" or ""
 		local note = level.applies and "" or " (doesn't apply)"
@@ -343,6 +363,7 @@ frame:RegisterEvent("BAG_UPDATE_DELAYED")
 frame:RegisterEvent("QUEST_LOG_UPDATE")
 frame:RegisterEvent("PLAYER_REGEN_DISABLED")
 frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+frame:RegisterEvent("PLAYER_LOGOUT")
 frame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == ADDON then
 		SedimentDB = SedimentDB or {}
@@ -350,24 +371,25 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Weights.Init()
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "PLAYER_LOGIN" then
-		-- /reload doesn't pick up files newly added to the .toc; only a full client restart does.
-		-- Without them the rest of the addon can't work, so say so instead of failing quietly.
-		local missing = {}
-		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup", "Settings", "Setup" }) do
-			if not ns[module] then
-				missing[#missing + 1] = module .. ".lua"
-			end
-		end
+		-- A file new to the .toc may not load on a /reload (a full restart always works). Without it the rest
+		-- of the addon can't work, so say so instead of failing quietly. Debug > Files shows the same list.
+		local missing = ns.MissingFiles()
 		if #missing > 0 then
 			Print("|cffff6666not loaded: " .. table.concat(missing, ", ")
 				.. ". Exit WoW completely and start it again (a /reload isn't enough for new files).|r")
 			self:UnregisterAllEvents()
 			return
 		end
-		ns.Weights.LoginSnapshot(UnitName("player"))
+		ns.Weights.SetCharacter(UnitName("player"))
+		ns.Weights.Snapshot() -- safety net; logout normally takes it (only if the rules aren't in History)
 		TakeOverSortButton()
 		ns.Popup.Hook()
 		ns.Popup.CreateBagButton()
+	elseif event == "PLAYER_LOGOUT" then
+		-- Logout, quit and /reload all fire this before WoW writes saved data: a Snapshot of the rules if
+		-- they've changed (user, 2026-11-25: logout rather than login; a crash skips it, but then the
+		-- session's changes aren't written either).
+		ns.Weights.Snapshot()
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.AutoSort.OnEnteringWorld()
 	elseif event == "GET_ITEM_INFO_RECEIVED" then
