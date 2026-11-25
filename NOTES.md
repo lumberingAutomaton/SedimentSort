@@ -64,6 +64,53 @@ set flag is read per slot from the game and is part of an item's identity, so it
 checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
 pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
+## Planned: onboarding questionnaire and empty starter rules (designed 2026-11-24, not built)
+Why: first real user feedback (2026-11-24): onboarding was hard (didn't use "Set weights", didn't realize OK did
+anything), the default weights were bad (they carried the developer's opinions, e.g. hearthstone on top, and a
+weight for a Blacksmith Hammer the user didn't have), and they wanted to keep items out of the reagent bag.
+
+Decisions (user, 2026-11-24):
+- **Start with no rules.** Tied items fall back to the full order (class > subclass > item), so with no rules
+  Sediment behaves like an ordinary by-type bag sort; weights add preferences on top. The starter set (and
+  "Reset to starter weights") becomes empty; existing users' saved weights are untouched.
+- **New installs default auto-sort to the Full order.** With no rules everything ties, and Partial keeps tied
+  items where they are, so a new user's bag would never get organized. Partial stays as the option for people
+  with weights.
+- **A questionnaire instead of a wall of text**, with Back on every step and Skip on every question.
+
+The questionnaire:
+1. Layout first: "Where do you want your empty space?" Middle (Sediment's float/sink split; sink line 50),
+   bottom (everything packed from the top, like a normal sort; sink line >= 100) or top (everything packed
+   from the bottom; sink line <= 0). This is the "sink line at 0 or 100" case, in plain words. Later
+   questions say "float/sink" in the middle layout and "near the start/end" in the packed ones.
+2. Fixed questions, each sorting live (button speed; the bags are open):
+   - Hearthstone: first or last?
+   - Anything you want next to your hearthstone? Select mode opens; click items; OK sorts.
+   - Gray junk: float or sink?
+   - Trade goods: float or sink?
+3. Special cases, only if the player has such items: Equipment set items (keep together, near the top?),
+   BoE gear (float or sink?), spare bags/containers (float or sink?), Quest items.
+4. N more questions generated from the item classes actually in the bags, ordered by how many items each
+   covers (so the first answers sort most of the bag). "Split this up" on big classes asks per subclass
+   (e.g. Consumables -> Potions / Food & Drink / Bandages). The remaining questions are the "Not set" list.
+5. Review: the resulting stack top to bottom, with up/down arrows to reorder and the sink line between the
+   halves. This is where "ranking instead of numbers" lands: answers assign rungs, the review orders them,
+   numbers stay hidden.
+- Progress ("4 of 9"), Skip, Back (undoes that step's rules and re-sorts), "Finish later" (remembers the
+  step). Re-runnable from the ? / welcome later; answers only overwrite the rules they're about.
+- Pitch (draft): "Your bags, always in your order. Sediment keeps your bags sorted all the time, quietly,
+  while they're closed. You decide the order: what floats to the top, what sinks to the bottom, and what
+  sticks together. New loot lands in the gap between, so you always see what's new. Start broad ('trade goods
+  sink') and add exceptions ('but keep my fishing pole up top'): the most specific rule wins."
+
+Separately (same feedback): **keep items out of special bags.** A "Keep in my normal bags" checkbox in the
+weight popup (per item, maybe per category); such items are never transferred into a special bag, and ones
+already there are moved back out (a new phase: today nothing leaves a special bag). Maybe also a switch to turn
+reagent-bag filling off entirely.
+
+Order to build (proposed): keep-out-of-special-bags -> empty starter rules + Full default for new installs ->
+questionnaire.
+
 ## Matching vs the proven minimum (2026-11-24)
 External review (pasted by the user): PlanPlacement matches identical items/empties greedily (fixed points,
 direct pairs, then slot order), which can make fewer, longer chains; swaps = misplaced - chains, so it can
