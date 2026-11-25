@@ -105,6 +105,46 @@ function Bags.SetKeepOut(kind, key, on)
 	t[key] = on and true or nil
 end
 
+-- Every keep-out rule, for the settings window's Special bags tab: { kind = "subclass"|"item", key }.
+function Bags.KeepOutRules()
+	local ko, list = KeepOutTable(), {}
+	if ko then
+		for key in pairs(ko.subclasses) do
+			list[#list + 1] = { kind = "subclass", key = key }
+		end
+		for key in pairs(ko.items) do
+			list[#list + 1] = { kind = "item", key = key }
+		end
+	end
+	return list
+end
+
+-- The special bags the player has right now: { bag, name, slots, kind = "reagent"|"family" }.
+function Bags.SpecialBags()
+	local list = {}
+	local bags = {}
+	for bag = FIRST_BAG, LAST_BAG do
+		bags[#bags + 1] = bag
+	end
+	if REAGENT_BAG then
+		bags[#bags + 1] = REAGENT_BAG
+	end
+	for _, bag in ipairs(bags) do
+		local info = Bags.Describe(bag)
+		if info and info.zone ~= "main" then
+			local inv = C_Container.ContainerIDToInventoryID(bag)
+			local bagItem = inv and GetInventoryItemID("player", inv)
+			list[#list + 1] = {
+				bag = bag,
+				name = bagItem and C_Item.GetItemNameByID(bagItem) or "special bag",
+				slots = C_Container.GetContainerNumSlots(bag),
+				kind = info.kind,
+			}
+		end
+	end
+	return list
+end
+
 -- "Fill reagent and profession bags automatically" (Settings > Sorting; on unless switched off). Off: nothing
 -- is moved into special bags; what's already in them stays and is still sorted there.
 function Bags.FillSpecialBags()

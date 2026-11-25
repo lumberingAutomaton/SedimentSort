@@ -27,7 +27,8 @@ User-facing overview: README.md. This section is the developer's view; history i
   2s after login. Bags opening mid-sort: pause (default; the plan is kept) or finish now (SedimentDB.openBags).
   Quiet in chat; item sounds muted during sorts (Sound.lua); the gliding sweep shows progress.
 - **UI**: sort button (left: sort, right: toggle auto-sort); a gear next to it opens Settings (Settings.lua):
-  Weights (Select mode, ladder, reset), Sorting (auto-sort options, Debug mode), and in debug mode Testing
+  a section list like WoW's Options window: Weights (Select mode, ladder, reset), Sorting (auto-sort
+  options, Debug mode), Special bags (bags, fill switch, keep-out rules), and in debug mode Testing
   (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
   /sed help). A welcome screen shows on opening until dismissed; ? brings it back. Alt+right-click popup
   (Popup.lua). Every Sediment window closes and Select mode ends in combat.
@@ -40,10 +41,6 @@ In-game tests left:
   nothing new goes in.
 
 Code left:
-- HIGH PRIORITY (user, 2026-11-24): a place to review keep-out rules ("Keep all Cloth / Keep all Silk Cloth in my
-  normal bags"), with remove buttons. Not on the Sorting tab (user). Today they're only visible in the popup.
-  Options to discuss: a section in the Weights tab's ladder, or the rule rows themselves (e.g. a "kept out"
-  marker on Cloth's row), or its own small tab.
 - From the first outside user's feedback (see "Planned: onboarding questionnaire" below), in this order:
   keep items out of special bags (built, 0.14.0); empty starter rules + Full auto-sort order for new installs; the
   questionnaire (layout question, fixed + per-class + special-case questions, Back/Skip/Finish later, review).
@@ -51,6 +48,9 @@ Code left:
   browser (today "Not set" only lists categories in the bags).
 
 Ideas / parked (decided not now):
+- Rules export and import (user, 2026-11-24): copy all rules (weights, flags, keep-out, sink line, default) as a
+  text string to share or back up; paste a string to load one. Pairs with weight versions: an export string is
+  a snapshot. Questions: replace vs merge on import; include settings (auto-sort options) or rules only.
 - Sort demo on the welcome screen (user, 2026-11-24, optional): snapshot the bags, sort them to a sample set of
   weights so a new user sees it work, with Undo restoring the snapshot.
 - Reverse (user, 2026-11-24): flip the whole layout so light items (hearthstone, "good stuff") pack from the
@@ -152,6 +152,14 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.15.0: Special bags tab (user's call: its own tab, not the Sorting tab nor ladder rows; the ladder only lists
+  weighted rules, so Cloth usually has no row there). Shows the special bags the player has (Bags.SpecialBags),
+  the "Fill reagent and profession bags automatically" switch (moved from Sorting) and every keep-out rule
+  (Bags.KeepOutRules: categories first) with x; removal greys the row with Undo, no re-sort under the mouse;
+  the list rebuilds when the section shows or a rule is added from the popup. The tab row is replaced by a
+  section list on the left like WoW's Options window (user: tabs would run out of space as it grows): grouped
+  entries (Sediment; Debug only in debug mode), the selected one highlighted, its name over the pane. Window
+  600 wide (140px list). UI text says "section" instead of "tab".
 - 0.14.3: keep-out checkboxes compacted (the long "Keep all Mageweave Cloth in my normal bags" ran off the popup):
   a "Keep in my normal bags:" heading, then "all Cloth" and "<item>" side by side; a long item name is cut off.
   Mutually exclusive (user): ticking one clears the other's rule.

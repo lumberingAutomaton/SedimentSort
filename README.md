@@ -9,7 +9,7 @@ While your bags are closed, Sediment keeps them in order quietly in the backgrou
 Open the settings with the **gear** next to the bag's sort button (or `/sed`). The first time, a short
 welcome explains the idea; the **?** next to the title brings it back.
 
-Then give your items weights: on the **Weights** tab, turn **Select mode** on (it opens your bags) and
+Then give your items weights: on the **Weights** section, turn **Select mode** on (it opens your bags) and
 click items in them. Each slot shows its current weight (orange means it's using the default); clicking an item opens
 its weight popup. Lower numbers float, higher numbers sink. **Alt+right-click** any bag item opens the
 same popup without the settings window.
@@ -29,8 +29,8 @@ same popup without the settings window.
   holds what it accepts, wherever it sits. Items that belong there are moved in, and each special bag is
   sorted on its own. To keep things out, Alt+right-click one and, under **Keep in my normal bags**, tick
   **all Cloth** (its whole kind) or just that item (e.g. **Silk Cloth**); ones already in a special bag move
-  back out. To stop filling special bags at all, untick **Fill reagent and profession bags
-  automatically** on the Sorting tab.
+  back out. The **Special bags** section in the settings lists every such rule (x removes one, with Undo)
+  and has a switch to stop filling special bags at all.
 - **Equipment sets** stay together, and identical stacks always sit side by side, with the partial
   stack last.
 - Every normal bag is sorted: Blizzard's per-bag "Ignore cleanup" option is ignored.
@@ -49,7 +49,8 @@ same popup without the settings window.
 
 ## Settings
 
-The settings window closes in combat, along with everything else Sediment opens, so a click in combat
+The settings window lists its sections on the left, like WoW's own Options window; the Debug group only
+appears in debug mode. It closes in combat, along with everything else Sediment opens, so a click in combat
 always does what you expect.
 
 - **Weights:** Select mode (above), and every weight you've set, light to heavy, with the sink line
@@ -58,10 +59,13 @@ always does what you expect.
 - **Sorting:** auto-sort on/off; its order (**Partial**: only what the weights require, fewest moves, or
   **Full**: the exact order, like the sort button); how long it waits after changes; how smoothly it
   runs; and whether opening the bags mid-sort pauses it or finishes it at once. **Debug mode** reveals
-  two more tabs:
+  two more sections:
+- **Special bags:** the special bags you have; **Fill reagent and profession bags automatically**
+  (off: nothing is moved in, what's there stays and is still sorted); and everything you keep in your
+  normal bags (all Cloth, Silk Cloth, ...), with x to remove (Undo puts it back).
 - **Testing** (debug mode): scramble the bags with a seed (Drift, Minimal, Full or Maximal; the same
   seed on the same sorted bag makes the same mess), then let auto-sort clean up. An optional one-line
-  status text under the bag's search box shows what the last sort cost (hover for details), and the tab
+  status text under the bag's search box shows what the last sort cost (hover for details), and the section
   lists recent sorts.
 - **Commands** (debug mode): every `/sed` command and mouse shortcut.
 
@@ -77,7 +81,7 @@ always does what you expect.
 | `/sed delay [seconds]` | Show or set how long auto-sort waits after the bags change. |
 | `/sed budget [ms]` | Show or set auto-sort's smoothness: time per frame it may spend moving items. |
 | `/sed why` | Hover a bag item, then run this: its weight rules in chat. |
-| `/sed bench` | Open the Testing tab (needs debug mode). |
+| `/sed bench` | Open the Testing section (needs debug mode). |
 | `/sed scan` | List every item's class, subclass, quality and flags in chat. |
 | `/sed mutetest` | Mute the item pick-up/put-down sounds for 15 seconds, to check muting works. |
 | `/sed help` | List these commands in chat. |

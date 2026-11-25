@@ -1,14 +1,16 @@
--- Settings: the Sediment window. Opened with the button left of the bag's sort button (Sorting tab),
--- /sed, or the Settings button in the weight popup (Weights tab). It closes in combat.
+-- Settings: the Sediment window. A section list on the left (like WoW's Options window), the selected
+-- section on the right. Opened with the gear left of the bag's sort button (Sorting), /sed, or the
+-- Settings button in the weight popup (Weights). It closes in combat.
 --
--- Weights tab: select mode (click bag items to set their weights), and the ladder: every weight you've set (items, flags, subclasses, classes, the default), sorted light to
--- heavy, with the sink line drawn across at its value. Edit any number in place, or clear a rule with
--- the x. Under it, "Not set": the categories among your current bag items that fall through to the
--- default weight, with a box to give each one a weight. So you see what's set and what's missing.
--- Sorting tab: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
--- "Debug mode", which reveals the Testing tab (seeded scrambles, status text, recent sorts) and the
--- Commands tab (every /sed command). A welcome screen explains the idea when the window opens, until
--- "Don't show this again"; the ? next to the title brings it back.
+-- Weights: Select mode (click bag items to set their weights) and the ladder: every weight you've set
+--   (items, flags, subclasses, classes, the default), light to heavy, with the sink line drawn across.
+--   Edit in place; x removes a rule (with Undo). "Not set": categories in the bags still on the default.
+-- Sorting: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
+--   "Debug mode", which adds a Debug group: Testing (seeded scrambles, status text, recent sorts) and
+--   Commands (every /sed command).
+-- Special bags: the special bags you have, the fill switch, and the keep-out rules with x/Undo.
+-- A welcome screen explains the idea when the window opens, until "Don't show this again"; the ? next to
+-- the title brings it back.
 --
 -- Numbers are still what's stored and edited. The ladder is laid out so it could become a ranking
 -- (move rules between rungs instead of typing numbers) without changing anything underneath.
@@ -18,7 +20,17 @@ local Settings = {}
 ns.Settings = Settings
 local Print = function(msg) ns.Print(msg) end
 
-local WIDTH, HEIGHT = 470, 520
+-- Layout like WoW's own Options window: a section list on the left (grouped, with a Debug group that only
+-- shows in debug mode), the selected section's settings on the right under its name. A list scales to any
+-- number of sections, where a row of tabs ran out of width at five.
+local WIDTH, HEIGHT = 600, 520
+local NAV_W = 140                         -- the section list
+local CONTENT_X = NAV_W + 24              -- where the settings pane starts
+local CONTENT_W = WIDTH - CONTENT_X - 14  -- the settings pane's width
+local NAV_GROUPS = {
+	{ header = "Sediment", items = { "Weights", "Sorting", "Special bags" } },
+	{ header = "Debug", items = { "Testing", "Commands" }, debug = true },
+}
 local ROW_HEIGHT = 22
 
 local KIND_ORDER = { item = 1, flag = 2, subclass = 3, class = 4, default = 5 }
@@ -178,7 +190,7 @@ local function GetRow(i)
 		return row
 	end
 	row = CreateFrame("Frame", nil, ladderChild)
-	row:SetSize(WIDTH - 60, ROW_HEIGHT)
+	row:SetSize(CONTENT_W - 30, ROW_HEIGHT)
 
 	row.box = NewBox(row)
 	row.box:SetPoint("LEFT", 6, 0)
@@ -576,7 +588,7 @@ local function BuildWeightsPage(page)
 	scroll:SetPoint("TOPLEFT", 0, -46)
 	scroll:SetPoint("BOTTOMRIGHT", -26, 34)
 	ladderChild = CreateFrame("Frame", nil, scroll)
-	ladderChild:SetSize(WIDTH - 60, 100)
+	ladderChild:SetSize(CONTENT_W - 30, 100)
 	scroll:SetScrollChild(ladderChild)
 
 	local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
@@ -676,6 +688,39 @@ StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
 
 local ShowTab -- defined below
 
+-- Lay out the section list: group headers and their entries, the Debug group only in debug mode.
+function Settings.LayoutNav()
+	if not frame or not frame.nav then
+		return
+	end
+	local y = -8
+	for _, group in ipairs(NAV_GROUPS) do
+		local visible = not group.debug or SedimentDB.testingTools
+		local header = frame.navHeaders[group.header]
+		header:SetShown(visible)
+		header.bar:SetShown(visible)
+		if visible then
+			header:ClearAllPoints()
+			header:SetPoint("TOPLEFT", frame.nav, "TOPLEFT", 10, y - 3)
+			header.bar:ClearAllPoints()
+			header.bar:SetPoint("TOPLEFT", frame.nav, "TOPLEFT", 4, y)
+			header.bar:SetPoint("RIGHT", frame.nav, "RIGHT", -4, 0)
+			header.bar:SetHeight(18)
+			y = y - 22
+		end
+		for _, name in ipairs(group.items) do
+			local entry = tabs[name]
+			entry:SetShown(visible)
+			if visible then
+				entry:ClearAllPoints()
+				entry:SetPoint("TOPLEFT", frame.nav, "TOPLEFT", 6, y)
+				y = y - 19
+			end
+		end
+		y = y - 8
+	end
+end
+
 local function BuildSortingPage(page)
 	page.refreshers = {}
 	CheckRow(page, 0, "Sort automatically while the bags are closed", ns.AutoSort.IsEnabled, function(on)
@@ -699,13 +744,6 @@ local function BuildSortingPage(page)
 		"How much time per frame, on average, auto-sort may spend moving items. Lower is smoother but "
 		.. "slower. The sort button always goes full speed.",
 		ns.Sort.BudgetMs, function(n) SedimentDB.streamBudgetMs = math.max(0.01, math.min(50, n)) end)
-	local _, fillText = CheckRow(page, -276, "Fill reagent and profession bags automatically",
-		ns.Bags.FillSpecialBags, function(on)
-			SedimentDB.fillSpecialBags = on and nil or false
-			ns.AutoSort.Resume()
-		end)
-	HelpText(page, fillText, "Off: Sediment never moves anything into those bags; what's already in them stays "
-		.. "and is still sorted there. To keep single items out, Alt+right-click them.")
 	ChoiceRow(page, -212, "If the bags open during an auto-sort", 100,
 		ns.Sort.OpenBagsMode, function(v) SedimentDB.openBags = v end, {
 			{ value = "pause", label = "Pause", help = "Nothing moves while the bags are open; the sort "
@@ -713,16 +751,15 @@ local function BuildSortingPage(page)
 			{ value = "finish", label = "Finish now", help = "Everything left goes out at once, so the bag "
 				.. "settles within about half a second of opening. Expect a short stutter." },
 		})
-	local _, debugText = CheckRow(page, -340, "Debug mode",
+	local _, debugText = CheckRow(page, -280, "Debug mode",
 		function() return SedimentDB.testingTools and true or false end,
 		function(on)
 			SedimentDB.testingTools = on
-			tabs.Testing:SetShown(on)
-			tabs.Commands:SetShown(on)
+			Settings.LayoutNav()
 			ns.Popup.BenchRefresh()
 		end)
-	HelpText(page, debugText, "Adds the Testing tab (seeded scrambles, recent sorts, a status line in the bag) and "
-		.. "the Commands tab (every /sed command).")
+	HelpText(page, debugText, "Adds a Debug group to the list on the left: Testing (seeded scrambles, recent sorts, "
+		.. "a status line in the bag) and Commands (every /sed command).")
 end
 
 local function BuildTestingPage(page)
@@ -805,6 +842,152 @@ local function BuildTestingPage(page)
 	end
 end
 
+-- Special bags tab: which special bags you have, the fill switch, and every keep-out rule ("Keep in my
+-- normal bags": all Cloth, or one item) with x to remove it. Removing doesn't re-sort the list: the row
+-- greys out with Undo, so nothing moves under the mouse. Rules are added from the weight popup.
+local specialRows = {}
+
+local function KeepOutLabel(rule)
+	if rule.kind == "subclass" then
+		local classID, subclassID = rule.key:match("^(%-?%d+):(%-?%d+)$")
+		local name = C_Item.GetItemSubClassInfo(tonumber(classID), tonumber(subclassID))
+		return "all " .. (name or rule.key), "category"
+	end
+	return ItemLabel(rule.key), "item"
+end
+
+local function BuildSpecialPage(page)
+	page.refreshers = {}
+	local bagsText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	bagsText:SetPoint("TOPLEFT", 4, 0)
+	bagsText:SetPoint("RIGHT", -8, 0)
+	bagsText:SetJustifyH("LEFT")
+	page.refreshers[#page.refreshers + 1] = function()
+		local names = {}
+		for _, b in ipairs(ns.Bags.SpecialBags()) do
+			names[#names + 1] = ("%s (%d slots)"):format(b.name, b.slots)
+		end
+		bagsText:SetText("|cffffd100Your special bags:|r " .. (#names > 0 and table.concat(names, ", ")
+			or "none right now (reagent bags and profession bags like herb or mining bags)"))
+	end
+
+	local _, fillText = CheckRow(page, -24, "Fill reagent and profession bags automatically",
+		ns.Bags.FillSpecialBags, function(on)
+			SedimentDB.fillSpecialBags = on and nil or false
+			ns.AutoSort.Resume()
+		end)
+	HelpText(page, fillText, "Off: Sediment never moves anything into those bags; what's already in them stays "
+		.. "and is still sorted there.")
+
+	local heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	heading:SetPoint("TOPLEFT", 4, -78)
+	heading:SetText("Kept in your normal bags")
+	local hint = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	hint:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -3)
+	hint:SetPoint("RIGHT", -8, 0)
+	hint:SetJustifyH("LEFT")
+	hint:SetText("To add one, Alt+right-click an item (or use Select mode in the Weights section) and tick a box under "
+		.. "\"Keep in my normal bags\".")
+
+	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 0, -112)
+	scroll:SetPoint("BOTTOMRIGHT", -26, 0)
+	local child = CreateFrame("Frame", nil, scroll)
+	child:SetSize(CONTENT_W - 30, 100)
+	scroll:SetScrollChild(child)
+
+	local function Row(i)
+		local row = specialRows[i]
+		if row then
+			return row
+		end
+		row = CreateFrame("Frame", nil, child)
+		row:SetSize(CONTENT_W - 30, ROW_HEIGHT)
+		row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		row.label:SetPoint("LEFT", 8, 0)
+		row.label:SetJustifyH("LEFT")
+		row.kind = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+		row.kind:SetPoint("LEFT", 260, 0)
+		row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+		row.remove:SetSize(20, 20)
+		row.remove:SetPoint("RIGHT", -2, 0)
+		row.remove:SetScript("OnClick", function()
+			if row.rule and not row.removed then
+				ns.Bags.SetKeepOut(row.rule.kind, row.rule.key, false)
+				row.removed = true
+				row.label:SetText(row.text .. " |cff888888(removed)|r")
+				row.label:SetTextColor(0.5, 0.5, 0.5)
+				row.remove:Hide()
+				row.undo:Show()
+				ns.AutoSort.Resume()
+				ns.Popup.Refresh()
+			end
+		end)
+		row.undo = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+		row.undo:SetSize(52, 18)
+		row.undo:SetPoint("RIGHT", -2, 0)
+		row.undo:SetText("Undo")
+		row.undo:SetScript("OnClick", function()
+			if row.rule and row.removed then
+				ns.Bags.SetKeepOut(row.rule.kind, row.rule.key, true)
+				row.removed = nil
+				row.label:SetText(row.text)
+				row.label:SetTextColor(1, 1, 1)
+				row.undo:Hide()
+				row.remove:Show()
+				ns.AutoSort.Resume()
+				ns.Popup.Refresh()
+			end
+		end)
+		specialRows[i] = row
+		return row
+	end
+
+	-- Rebuilt only when the tab is shown or the window opens, never while clicking (removal greys a row).
+	function Settings.RefreshSpecialList()
+		local rules = ns.Bags.KeepOutRules()
+		local labelled = {}
+		for _, rule in ipairs(rules) do
+			local text, kind = KeepOutLabel(rule)
+			labelled[#labelled + 1] = { rule = rule, text = text, kind = kind }
+		end
+		table.sort(labelled, function(a, b)
+			if a.kind ~= b.kind then
+				return a.kind < b.kind -- categories first
+			end
+			return a.text < b.text
+		end)
+		for i, e in ipairs(labelled) do
+			local row = Row(i)
+			row.rule, row.text, row.removed = e.rule, e.text, nil
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_HEIGHT)
+			row.label:SetText(e.text)
+			row.label:SetTextColor(1, 1, 1)
+			row.kind:SetText(e.kind)
+			row.remove:Show()
+			row.undo:Hide()
+			row:Show()
+		end
+		for i = #labelled + 1, #specialRows do
+			specialRows[i]:Hide()
+			specialRows[i].rule = nil
+		end
+		if #labelled == 0 then
+			local row = Row(1)
+			row.rule = nil
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", 0, 0)
+			row.label:SetText("|cff888888Nothing yet: everything a special bag takes goes into it.|r")
+			row.kind:SetText("")
+			row.remove:Hide()
+			row.undo:Hide()
+			row:Show()
+		end
+		child:SetHeight(math.max(1, #labelled) * ROW_HEIGHT + 4)
+	end
+end
+
 -- Commands tab (debug mode): every /sed command and the mouse shortcuts, from the same lists /sed help
 -- uses (ns.COMMANDS, ns.SHORTCUTS in Sediment.lua).
 local function BuildCommandsPage(page)
@@ -858,7 +1041,7 @@ local function BuildWelcome()
 		.. "heavy ones |cffffd100sink|r to the bottom, and the space in between is where new loot lands.\n\n"
 		.. "While your bags are closed, Sediment keeps them in order quietly in the background. "
 		.. "Nothing moves while they're open, and nothing ever moves in combat.\n\n"
-		.. "|cffffd100Get started:|r give your items weights. Turn on |cffffd100Select mode|r on the Weights tab, "
+		.. "|cffffd100Get started:|r give your items weights. Turn on |cffffd100Select mode|r in the Weights section, "
 		.. "then click any item in your bags to set its weight. Lower numbers float, higher numbers sink.\n\n"
 		.. "|cffffd100Tips:|r Alt+right-click any bag item to set its weight without opening this window. "
 		.. "Right-click the sort button to turn auto-sort on or off. The gear next to it opens this window.")
@@ -912,14 +1095,17 @@ function ShowTab(name)
 	for key, page in pairs(pages) do
 		page:SetShown(key == name)
 	end
-	for key, tab in pairs(tabs) do
-		if key == name then
-			tab:LockHighlight()
-		else
-			tab:UnlockHighlight()
-		end
+	for key, entry in pairs(tabs) do
+		entry.selected:SetShown(key == name)
+		entry.text:SetTextColor(key == name and 1 or 0.9, key == name and 0.82 or 0.9, key == name and 0 or 0.9)
+	end
+	if frame.pageTitle then
+		frame.pageTitle:SetText(name)
 	end
 	Settings.currentTab = name
+	if name == "Special bags" and Settings.RefreshSpecialList then
+		Settings.RefreshSpecialList()
+	end
 	Settings.Refresh()
 end
 
@@ -965,29 +1151,66 @@ local function Build()
 	end)
 	help:SetScript("OnLeave", GameTooltip_Hide)
 
-	local x = 132 -- after the title and ?; four 72px tabs end clear of the close button
-	for _, name in ipairs({ "Weights", "Sorting", "Testing", "Commands" }) do
-		local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		tab:SetSize(72, 22)
-		tab:SetPoint("TOPLEFT", x, -10)
-		tab:SetText(name)
-		tab:SetScript("OnClick", function()
-			ShowTab(name)
-		end)
-		tabs[name] = tab
-		x = x + 75
-
-		local page = CreateFrame("Frame", nil, frame)
-		page:SetPoint("TOPLEFT", 14, -42)
-		page:SetPoint("BOTTOMRIGHT", -12, 12)
-		page:Hide()
-		pages[name] = page
+	-- The section list.
+	local nav = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	nav:SetPoint("TOPLEFT", 10, -40)
+	nav:SetPoint("BOTTOMLEFT", 10, 10)
+	nav:SetWidth(NAV_W)
+	nav:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	})
+	nav:SetBackdropColor(0, 0, 0, 0.5)
+	frame.nav = nav
+	frame.navHeaders = {}
+	for _, group in ipairs(NAV_GROUPS) do
+		local header = nav:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		header:SetText(group.header)
+		header.bar = nav:CreateTexture(nil, "BACKGROUND")
+		header.bar:SetColorTexture(1, 0.82, 0, 0.12)
+		frame.navHeaders[group.header] = header
+		for _, name in ipairs(group.items) do
+			local entry = CreateFrame("Button", nil, nav)
+			entry:SetSize(NAV_W - 12, 18)
+			entry.text = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			entry.text:SetPoint("LEFT", 14, 0)
+			entry.text:SetText(name)
+			entry:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+			entry.selected = entry:CreateTexture(nil, "BACKGROUND")
+			entry.selected:SetAllPoints()
+			entry.selected:SetColorTexture(1, 0.82, 0, 0.25)
+			entry.selected:Hide()
+			entry:SetScript("OnClick", function()
+				ShowTab(name)
+			end)
+			tabs[name] = entry
+		end
 	end
-	tabs.Testing:SetShown(SedimentDB.testingTools and true or false)
-	tabs.Commands:SetShown(SedimentDB.testingTools and true or false)
+
+	-- The settings pane: the section's name, then its settings.
+	frame.pageTitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+	frame.pageTitle:SetPoint("TOPLEFT", CONTENT_X, -42)
+	local rule = frame:CreateTexture(nil, "ARTWORK")
+	rule:SetColorTexture(1, 0.82, 0, 0.25)
+	rule:SetHeight(1)
+	rule:SetPoint("TOPLEFT", CONTENT_X, -64)
+	rule:SetPoint("RIGHT", -14, 0)
+	for _, group in ipairs(NAV_GROUPS) do
+		for _, name in ipairs(group.items) do
+			local page = CreateFrame("Frame", nil, frame)
+			page:SetPoint("TOPLEFT", CONTENT_X, -72)
+			page:SetPoint("BOTTOMRIGHT", -12, 12)
+			page:Hide()
+			pages[name] = page
+		end
+	end
+	Settings.LayoutNav()
 	BuildWeightsPage(pages.Weights)
 	BuildSortingPage(pages.Sorting)
 	BuildTestingPage(pages.Testing)
+	BuildSpecialPage(pages["Special bags"])
 	BuildCommandsPage(pages.Commands)
 	frame:SetScript("OnShow", function()
 		Settings.Refresh()
@@ -1020,6 +1243,9 @@ function Settings.Refresh()
 	end
 	if pages.Testing:IsShown() then
 		RunRefreshers(pages.Testing)
+	end
+	if pages["Special bags"]:IsShown() then
+		RunRefreshers(pages["Special bags"])
 	end
 end
 

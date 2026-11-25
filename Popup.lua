@@ -95,6 +95,9 @@ local function Build()
 			end
 			ns.AutoSort.Resume()
 			Popup.Refresh()
+			if ns.Settings.RefreshSpecialList then
+				ns.Settings.RefreshSpecialList() -- the Special bags section's list (the mouse is here, not there)
+			end
 			ns.Settings.Refresh()
 		end)
 		box:SetScript("OnEnter", function(self)

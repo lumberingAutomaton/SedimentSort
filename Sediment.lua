@@ -19,7 +19,7 @@ ns.COMMANDS = {
 	{ usage = "/sed delay [seconds]", text = "Show or set how long auto-sort waits after the bags change." },
 	{ usage = "/sed budget [ms]", text = "Show or set auto-sort's smoothness: time per frame it may spend moving items." },
 	{ usage = "/sed why", text = "Hover a bag item, then run this: its weight rules in chat." },
-	{ usage = "/sed bench", text = "Open the Testing tab (needs debug mode)." },
+	{ usage = "/sed bench", text = "Open the Testing section (needs debug mode)." },
 	{ usage = "/sed scan", text = "List every item's class, subclass, quality and flags in chat." },
 	{ usage = "/sed mutetest", text = "Mute the item pick-up/put-down sounds for 15 seconds, to check muting works." },
 	{ usage = "/sed help", text = "List these commands in chat." },
@@ -317,7 +317,7 @@ SlashCmdList.SEDIMENT = function(msg)
 		ns.AutoSort.Status()
 	elseif cmd == "bench" then
 		if not SedimentDB.testingTools then
-			Print("turn on \"Debug mode\" in the Sorting tab first.")
+			Print("turn on \"Debug mode\" in the Sorting section first.")
 			ns.Settings.Open("Sorting")
 		else
 			ns.Settings.Open("Testing")
