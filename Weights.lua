@@ -130,7 +130,8 @@ function Weights.Explain(item)
 		levels[#levels + 1] = { kind = kind, key = key, label = label, weight = weight, applies = applies }
 	end
 
-	Add("item", item.itemID, "This item", w.items[item.itemID], true)
+	-- Named, with "(this type)": an item weight covers every stack of that item, not one slot.
+	Add("item", item.itemID, (item.name or "This item") .. " (this type)", w.items[item.itemID], true)
 	local flags = ItemFlags(item)
 	for _, flag in ipairs(FLAG_ORDER) do
 		Add("flag", flag, FLAG_LABELS[flag], w.flags[flag], flags[flag] or false)
@@ -174,7 +175,7 @@ function Weights.Resolve(item)
 	local w = SedimentDB.weights
 	local v = w.items[item.itemID]
 	if v ~= nil then
-		return v, "This item"
+		return v, (item.name or "This item") .. " (this type)"
 	end
 	local flags = w.flags
 	if item.inEquipmentSet and flags.equipmentSet ~= nil then

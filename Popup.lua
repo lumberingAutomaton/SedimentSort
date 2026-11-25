@@ -96,8 +96,8 @@ local function Build()
 	end
 	frame.keepOutSub = KeepOutBox("Keep all of these in my normal bags", "Never move items of this kind into a "
 		.. "reagent or profession bag. Ones already in one move back out (when there's room).")
-	frame.keepOutItem = KeepOutBox("Keep just this item in my normal bags", "Never move this one item into a "
-		.. "reagent or profession bag, whatever the box above says.")
+	frame.keepOutItem = KeepOutBox("Keep all of this item in my normal bags", "Never move this item (every "
+		.. "stack of it) into a reagent or profession bag, whatever the box above says.")
 
 	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.settingsButton:SetSize(80, 22)
@@ -253,7 +253,8 @@ function Popup.Refresh()
 	end
 
 	-- "Keep ... in my normal bags": only for items a special bag would take, or that are in one now. Two
-	-- boxes: the whole subclass (people think "my cloth") and just this item.
+	-- boxes, each naming what it covers: the whole subclass ("Keep all Cloth ...", people think "my cloth")
+	-- and this item type ("Keep all Silk Cloth ...": every stack of it, not one slot).
 	local inSpecial = false
 	for _, sl in ipairs(ns.Bags.Read()) do
 		if sl.bag == current.bag and sl.slot == current.slot then
@@ -268,6 +269,7 @@ function Popup.Refresh()
 		frame.keepOutSub:ClearAllPoints()
 		frame.keepOutSub:SetPoint("TOPLEFT", 8, y - 2)
 		frame.keepOutSub:Show()
+		frame.keepOutItem.label:SetText(("Keep all %s in my normal bags"):format(item.name or "of this item"))
 		frame.keepOutItem.kind, frame.keepOutItem.key = "item", item.itemID
 		frame.keepOutItem:SetChecked(ns.Bags.KeepOutRule("item", item.itemID))
 		frame.keepOutItem:ClearAllPoints()

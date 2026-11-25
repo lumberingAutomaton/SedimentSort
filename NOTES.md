@@ -35,11 +35,11 @@ User-facing overview: README.md. This section is the developer's view; history i
 ## To do (updated 2026-11-24)
 In-game tests left:
 - 0.14.0: Alt+right-click some cloth, tick "Keep all Cloth in my normal bags": every cloth leaves
-  the reagent bag and stays out. Untick: it goes back in. "Keep just this item" does the same for one item. Sorting tab "Fill reagent and profession bags automatically" off:
+  the reagent bag and stays out. Untick: it goes back in. "Keep all Silk Cloth" does the same for one item type. Sorting tab "Fill reagent and profession bags automatically" off:
   nothing new goes in.
 
 Code left:
-- HIGH PRIORITY (user, 2026-11-24): a place to review keep-out rules ("Keep all Cloth / just this item in my
+- HIGH PRIORITY (user, 2026-11-24): a place to review keep-out rules ("Keep all Cloth / Keep all Silk Cloth in my
   normal bags"), with remove buttons. Not on the Sorting tab (user). Today they're only visible in the popup.
   Options to discuss: a section in the Weights tab's ladder, or the rule rows themselves (e.g. a "kept out"
   marker on Cloth's row), or its own small tab.
@@ -151,8 +151,11 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.14.1: wording. The item-level keep-out box named the item ("Keep all Silk Cloth in my normal bags"), not "Keep
+  just this item", which read like one stack; item weights everywhere read "<Item> (this type)" instead of
+  "This item". Both cover every stack of that item.
 - 0.14.0: keep items out of special bags (first outside user's feedback: she didn't want her cloth in the
-  reagent bag, so it works per subclass: "Keep all Cloth in my normal bags", plus "Keep just this item"). Two
+  reagent bag, so it works per subclass: "Keep all Cloth in my normal bags", plus one item type: "Keep all Silk Cloth"). Two
   checkboxes in the weight popup (shown for items a special bag would take or that are in one;
   SedimentDB.keepOut = { items, subclasses }; an early per-item-only format converts):
   never transferred in; a new evict phase (after merge, before transfer) moves ones already in a special bag to
