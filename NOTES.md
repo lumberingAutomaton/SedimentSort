@@ -152,8 +152,8 @@ parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
 - 0.14.1: wording. The item-level keep-out box named the item ("Keep all Silk Cloth in my normal bags"), not "Keep
-  just this item", which read like one stack; item weights everywhere read "<Item> (this type)" instead of
-  "This item". Both cover every stack of that item.
+  just this item", which read like one stack; item weights read with the item's name ("Silk Cloth") instead of
+  "This item" (a "(this type)" suffix was tried and dropped, user: just the name). Both cover every stack.
 - 0.14.0: keep items out of special bags (first outside user's feedback: she didn't want her cloth in the
   reagent bag, so it works per subclass: "Keep all Cloth in my normal bags", plus one item type: "Keep all Silk Cloth"). Two
   checkboxes in the weight popup (shown for items a special bag would take or that are in one;
