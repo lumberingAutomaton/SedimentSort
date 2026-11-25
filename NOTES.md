@@ -34,16 +34,17 @@ User-facing overview: README.md. This section is the developer's view; history i
   (Popup.lua). Every Sediment window closes and Select mode ends in combat.
 
 ## To do (updated 2026-11-24)
-In-game tests left:
-- 0.14.0: Alt+right-click some cloth, tick "Keep all Cloth in my normal bags": every cloth leaves
-  the reagent bag and stays out. Untick: it goes back in. The item box does the same for one item; the two are
-  mutually exclusive. Sorting tab "Fill reagent and profession bags automatically" off:
-  nothing new goes in.
+In-game tests left: none.
 
 Code left:
-- From the first outside user's feedback (see "Planned: onboarding questionnaire" below), in this order:
-  keep items out of special bags (built, 0.14.0); empty starter rules + Full auto-sort order for new installs; the
-  questionnaire (layout question, fixed + per-class + special-case questions, Back/Skip/Finish later, review).
+- Onboarding (see "Planned: onboarding questionnaire" below), agreed 2026-11-24, in this order:
+  1. "Reset to starter weights" -> "Reset to default"; the default rule set becomes empty for new installs;
+     new installs (no saved rules) default auto-sort to the Full order; existing users keep their rules.
+  2. Back up the rules automatically before onboarding changes anything, if there are existing rules, with a
+     "Restore my previous rules" button.
+  3. The questionnaire, whose first page replaces the welcome screen; it walks through getting the bag right
+     with what's in it now. While it runs, bag slots with no rule of their own ("no sort for this") are
+     highlighted, so progress is visible as answers cover them.
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
 
