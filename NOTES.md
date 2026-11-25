@@ -36,6 +36,9 @@ User-facing overview: README.md. This section is the developer's view; history i
 In-game tests left: none.
 
 Code left:
+- From the first outside user's feedback (see "Planned: onboarding questionnaire" below), in this order:
+  keep items out of special bags; empty starter rules + Full auto-sort order for new installs; the
+  questionnaire (layout question, fixed + per-class + special-case questions, Back/Skip/Finish later, review).
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
 
