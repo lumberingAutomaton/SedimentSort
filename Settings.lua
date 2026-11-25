@@ -9,8 +9,10 @@
 --   "Debug mode", which adds a Debug group: Testing (seeded scrambles, status text, recent sorts) and
 --   Commands (every /sed command).
 -- Special bags: the special bags you have, the fill switch, and the keep-out rules with x/Undo.
--- A welcome screen explains the idea when the window opens, until "Don't show this again"; the ? next to
--- the title brings it back.
+-- History: saved versions of the rules (Weights.Snapshot and friends), newest first, with Load, Name and x;
+--   "Save a copy" (optionally named) at the top.
+-- The setup questions (Setup.lua) open with the window, until "Don't show this again" or they're done;
+-- the ? next to the title brings their first page back. (It replaced the old welcome screen.)
 --
 -- Numbers are still what's stored and edited. The ladder is laid out so it could become a ranking
 -- (move rules between rungs instead of typing numbers) without changing anything underneath.
@@ -28,7 +30,7 @@ local NAV_W = 140                         -- the section list
 local CONTENT_X = NAV_W + 24              -- where the settings pane starts
 local CONTENT_W = WIDTH - CONTENT_X - 14  -- the settings pane's width
 local NAV_GROUPS = {
-	{ header = "Sediment", items = { "Weights", "Sorting", "Special bags" } },
+	{ header = "Sediment", items = { "Weights", "Sorting", "Special bags", "History" } },
 	{ header = "Debug", items = { "Testing", "Commands" }, debug = true },
 }
 local ROW_HEIGHT = 22
@@ -91,6 +93,20 @@ local function SubclassLabel(key)
 	classID, subclassID = tonumber(classID), tonumber(subclassID)
 	local sub = classID and subclassID and C_Item.GetItemSubClassInfo(classID, subclassID)
 	return ("%s (%s)"):format(sub or key, classID and ClassLabel(classID) or "?")
+end
+
+-- A rule's name (and icon, for items), for the setup questions' review list.
+function Settings.RuleLabel(kind, key)
+	if kind == "item" then
+		return ItemLabel(key), C_Item.GetItemIconByID(key)
+	elseif kind == "flag" then
+		return ns.Weights.FlagLabel(key)
+	elseif kind == "subclass" then
+		return SubclassLabel(key)
+	elseif kind == "class" then
+		return ClassLabel(key)
+	end
+	return "Everything else"
 end
 
 -- Every rule with a weight, as ladder entries: { kind, key, label, weight, icon }.
@@ -430,8 +446,17 @@ end
 -- plain click can't use or pick up an item. Turning it on opens the bags; ending it leaves them open. It
 -- ends when toggled off, when the window closes, and when combat starts (all
 -- Sediment windows close then, so a potion always works when it matters).
+--
+-- The setup questions borrow it ("anything next to your hearthstone?"): they pass their own click handler
+-- and slot labels, so a click picks the item instead of opening the popup.
+--
+-- Highlights (the setup questions): while on, slots whose item has no rule of its own get an orange
+-- outline, and the items the current question is about a gold one. Plain textures on a frame that takes
+-- no clicks, so the bag works as usual underneath.
 
 local selecting = false
+local selectHandler, selectLabel = nil, nil -- set by the setup questions; nil = open the weight popup
+local highlighting, highlightFocus = false, nil
 local hookedFrames = {}
 local DEFAULT_COLOR = { 1, 0.55, 0.1 } -- weight number for items using the default (nothing set)
 local SET_COLOR = { 1, 1, 1 }
@@ -474,7 +499,11 @@ local function Catcher(button)
 	c.weight:SetPoint("TOPLEFT", 2, -2)
 	c:SetScript("OnClick", function(self)
 		local b = self:GetParent()
-		ns.Popup.Open(b:GetBagID(), b:GetID())
+		if selectHandler then
+			selectHandler(b:GetBagID(), b:GetID())
+		else
+			ns.Popup.Open(b:GetBagID(), b:GetID())
+		end
 	end)
 	c:SetScript("OnEnter", function(self)
 		local b = self:GetParent()
@@ -487,10 +516,48 @@ local function Catcher(button)
 	return c
 end
 
+local UNRULED_EDGE, UNRULED_TINT = { 1, 0.5, 0.1, 0.95 }, { 1, 0.5, 0.1, 0.12 }
+local FOCUS_EDGE, FOCUS_TINT = { 1, 0.85, 0.15, 1 }, { 1, 0.85, 0.15, 0.3 }
+
+-- The highlight on one slot: a tint and a 2px outline, under the select catcher, taking no clicks.
+local function Marker(button)
+	local m = button.SedimentMark
+	if m then
+		return m
+	end
+	m = CreateFrame("Frame", nil, button)
+	m:SetAllPoints(button)
+	m:SetFrameLevel(button:GetFrameLevel() + 5)
+	m.tint = m:CreateTexture(nil, "OVERLAY")
+	m.tint:SetAllPoints()
+	m.edges = {}
+	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local t = m:CreateTexture(nil, "OVERLAY", nil, 1)
+		if side == "TOP" or side == "BOTTOM" then
+			t:SetPoint(side .. "LEFT")
+			t:SetPoint(side .. "RIGHT")
+			t:SetHeight(2)
+		else
+			t:SetPoint("TOP" .. side)
+			t:SetPoint("BOTTOM" .. side)
+			t:SetWidth(2)
+		end
+		m.edges[#m.edges + 1] = t
+	end
+	function m.Style(edge, tint)
+		m.tint:SetColorTexture(tint[1], tint[2], tint[3], tint[4])
+		for _, t in ipairs(m.edges) do
+			t:SetColorTexture(edge[1], edge[2], edge[3], edge[4])
+		end
+	end
+	button.SedimentMark = m
+	return m
+end
+
 function Settings.RefreshOverlays()
 	for _, f in ipairs(ContainerFrames()) do
 		if f.EnumerateValidItems then
-			if selecting and not hookedFrames[f] and f.UpdateItems then
+			if (selecting or highlighting) and not hookedFrames[f] and f.UpdateItems then
 				-- Bag windows rebuild their buttons as they open and change; follow along.
 				hooksecurefunc(f, "UpdateItems", Settings.RefreshOverlays)
 				hookedFrames[f] = true
@@ -500,17 +567,38 @@ function Settings.RefreshOverlays()
 			-- error here used to end the loop before it reached the reagent bag.
 			for _, b in f:EnumerateValidItems() do
 				local c = b and b.SedimentSelect
-				local item = b and selecting and f:IsShown() and b.GetBagID
+				local m = b and b.SedimentMark
+				local item = b and (selecting or highlighting) and f:IsShown() and b.GetBagID
 					and ns.Bags.ReadSlot(b:GetBagID(), b:GetID())
-				if item then
+				if item and selecting then
 					c = Catcher(b)
-					local levels, winner = ns.Weights.Explain(item)
-					c.weight:SetText(FormatWeight(levels[winner].weight))
-					local color = levels[winner].kind == "default" and DEFAULT_COLOR or SET_COLOR
+					local text, color
+					if selectLabel then
+						text, color = selectLabel(item)
+					end
+					if not text then
+						local levels, winner = ns.Weights.Explain(item)
+						text = FormatWeight(levels[winner].weight)
+						color = levels[winner].kind == "default" and DEFAULT_COLOR or SET_COLOR
+					end
+					c.weight:SetText(text)
 					c.weight:SetTextColor(color[1], color[2], color[3])
 					c:Show()
 				elseif c then
 					c:Hide()
+				end
+				local focus = item and highlighting and highlightFocus and highlightFocus(item)
+				local unruled = item and highlighting and not ns.Weights.HasOwnRule(item)
+				if focus or unruled then
+					m = Marker(b)
+					if focus then
+						m.Style(FOCUS_EDGE, FOCUS_TINT)
+					else
+						m.Style(UNRULED_EDGE, UNRULED_TINT)
+					end
+					m:Show()
+				elseif m then
+					m:Hide()
 				end
 			end
 		end
@@ -521,13 +609,29 @@ function Settings.IsSelecting()
 	return selecting
 end
 
-function Settings.SetSelectMode(on)
+-- Are any overlays on the bag slots (select mode or highlights)? They follow bag changes.
+function Settings.OverlaysActive()
+	return selecting or highlighting
+end
+
+-- Highlights for the setup questions. focus(item) -> true for the items the current question is about.
+function Settings.SetHighlight(on, focus)
+	highlighting = on and true or false
+	highlightFocus = highlighting and focus or nil
+	Settings.RefreshOverlays()
+end
+
+-- handler(bag, slot) and label(item) -> text, {r, g, b} (or nil for the weight) are for the setup
+-- questions; without them a click opens the weight popup.
+function Settings.SetSelectMode(on, handler, label)
 	if on and InCombatLockdown() then
 		Print("not in combat.")
 		on = false
 	end
 	local was = selecting
 	selecting = on and true or false
+	selectHandler = selecting and handler or nil
+	selectLabel = selecting and label or nil
 	Settings.RefreshOverlays() -- hooks the bag windows first, so opening them below refreshes the overlays
 	-- Starting select mode opens the bags (no change if they're open). Ending it leaves them as they are
 	-- (user: turning select mode off shouldn't close the bags).
@@ -547,6 +651,13 @@ function Settings.OnCombat()
 		frame:Hide()
 	end
 	ns.Popup.Close()
+	ns.Setup.Close() -- keeps its place, like "Finish later"
+end
+
+function Settings.Close()
+	if frame then
+		frame:Hide()
+	end
 end
 
 -- Pages ---------------------------------------------------------------------------------------
@@ -599,7 +710,7 @@ local function BuildWeightsPage(page)
 		StaticPopup_Show("SEDIMENT_RESET_WEIGHTS")
 	end)
 
-	-- Shown while a backup exists (taken before a reset, or before onboarding replaces rules).
+	-- Shown while History has a version that differs from the rules in use: loads the newest such.
 	local restore = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
 	restore:SetSize(170, 24)
 	restore:SetPoint("LEFT", reset, "RIGHT", 8, 0)
@@ -608,18 +719,19 @@ local function BuildWeightsPage(page)
 		StaticPopup_Show("SEDIMENT_RESTORE_RULES")
 	end)
 	restore:SetScript("OnEnter", function(self)
-		local b = ns.Weights.BackupInfo()
+		local b = ns.Weights.PreviousVersion()
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "Restore previous rules")
 		if b then
-			GameTooltip_AddNormalLine(GameTooltip, ("Saved %s, %s. Your current rules are kept as the new backup, "
-				.. "so this can be undone."):format(b.time or "?", b.reason or ""))
+			GameTooltip_AddNormalLine(GameTooltip, ("Loads the version saved %s (%s): %s. Your current rules are "
+				.. "saved to History first, so this can be undone. Older versions are in the History section.")
+				:format(b.time or "?", b.name or b.reason or "", ns.Weights.VersionSummary(b)))
 		end
 		GameTooltip:Show()
 	end)
 	restore:SetScript("OnLeave", GameTooltip_Hide)
 	page.refreshers[#page.refreshers + 1] = function()
-		restore:SetShown(ns.Weights.BackupInfo() ~= nil)
+		restore:SetShown(ns.Weights.PreviousVersion() ~= nil)
 	end
 end
 
@@ -698,7 +810,7 @@ end
 
 StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
 	text = "Reset to default? This removes all your rules (weights and \"keep in my normal bags\"); your bags "
-		.. "then sort by item type. They're backed up first: \"Restore previous rules\" brings them back.",
+		.. "then sort by item type. They're saved to History first, so you can load them again.",
 	button1 = YES,
 	button2 = NO,
 	OnAccept = function()
@@ -711,11 +823,14 @@ StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
 }
 
 StaticPopupDialogs["SEDIMENT_RESTORE_RULES"] = {
-	text = "Restore your previous rules? Your current rules are kept as the backup, so you can switch back.",
+	text = "Restore your previous rules? Your current rules are saved to History first, so you can switch back.",
 	button1 = YES,
 	button2 = NO,
 	OnAccept = function()
-		ns.Weights.RestoreBackup()
+		local b = ns.Weights.PreviousVersion()
+		if b then
+			ns.Weights.LoadVersion(b)
+		end
 		Changed()
 		if Settings.RefreshSpecialList then
 			Settings.RefreshSpecialList() -- keep-out rules came back too
@@ -1028,6 +1143,290 @@ local function BuildSpecialPage(page)
 	end
 end
 
+-- History: every saved version of the rules, newest first. Load (asks first; the rules in use are saved
+-- before it loads), Name, x (asks first). Hover a row for its rules. "Save a copy" at the top, with an
+-- optional name.
+local historyRows = {}
+
+-- A version's rules, light to heavy with the sink line, for its tooltip.
+local function VersionTooltip(entry)
+	local w, list = entry.weights, {}
+	for id, v in pairs(w.items) do list[#list + 1] = { v, ItemLabel(id) } end
+	for k, v in pairs(w.flags) do list[#list + 1] = { v, ns.Weights.FlagLabel(k) } end
+	for k, v in pairs(w.subclasses) do list[#list + 1] = { v, SubclassLabel(k) } end
+	for k, v in pairs(w.classes) do list[#list + 1] = { v, ClassLabel(k) } end
+	list[#list + 1] = { w.default, "Everything else (default)" }
+	table.sort(list, function(a, b)
+		if a[1] ~= b[1] then
+			return a[1] < b[1]
+		end
+		return a[2] < b[2]
+	end)
+	local lines, sinkShown = {}, false
+	for _, e in ipairs(list) do
+		if not sinkShown and e[1] >= w.sinkLine then
+			lines[#lines + 1] = "|cffffb040---- sink line " .. tostring(w.sinkLine) .. " ----|r"
+			sinkShown = true
+		end
+		lines[#lines + 1] = ("%s  |cff888888%s|r"):format(e[2], tostring(e[1]))
+	end
+	if not sinkShown then
+		lines[#lines + 1] = "|cffffb040---- sink line " .. tostring(w.sinkLine) .. " ----|r"
+	end
+	local ko = entry.keepOut or {}
+	for k in pairs(ko.subclasses or {}) do
+		lines[#lines + 1] = "|cff9ad1ffKept in normal bags:|r " .. KeepOutLabel({ kind = "subclass", key = k })
+	end
+	for k in pairs(ko.items or {}) do
+		lines[#lines + 1] = "|cff9ad1ffKept in normal bags:|r " .. ItemLabel(k)
+	end
+	return lines
+end
+
+local function HistoryChanged()
+	Changed()
+	if Settings.RefreshSpecialList then
+		Settings.RefreshSpecialList() -- keep-out rules may have come back
+	end
+end
+
+StaticPopupDialogs["SEDIMENT_LOAD_VERSION"] = {
+	text = "Load the rules saved %s?\n\nYour current rules are saved to History first, so you can switch back.",
+	button1 = YES,
+	button2 = NO,
+	OnAccept = function(_, entry)
+		if entry then
+			ns.Weights.LoadVersion(entry)
+			HistoryChanged()
+		end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+StaticPopupDialogs["SEDIMENT_DELETE_VERSION"] = {
+	text = "Delete the version saved %s? This can't be undone.",
+	button1 = YES,
+	button2 = NO,
+	OnAccept = function(_, entry)
+		if entry then
+			ns.Weights.DeleteVersion(entry)
+			Settings.Refresh()
+		end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+-- The dialog's edit box: its name changed between client versions.
+local function DialogEditBox(dialog)
+	return (dialog.GetEditBox and dialog:GetEditBox()) or dialog.editBox or dialog.EditBox
+end
+
+StaticPopupDialogs["SEDIMENT_NAME_VERSION"] = {
+	text = "Name this version (blank for no name). Named versions are never dropped from History.",
+	button1 = ACCEPT,
+	button2 = CANCEL,
+	hasEditBox = true,
+	maxLetters = 40,
+	OnShow = function(self, entry)
+		local box = DialogEditBox(self)
+		if box then
+			box:SetText(entry and entry.name or "")
+			box:HighlightText()
+		end
+	end,
+	OnAccept = function(self, entry)
+		local box = DialogEditBox(self)
+		if entry and box then
+			ns.Weights.RenameVersion(entry, box:GetText())
+			Settings.Refresh()
+		end
+	end,
+	EditBoxOnEnterPressed = function(box, entry)
+		local dialog = box:GetParent()
+		if entry then
+			ns.Weights.RenameVersion(entry, box:GetText())
+			Settings.Refresh()
+		end
+		dialog:Hide()
+	end,
+	EditBoxOnEscapePressed = function(box)
+		box:GetParent():Hide()
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+local HISTORY_ROW = 34
+
+local function BuildHistoryPage(page)
+	page.refreshers = {}
+	local nameLabel = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	nameLabel:SetPoint("TOPLEFT", 4, -4)
+	nameLabel:SetText("Name (optional)")
+	local nameBox = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
+	nameBox:SetSize(170, 20)
+	nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 10, 0)
+	nameBox:SetAutoFocus(false)
+	nameBox:SetMaxLetters(40)
+	local save = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	save:SetSize(100, 22)
+	save:SetPoint("LEFT", nameBox, "RIGHT", 8, 0)
+	save:SetText("Save a copy")
+	local function Save()
+		local name = nameBox:GetText()
+		nameBox:SetText("")
+		nameBox:ClearFocus()
+		local _, new = ns.Weights.SaveCopy(name)
+		if not new then
+			Print(name ~= "" and "these rules were already saved; that version is named now."
+				or "these rules are already saved (the newest version).")
+		end
+		Settings.Refresh()
+	end
+	save:SetScript("OnClick", Save)
+	nameBox:SetScript("OnEnterPressed", Save)
+	nameBox:SetScript("OnEscapePressed", function(self)
+		self:SetText("")
+		self:ClearFocus()
+	end)
+
+	local help = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	help:SetPoint("TOPLEFT", 4, -30)
+	help:SetPoint("RIGHT", -8, 0)
+	help:SetJustifyH("LEFT")
+	help:SetText("Sediment saves your rules before anything replaces them, when you finish the setup questions, and "
+		.. "when you log in if they've changed. Hover a version to see its rules. The newest 20 are kept, and "
+		.. "named ones until you delete them.")
+
+	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 0, -64)
+	scroll:SetPoint("BOTTOMRIGHT", -26, 0)
+	local child = CreateFrame("Frame", nil, scroll)
+	child:SetSize(CONTENT_W - 30, 100)
+	scroll:SetScrollChild(child)
+
+	local function Row(i)
+		local row = historyRows[i]
+		if row then
+			return row
+		end
+		row = CreateFrame("Frame", nil, child)
+		row:SetSize(CONTENT_W - 30, HISTORY_ROW)
+		row:EnableMouse(true)
+		row.bg = row:CreateTexture(nil, "BACKGROUND")
+		row.bg:SetAllPoints()
+		row.bg:SetColorTexture(1, 1, 1, 0.04)
+		row.title = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		row.title:SetPoint("TOPLEFT", 6, -3)
+		row.title:SetJustifyH("LEFT")
+		row.title:SetWordWrap(false)
+		row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+		row.info:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -2)
+		row.info:SetJustifyH("LEFT")
+		row.info:SetWordWrap(false)
+		row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
+		row.remove:SetSize(20, 20)
+		row.remove:SetPoint("RIGHT", -2, 0)
+		row.remove:SetScript("OnClick", function()
+			if row.entry then
+				StaticPopup_Show("SEDIMENT_DELETE_VERSION", row.entry.time, nil, row.entry)
+			end
+		end)
+		row.rename = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+		row.rename:SetSize(52, 20)
+		row.rename:SetPoint("RIGHT", row.remove, "LEFT", -2, 0)
+		row.rename:SetText("Name")
+		row.rename:SetScript("OnClick", function()
+			if row.entry then
+				StaticPopup_Show("SEDIMENT_NAME_VERSION", nil, nil, row.entry)
+			end
+		end)
+		row.load = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+		row.load:SetSize(52, 20)
+		row.load:SetPoint("RIGHT", row.rename, "LEFT", -4, 0)
+		row.load:SetText("Load")
+		row.load:SetScript("OnClick", function()
+			if row.entry then
+				StaticPopup_Show("SEDIMENT_LOAD_VERSION", row.entry.time, nil, row.entry)
+			end
+		end)
+		row.title:SetPoint("RIGHT", row.load, "LEFT", -6, 0)
+		row.info:SetPoint("RIGHT", row.load, "LEFT", -6, 0)
+		row:SetScript("OnEnter", function(self)
+			if not self.entry then
+				return
+			end
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip_SetTitle(GameTooltip, self.entry.name or self.entry.time)
+			if self.entry.name then
+				GameTooltip_AddNormalLine(GameTooltip, "Kept: named versions are never dropped. Clear the name to stop keeping it.")
+			end
+			for k, line in ipairs(VersionTooltip(self.entry)) do
+				if k > 30 then
+					GameTooltip_AddNormalLine(GameTooltip, "...")
+					break
+				end
+				GameTooltip:AddLine(line, 1, 1, 1)
+			end
+			GameTooltip:Show()
+		end)
+		row:SetScript("OnLeave", GameTooltip_Hide)
+		historyRows[i] = row
+		return row
+	end
+
+	page.refreshers[#page.refreshers + 1] = function()
+		local h = ns.Weights.History()
+		for i, entry in ipairs(h) do
+			local row = Row(i)
+			row.entry = entry
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", 0, -(i - 1) * (HISTORY_ROW + 2))
+			local current = ns.Weights.IsCurrent(entry)
+			if entry.name then
+				-- Named = kept: never dropped by the 20-version limit (user asked for a visible mark).
+				row.title:SetText(entry.name .. "  |cffffd100(kept)|r")
+				row.title:SetTextColor(1, 1, 1)
+			else
+				row.title:SetText(entry.reason or "saved")
+				row.title:SetTextColor(0.75, 0.75, 0.75)
+			end
+			row.info:SetText(("%s  ·  %s%s"):format(entry.time or "?", ns.Weights.VersionSummary(entry),
+				current and "  ·  |cff66ff66in use|r" or ""))
+			row.load:SetEnabled(not current)
+			row:Show()
+		end
+		for i = #h + 1, #historyRows do
+			historyRows[i]:Hide()
+			historyRows[i].entry = nil
+		end
+		if #h == 0 then
+			local row = Row(1)
+			row.entry = nil
+			row:ClearAllPoints()
+			row:SetPoint("TOPLEFT", 0, 0)
+			row.title:SetText("|cff888888Nothing saved yet.|r")
+			row.info:SetText("")
+			row.load:Hide()
+			row.rename:Hide()
+			row.remove:Hide()
+			row:Show()
+		else
+			for i = 1, #h do
+				historyRows[i].load:Show()
+				historyRows[i].rename:Show()
+				historyRows[i].remove:Show()
+			end
+		end
+		child:SetHeight(math.max(1, #h) * (HISTORY_ROW + 2) + 4)
+	end
+end
+
 -- Commands tab (debug mode): every /sed command and the mouse shortcuts, from the same lists /sed help
 -- uses (ns.COMMANDS, ns.SHORTCUTS in Sediment.lua).
 local function BuildCommandsPage(page)
@@ -1054,78 +1453,8 @@ local function BuildCommandsPage(page)
 	end
 end
 
--- Welcome: shown when the settings window opens, until "Don't show this again" is ticked; the ? button
--- next to the title brings it back. Sits on top of the window's contents.
-local welcome
-
-local function BuildWelcome()
-	welcome = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-	welcome:SetPoint("TOPLEFT", 8, -38)
-	welcome:SetPoint("BOTTOMRIGHT", -8, 8)
-	welcome:SetFrameLevel(frame:GetFrameLevel() + 50)
-	welcome:EnableMouse(true) -- nothing behind it is clickable while it's up
-	welcome:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
-	welcome:SetBackdropColor(0.04, 0.04, 0.04, 0.98)
-	welcome:Hide()
-
-	local title = welcome:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOPLEFT", 16, -14)
-	title:SetText("Sediment sorts your bags for you")
-
-	local body = welcome:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	body:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
-	body:SetPoint("RIGHT", -16, 0)
-	body:SetJustifyH("LEFT")
-	body:SetSpacing(3)
-	body:SetText("Every item has a |cffffd100weight|r. Light items |cffffd100float|r to the top of your bags, "
-		.. "heavy ones |cffffd100sink|r to the bottom, and the space in between is where new loot lands.\n\n"
-		.. "While your bags are closed, Sediment keeps them in order quietly in the background. "
-		.. "Nothing moves while they're open, and nothing ever moves in combat.\n\n"
-		.. "|cffffd100Get started:|r give your items weights. Turn on |cffffd100Select mode|r in the Weights section, "
-		.. "then click any item in your bags to set its weight. Lower numbers float, higher numbers sink.\n\n"
-		.. "|cffffd100Tips:|r Alt+right-click any bag item to set its weight without opening this window. "
-		.. "Right-click the sort button to turn auto-sort on or off. The gear next to it opens this window.")
-
-	local start = CreateFrame("Button", nil, welcome, "UIPanelButtonTemplate")
-	start:SetSize(130, 24)
-	start:SetPoint("BOTTOMLEFT", 16, 46)
-	start:SetText("Set weights")
-	start:SetScript("OnClick", function()
-		welcome:Hide()
-		ShowTab("Weights")
-		Settings.SetSelectMode(true)
-	end)
-
-	local ok = CreateFrame("Button", nil, welcome, "UIPanelButtonTemplate")
-	ok:SetSize(90, 24)
-	ok:SetPoint("BOTTOMRIGHT", -16, 14)
-	ok:SetText("OK")
-	ok:SetScript("OnClick", function()
-		welcome:Hide()
-	end)
-
-	local dontShow = CreateFrame("CheckButton", nil, welcome, "UICheckButtonTemplate")
-	dontShow:SetSize(24, 24)
-	dontShow:SetPoint("BOTTOMLEFT", 12, 14)
-	dontShow:SetScript("OnClick", function(self)
-		SedimentDB.welcomeHidden = self:GetChecked() and true or nil
-	end)
-	local dontShowText = welcome:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	dontShowText:SetPoint("LEFT", dontShow, "RIGHT", 4, 0)
-	dontShowText:SetText("Don't show this again")
-	welcome:SetScript("OnShow", function()
-		dontShow:SetChecked(SedimentDB.welcomeHidden and true or false)
-	end)
-end
-
 function Settings.ShowWelcome()
-	if not frame then
-		return
-	end
-	if not welcome then
-		BuildWelcome()
-	end
-	welcome:Show()
+	ns.Setup.ShowIntro()
 end
 
 function ShowTab(name)
@@ -1176,7 +1505,7 @@ local function Build()
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -2, -2)
 
-	-- ? brings the welcome back.
+	-- ? brings back the setup questions' first page.
 	local help = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	help:SetSize(22, 22)
 	help:SetPoint("LEFT", title, "RIGHT", 8, 0)
@@ -1187,6 +1516,7 @@ local function Build()
 	help:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "How Sediment works")
+		GameTooltip_AddNormalLine(GameTooltip, "What it does, and the setup questions.")
 		GameTooltip:Show()
 	end)
 	help:SetScript("OnLeave", GameTooltip_Hide)
@@ -1251,6 +1581,7 @@ local function Build()
 	BuildSortingPage(pages.Sorting)
 	BuildTestingPage(pages.Testing)
 	BuildSpecialPage(pages["Special bags"])
+	BuildHistoryPage(pages.History)
 	BuildCommandsPage(pages.Commands)
 	frame:SetScript("OnShow", function()
 		Settings.Refresh()
@@ -1268,7 +1599,7 @@ local function RunRefreshers(page)
 end
 
 function Settings.Refresh()
-	if selecting then
+	if selecting or highlighting then
 		Settings.RefreshOverlays() -- weights may have changed: update the numbers on the slots
 	end
 	if not frame or not frame:IsShown() then
@@ -1286,6 +1617,9 @@ function Settings.Refresh()
 	end
 	if pages["Special bags"]:IsShown() then
 		RunRefreshers(pages["Special bags"])
+	end
+	if pages.History:IsShown() then
+		RunRefreshers(pages.History)
 	end
 end
 
@@ -1322,7 +1656,7 @@ function Settings.Open(tab)
 	frame:Show()
 	ShowTab(tab or Settings.currentTab or "Sorting")
 	if not wasShown and not SedimentDB.welcomeHidden then
-		Settings.ShowWelcome()
+		ns.Setup.ShowIntro(true)
 	end
 end
 

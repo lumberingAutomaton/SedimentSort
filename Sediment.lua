@@ -353,7 +353,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		-- /reload doesn't pick up files newly added to the .toc; only a full client restart does.
 		-- Without them the rest of the addon can't work, so say so instead of failing quietly.
 		local missing = {}
-		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup", "Settings" }) do
+		for _, module in ipairs({ "Weights", "Bags", "Sound", "Sort", "AutoSort", "Popup", "Settings", "Setup" }) do
 			if not ns[module] then
 				missing[#missing + 1] = module .. ".lua"
 			end
@@ -364,6 +364,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 			self:UnregisterAllEvents()
 			return
 		end
+		ns.Weights.LoginSnapshot(UnitName("player"))
 		TakeOverSortButton()
 		ns.Popup.Hook()
 		ns.Popup.CreateBagButton()
@@ -371,6 +372,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.AutoSort.OnEnteringWorld()
 	elseif event == "GET_ITEM_INFO_RECEIVED" then
 		ns.Settings.RefreshNames() -- item names in the ladder that weren't loaded yet (no re-sort)
+		ns.Setup.RefreshNames()
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		ns.Sort.OnCombatStart()
 		ns.Settings.OnCombat()
@@ -380,8 +382,9 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.Sort.OnBagUpdateDelayed()
 		ns.AutoSort.OnBagUpdateDelayed()
 		ns.Popup.OnBagUpdate()
-		if ns.Settings.IsSelecting() then
+		if ns.Settings.OverlaysActive() then
 			ns.Settings.RefreshOverlays()
 		end
+		ns.Setup.OnBagUpdate()
 	end
 end)

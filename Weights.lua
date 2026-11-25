@@ -74,6 +74,19 @@ function Weights.Init()
 		end
 	end
 	SedimentDB.weightsVersion = WEIGHTS_VERSION
+	-- The single backup slot before History (0.16.0): it becomes the oldest version.
+	local b = SedimentDB.rulesBackup
+	if b then
+		local h = Weights.History()
+		h[#h + 1] = { time = b.time or "?", reason = b.reason, weights = b.weights, keepOut = b.keepOut }
+		SedimentDB.rulesBackup = nil
+	end
+end
+
+-- At login (PLAYER_LOGIN, when the character's name is known): a version if the rules changed since the
+-- newest one, labelled with the character ("Thrall login"), since rules are account-wide (user, 2026-11-24).
+function Weights.LoginSnapshot(character)
+	Weights.Snapshot((character or "?") .. " login")
 end
 
 -- For the settings panel: flags in priority order with their labels, and a full reset.
@@ -95,45 +108,168 @@ function Weights.HasRules()
 	return ko ~= nil and ((ko.items and next(ko.items)) or (ko.subclasses and next(ko.subclasses))) and true or false
 end
 
--- One backup of the rules (weights and keep-out), taken before something replaces them wholesale: "Reset
--- to default" now, the onboarding questionnaire later. Only taken if there's something to keep.
-function Weights.Backup(reason)
-	if not Weights.HasRules() then
-		return
+-- History ------------------------------------------------------------------------------------
+-- Versions of the rules (weights, sink line, default, keep-out), newest first, in SedimentDB.history:
+-- { time, reason, name, weights, keepOut }. One is saved before anything replaces the rules (Reset to
+-- default, the setup questions starting or starting over, loading a version), when the setup questions are
+-- done, at login if the rules changed ("<character> login"), and by the player ("Save a copy", optionally named). Never twice in a
+-- row with the same rules, and never an empty rule set unless the player asks. The newest 20 unnamed
+-- versions are kept; named ones stay until deleted. Auto-sort settings aren't part of a version.
+-- (Replaced a single backup slot, 2026-11-24: a second setup run, or a reset after one, overwrote the rules
+-- from before.)
+local HISTORY_KEEP = 20
+
+-- The same text for the same contents, whatever order pairs() visits them in.
+local function Serialize(v)
+	if type(v) ~= "table" then
+		return tostring(v)
 	end
-	SedimentDB.rulesBackup = {
+	local keys = {}
+	for k in pairs(v) do
+		keys[#keys + 1] = k
+	end
+	table.sort(keys, function(a, b)
+		return tostring(a) < tostring(b)
+	end)
+	local parts = {}
+	for _, k in ipairs(keys) do
+		parts[#parts + 1] = tostring(k) .. "=" .. Serialize(v[k])
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function VersionKey(weights, keepOut)
+	keepOut = keepOut or {}
+	return Serialize(weights) .. "|" .. Serialize({ items = keepOut.items or {}, subclasses = keepOut.subclasses or {} })
+end
+
+local function CurrentKey()
+	return VersionKey(SedimentDB.weights, SedimentDB.keepOut)
+end
+
+function Weights.History()
+	SedimentDB.history = SedimentDB.history or {}
+	return SedimentDB.history
+end
+
+-- Are these the rules in use now?
+function Weights.IsCurrent(entry)
+	return VersionKey(entry.weights, entry.keepOut) == CurrentKey()
+end
+
+local function Prune(h)
+	local unnamed, i = 0, 1
+	while i <= #h do
+		if h[i].name then
+			i = i + 1
+		else
+			unnamed = unnamed + 1
+			if unnamed > HISTORY_KEEP then
+				table.remove(h, i)
+			else
+				i = i + 1
+			end
+		end
+	end
+end
+
+-- Save the rules in use as a version. Returns the new entry; or nil plus the newest entry if that already
+-- holds these rules; or nil if there are no rules and evenEmpty isn't set.
+function Weights.Snapshot(reason, name, evenEmpty)
+	local h = Weights.History()
+	if h[1] and Weights.IsCurrent(h[1]) then
+		return nil, h[1]
+	end
+	if not evenEmpty and not Weights.HasRules() then
+		return nil
+	end
+	table.insert(h, 1, {
 		time = date("%Y-%m-%d %H:%M"),
 		reason = reason,
+		name = name,
 		weights = DeepCopy(SedimentDB.weights),
 		keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
-	}
+	})
+	Prune(h)
+	return h[1]
+end
+Weights.Backup = Weights.Snapshot -- before something replaces the rules wholesale
+
+-- "Save a copy": always ends with a version holding the current rules, named if a name is given (an
+-- unchanged rule set just names the newest version). Returns the entry and whether it was new.
+function Weights.SaveCopy(name)
+	name = name and name:match("^%s*(.-)%s*$")
+	if name == "" then
+		name = nil
+	end
+	local entry, same = Weights.Snapshot("saved by you", name, true)
+	if entry then
+		return entry, true
+	end
+	if name then
+		same.name = name
+	end
+	return same, false
 end
 
-function Weights.BackupInfo()
-	return SedimentDB.rulesBackup
+function Weights.RenameVersion(entry, name)
+	name = name and name:match("^%s*(.-)%s*$")
+	if name == "" then
+		name = nil
+	end
+	entry.name = name
 end
 
--- Restore swaps: the current rules become the backup, so a restore can itself be undone. Unless the
--- current rules are empty (e.g. right after "Reset to default"): then there's nothing to keep, the backup
--- is cleared and the Restore button goes away, rather than offering to restore "no rules".
-function Weights.RestoreBackup()
-	local b = SedimentDB.rulesBackup
-	if not b then
-		return false
+function Weights.DeleteVersion(entry)
+	local h = Weights.History()
+	for i, e in ipairs(h) do
+		if e == entry then
+			table.remove(h, i)
+			return
+		end
 	end
-	local current
-	if Weights.HasRules() then
-		current = {
-			time = date("%Y-%m-%d %H:%M"),
-			reason = "before restoring",
-			weights = DeepCopy(SedimentDB.weights),
-			keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
-		}
+end
+
+-- Put a version's rules back. The rules in use are saved first, so loading can be undone.
+function Weights.LoadVersion(entry)
+	Weights.Snapshot("before loading the " .. entry.time .. " version")
+	SedimentDB.weights = DeepCopy(entry.weights)
+	SedimentDB.keepOut = entry.keepOut and DeepCopy(entry.keepOut) or nil
+end
+
+-- The newest version that differs from the rules in use ("Restore previous rules"), or nil.
+function Weights.PreviousVersion()
+	for _, e in ipairs(Weights.History()) do
+		if not Weights.IsCurrent(e) then
+			return e
+		end
 	end
-	SedimentDB.weights = DeepCopy(b.weights)
-	SedimentDB.keepOut = b.keepOut and DeepCopy(b.keepOut) or nil
-	SedimentDB.rulesBackup = current
-	return true
+end
+
+-- How a version reads in a list: "23 rules, sink line 40, 1 kept out".
+function Weights.VersionSummary(entry)
+	local w, n = entry.weights, 0
+	for _, t in ipairs({ w.items, w.flags, w.subclasses, w.classes }) do
+		for _ in pairs(t) do
+			n = n + 1
+		end
+	end
+	local ko, k = entry.keepOut or {}, 0
+	for _, t in ipairs({ ko.items or {}, ko.subclasses or {} }) do
+		for _ in pairs(t) do
+			k = k + 1
+		end
+	end
+	local text = ("%d rule%s, sink line %s"):format(n, n == 1 and "" or "s", tostring(w.sinkLine))
+	if k > 0 then
+		text = text .. (", %d kept out"):format(k)
+	end
+	return text
+end
+
+-- Start the rules over: the default weights, keep-out rules untouched (Setup's Start over).
+function Weights.ClearWeights()
+	SedimentDB.weights = DeepCopy(DEFAULTS)
 end
 
 -- "Reset to default": back up, then the default (empty) rules and no keep-out rules.
@@ -164,6 +300,7 @@ local function ItemFlags(item)
 	end
 	return flags
 end
+Weights.ItemFlags = ItemFlags
 
 -- Returns every level of the cascade for this item, most specific first:
 -- { { kind, key, label, weight = number or nil, applies = bool }, ... }
@@ -244,4 +381,267 @@ function Weights.Resolve(item)
 		return v, item.className or "Class"
 	end
 	return w.default, "Default"
+end
+
+-- Does this item have a rule of its own (anything but the default)? The setup questions outline the
+-- bag slots that don't.
+function Weights.HasOwnRule(item)
+	local levels, winner = Weights.Explain(item)
+	return levels[winner].kind ~= "default"
+end
+
+-- A copy of the weights, and putting one back (the setup questions' Back).
+function Weights.CopyWeights()
+	return DeepCopy(SedimentDB.weights)
+end
+
+function Weights.SetWeights(copy)
+	SedimentDB.weights = DeepCopy(copy)
+end
+
+-- Ranking ------------------------------------------------------------------------------------
+-- The same rules seen as an order instead of numbers, which is how the setup questions work: a list of
+-- rungs, light to heavy, each rung the rules sharing one weight (the default is a rule too), with one
+-- divider between the start half and the end half. In the middle layout the divider is the sink line;
+-- in the packed layouts (sink line 100 or 0: everything floats, or everything sinks) it only splits
+-- "near the start" from "near the end". Writing a list back gives every rung a tidy weight: start-half
+-- rungs between 0 and 50, end-half rungs between 50 and 100, in list order, and a sink line between 0
+-- and 100 becomes 50. So after the setup questions every rule's weight is just its place in the order.
+
+local KIND_RANK = { item = 1, flag = 2, subclass = 3, class = 4, default = 5 }
+
+-- Where the list splits: the sink line in the middle layout, else 50.
+function Weights.RankSplit()
+	local s = SedimentDB.weights.sinkLine
+	if s > 0 and s < 100 then
+		return s
+	end
+	return 50
+end
+
+-- "middle" (sink line between 0 and 100: the empty space is in the middle), "bottom" (100 or more:
+-- everything packs from the top, the space is at the bottom) or "top" (0 or less).
+function Weights.Layout()
+	local s = SedimentDB.weights.sinkLine
+	if s >= 100 then
+		return "bottom"
+	elseif s <= 0 then
+		return "top"
+	end
+	return "middle"
+end
+
+-- Every rule with a weight as a ranking list: rungs { weight, rules = { { kind, key }, ... } } and one
+-- { divider = true }.
+function Weights.RankingList()
+	local w = SedimentDB.weights
+	local rules = {}
+	local function Add(kind, key, weight)
+		rules[#rules + 1] = { kind = kind, key = key, weight = weight }
+	end
+	for k, v in pairs(w.items) do
+		Add("item", k, v)
+	end
+	for k, v in pairs(w.flags) do
+		Add("flag", k, v)
+	end
+	for k, v in pairs(w.subclasses) do
+		Add("subclass", k, v)
+	end
+	for k, v in pairs(w.classes) do
+		Add("class", k, v)
+	end
+	Add("default", nil, w.default)
+	table.sort(rules, function(a, b)
+		if a.weight ~= b.weight then
+			return a.weight < b.weight
+		end
+		if KIND_RANK[a.kind] ~= KIND_RANK[b.kind] then
+			return KIND_RANK[a.kind] < KIND_RANK[b.kind]
+		end
+		return tostring(a.key) < tostring(b.key)
+	end)
+	local split = Weights.RankSplit()
+	local list, rung, divided = {}, nil, false
+	for _, r in ipairs(rules) do
+		if not divided and r.weight >= split then
+			list[#list + 1] = { divider = true }
+			divided, rung = true, nil
+		end
+		if not rung or rung.weight ~= r.weight then
+			rung = { weight = r.weight, rules = {} }
+			list[#list + 1] = rung
+		end
+		rung.rules[#rung.rules + 1] = { kind = r.kind, key = r.key }
+	end
+	if not divided then
+		list[#list + 1] = { divider = true }
+	end
+	return list
+end
+
+-- n evenly spaced weights above base, all below base + 50: steps of 10 while they fit, else smaller,
+-- else fractions (rounded to hundredths; still distinct for thousands of rungs).
+local function Spread(n, base)
+	local step = math.floor(49 / (n + 1))
+	if step > 10 then
+		step = 10
+	end
+	if step < 1 then
+		step = 49 / (n + 1)
+		return function(i)
+			return math.floor((base + i * step) * 100 + 0.5) / 100
+		end
+	end
+	return function(i)
+		return base + i * step
+	end
+end
+
+local function FindRule(list, kind, key)
+	for i, e in ipairs(list) do
+		if e.rules then
+			for j, r in ipairs(e.rules) do
+				if r.kind == kind and r.key == key then
+					return i, j
+				end
+			end
+		end
+	end
+end
+Weights.FindRule = FindRule
+
+local function DividerIndex(list)
+	for i, e in ipairs(list) do
+		if e.divider then
+			return i
+		end
+	end
+end
+
+local function TakeOut(list, kind, key)
+	local i, j = FindRule(list, kind, key)
+	if i then
+		table.remove(list[i].rules, j)
+		if #list[i].rules == 0 then
+			table.remove(list, i)
+		end
+	end
+end
+
+-- Everything without a rule (the default) always sits next to the empty space, on a rung of its own: in the
+-- middle layout last in the start half, just above the gap, where new loot lands; packed from the top (space
+-- at the bottom) last of all; packed from the bottom first of all. It isn't a place you choose. (User,
+-- 2026-11-24: as a movable "Everything else" row it put random stuff among the packed items.)
+function Weights.PinDefault(list)
+	TakeOut(list, "default")
+	local rung = { rules = { { kind = "default" } } }
+	local layout = Weights.Layout()
+	if layout == "bottom" then
+		list[#list + 1] = rung
+	elseif layout == "top" then
+		table.insert(list, 1, rung)
+	else
+		table.insert(list, DividerIndex(list), rung)
+	end
+	return list
+end
+
+function Weights.WriteRankingList(list)
+	Weights.PinDefault(list)
+	local w = SedimentDB.weights
+	local floatN, sinkN, past = 0, 0, false
+	for _, e in ipairs(list) do
+		if e.divider then
+			past = true
+		elseif past then
+			sinkN = sinkN + 1
+		else
+			floatN = floatN + 1
+		end
+	end
+	local floatW, sinkW = Spread(floatN, 0), Spread(sinkN, 50)
+	local fi, si = 0, 0
+	past = false
+	for _, e in ipairs(list) do
+		if e.divider then
+			past = true
+		else
+			local weight
+			if past then
+				si = si + 1
+				weight = sinkW(si)
+			else
+				fi = fi + 1
+				weight = floatW(fi)
+			end
+			e.weight = weight
+			for _, r in ipairs(e.rules) do
+				if r.kind == "default" then
+					w.default = weight
+				else
+					Weights.SetLevel(r.kind, r.key, weight)
+				end
+			end
+		end
+	end
+	if w.sinkLine > 0 and w.sinkLine < 100 then
+		w.sinkLine = 50
+	end
+end
+
+-- Which half a rule is in: "float" (start) or "sink" (end); nil if it has no weight.
+function Weights.RuleSide(kind, key)
+	local list = Weights.RankingList()
+	local i = FindRule(list, kind, key)
+	if not i then
+		return nil
+	end
+	return i < DividerIndex(list) and "float" or "sink"
+end
+
+-- Give a rule its own rung at a place in the order (taking it out of wherever it was), then write the
+-- order back (which puts the default next to the empty space). where:
+--   "first" / "last":  before / after everything you've set.
+--   "float":  last in the start half (in the middle layout, just above the default, next to the gap).
+--   "sink":   first in the end half.
+--   "bottom": last, but above the anchor rule if that's last (gray junk under everything, except a
+--             hearthstone someone put last).
+--   "after" / "before": next to the anchor rule (anchorKind, anchorKey).
+function Weights.PlaceRule(kind, key, where, anchorKind, anchorKey)
+	local list = Weights.RankingList()
+	TakeOut(list, kind, key)
+	TakeOut(list, "default") -- placed by the write
+	local d = DividerIndex(list)
+	local at
+	if where == "first" then
+		at = 1
+	elseif where == "last" then
+		at = #list + 1
+	elseif where == "float" then
+		at = d
+	elseif where == "sink" then
+		at = d + 1
+	elseif where == "bottom" then
+		at = #list + 1
+		local a = anchorKind and FindRule(list, anchorKind, anchorKey)
+		if a and a == #list and a > d then
+			at = a
+		end
+	elseif where == "after" or where == "before" then
+		local a = FindRule(list, anchorKind, anchorKey)
+		at = a and (where == "after" and a + 1 or a) or d
+	else
+		error("PlaceRule: unknown place " .. tostring(where))
+	end
+	table.insert(list, at, { rules = { { kind = kind, key = key } } })
+	Weights.WriteRankingList(list)
+end
+
+-- The setup's first question: where the empty space goes. Tidies the weights into the order first, then
+-- sets the sink line: 50 (middle), 100 (everything packs from the top) or 0 (from the bottom).
+function Weights.SetLayout(layout)
+	local list = Weights.RankingList() -- split by the old sink line
+	SedimentDB.weights.sinkLine = layout == "bottom" and 100 or layout == "top" and 0 or 50
+	Weights.WriteRankingList(list) -- the default moves next to the new empty space
 end

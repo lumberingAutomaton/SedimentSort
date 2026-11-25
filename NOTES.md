@@ -2,14 +2,30 @@
 
 Design and open questions. This file is not part of the addon.
 
-## How it works now (0.13.0)
+## How it works now (0.17.0)
 User-facing overview: README.md. This section is the developer's view; history is in the version log below.
 
 - **Weights** (Weights.lua): most specific rule with a weight wins: item > flags (Equipment set > Quest > Gray >
   BoE gear, stored as unboundGear: equippable and not soulbound) > subclass > class > default. Gray quality is
   trash (not Miscellaneous > Junk: classic data files normal items there). Account-wide, in
   SedimentDB.weights; the default (DEFAULTS in Weights.lua) is no rules, so ties fall back to the full order and
-  it starts out as a by-type sort. One backup (SedimentDB.rulesBackup) before rules are replaced; restore swaps. Resolve is a table-free version of Explain.
+  it starts out as a by-type sort. Resolve is a table-free version of Explain.
+- **History** (Weights.lua + the History section, 0.17.0): versions of the rules (weights incl. sink line and
+  default, keep-out; not settings) in SedimentDB.history, newest first. Saved before Reset to default, the
+  setup questions starting / starting over, and loading a version; at setup Done; at login if changed
+  ("<character> login", at PLAYER_LOGIN since rules are account-wide); and
+  by "Save a copy" (optional name). No two in a row alike (compared by a sorted serialization), no empty
+  sets unless asked; newest 20 unnamed kept, named kept until deleted. "Restore previous rules" = load the
+  newest version that differs from the rules in use. Replaced the single backup slot (rulesBackup, which
+  converts to the oldest version).
+- **Ranking** (Weights.lua, used by the setup questions): the rules as an order: rungs of equal weight
+  (the default is a rung too) with a divider at the sink line, or at 50 in the packed layouts (sink line
+  >= 100 or <= 0). PlaceRule puts a rule at a named place (first, last, float = end of the start half,
+  sink = start of the end half, bottom, after/before another rule), then WriteRankingList pins the default
+  next to the empty space (PinDefault: middle = just above the gap, space at the bottom = last, at the top
+  = first) and renumbers everything by position: start half 0-50, end half 50-100, steps of 10 while they
+  fit; a sink line between 0 and 100 becomes 50. Ties stay tied, except with the default.
+  dev/ranking_check.lua.
 - **Layout**: below the sink line packs from the top, at or above it from the bottom, gap in the middle.
   Full order (button): weight, equipment set names, class, subclass, item ID, bigger stack first. Partial
   order (auto-sort default): weight, then groups of identical items in their current order, with whole
@@ -31,19 +47,41 @@ User-facing overview: README.md. This section is the developer's view; history i
   a section list like WoW's Options window: Weights (Select mode, ladder, reset), Sorting (auto-sort
   options, Debug mode), Special bags (bags, fill switch, keep-out rules), and in debug mode Testing
   (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
-  /sed help). A welcome screen shows on opening until dismissed; ? brings it back. Alt+right-click popup
-  (Popup.lua). Every Sediment window closes and Select mode ends in combat.
+  /sed help). Alt+right-click popup (Popup.lua). Every Sediment window closes and Select mode ends in combat.
+- **Setup questions** (Setup.lua, 0.17.0; replaced the welcome screen): their own window, opened with the
+  settings until dismissed or done; ? brings the first page back. Steps: layout, hearthstone, neighbours
+  (Select mode with Setup's click handler), gray, trade goods, then equipment sets / BoE / bags / quest
+  items if present, then generated class questions (most unruled items first; Split = per subclass),
+  then the review (select a rung, Move up/down). Every answer is a PlaceRule plus a button-speed sort
+  (SortSoon waits out a running sort). State in SedimentDB.setup: the steps, the index, and per step a
+  copy of the weights from when it was shown (Back restores it). Highlights (Settings.SetHighlight):
+  orange outline = no rule of its own, gold = what the question is about; frames that take no clicks.
+  dev/setup_check.lua clicks through it against mocked frames.
 
 ## To do (updated 2026-11-24)
-In-game tests left: none.
+In-game tests left (0.17.0, the setup questions; new file, so a full client restart):
+- Layout and look: the window beside the bags (not over them), text fitting (titles, choice descriptions,
+  the intro), the review list and its Move buttons; dragging it and its remembered position.
+- The highlights: orange outlines on unruled slots, gold on the current question's items, normal clicks
+  still working through them; they go when the window closes. Reagent bag window included.
+- A full run on a fresh rule set (Reset to default first; Restore previous rules after): each answer sorts
+  live; neighbours (picks numbered in the bag, H on the hearthstone, OK); Back undoes; Split; Finish later
+  and Continue; combat closes it and keeps the place; Done.
+- On the real bags: do the generated questions come in a sensible order, and is their number bearable?
+- History: tested in game 2026-11-24 ("fairly easy"); the kept mark and "<character> login" labels came
+  after and are untested. The old backup slot had already been overwritten by test answers at 17:25 (the
+  bug History fixes), so the original 23 rules were added back from a file copy as a named version.
+- Setup questions: first in-game pass 2026-11-24 found and fixed: neighbour order with the hearthstone last,
+  "near the start / end" and "no rule yet" wording, the movable "Everything else" row (now pinned to the
+  empty space), Start over keeping answers, Back skipping a split class. A clean full run on 0.17.0 as it
+  is now is still to do.
 
 Code left:
 - Onboarding (see "Planned: onboarding questionnaire" below), agreed 2026-11-24, in this order:
   1. Done (0.16.0): "Reset to default"; empty default rules; Full order for new installs.
   2. Done (0.16.0): automatic backup before rules are replaced, if there are any; "Restore previous rules".
-  3. The questionnaire, whose first page replaces the welcome screen; it walks through getting the bag right
-     with what's in it now. While it runs, bag slots with no rule of their own ("no sort for this") are
-     highlighted, so progress is visible as answers cover them.
+  3. Done (0.17.0, not yet tried in game): the questionnaire (Setup.lua), whose first page replaced the
+     welcome screen, with the "no rule yet" highlight on bag slots while it runs.
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
 
@@ -61,8 +99,9 @@ Ideas / parked (decided not now):
   Candidates for per-character: reverse, maybe auto-sort options. Weights stay account-wide.
 - Highlight items with no weight of their own / using the default weight (user, 2026-11-24), e.g. a marker
   on those bag slots, so missing weights are visible in the bag itself (the ladder's "Not set" lists them).
-- Weight versions (user, 2026-11-24: "would love it, not critical"): keep snapshots of the weights (e.g. before
-  a reset, and on each session or on demand), with a way to restore one. A reset already asks to confirm.
+  Built for the setup questions (0.17.0, only while they're open); a switch to show it any time is a small
+  step from there (Settings.SetHighlight).
+- Weight versions: built as History (0.17.0).
 - Ranking instead of numbers (rungs, sink line as a divider); the ladder is laid out to become that.
 - Buff food and Drink flags; category row breaks; neutral-buoyancy layer.
 - Never-worse partial order; improved target-choice planner (~10% fewer swaps, not noticeable); exact
@@ -75,7 +114,7 @@ set flag is read per slot from the game and is part of an item's identity, so it
 checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
 pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
-## Planned: onboarding questionnaire and empty starter rules (designed 2026-11-24, not built)
+## Planned: onboarding questionnaire and empty starter rules (designed 2026-11-24, built 0.16.0-0.17.0)
 Why: first real user feedback (2026-11-24): onboarding was hard (didn't use "Set weights", didn't realize OK did
 anything), the default weights were bad (they carried the developer's opinions, e.g. hearthstone on top, and a
 weight for a Blacksmith Hammer the user didn't have), and they wanted to keep items out of the reagent bag.
@@ -152,6 +191,36 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.17.0: the setup questions (the questionnaire planned below), in a new Setup.lua with its own window;
+  its first page (the pitch) replaced the welcome screen. Decisions made while building, open to change:
+  - Answers are places in an order (Weights ranking), not numbers: float = end of the top part, sink =
+    first below the gap. Unset items (the default) are pinned next to the empty space in every layout and
+    aren't a row in the review; its empty-space row reads "empty space (and anything not set)" (user,
+    2026-11-24, after the first try: a movable "Everything else" row put random stuff among packed items); gray sink = the
+    very bottom (above a hearthstone put last); neighbours next to the hearthstone, the first clicked
+    nearest (fixed after the first in-game try: with the hearthstone last, the first pick was farthest). Every answer renumbers all weights by position, existing ones included (the order is kept;
+    the backup is taken when a run starts, only once per run even with Start over).
+  - Packed layouts (sink line 100 / 0) still split at 50; their answers read "Higher up" / "Lower down"
+    (first tried "Near the start / end": hard to understand, user 2026-11-24). The review hides that divider
+    and shows the empty space at the end (or start).
+  - The review moves a selected rung with Move up / Move down buttons, not arrows on each row: rows
+    re-render under the mouse after a move, so per-row arrows would move the neighbour on a second click.
+  - Rungs (rules sharing a weight) move together; splitting a tie is done in the Weights section.
+  - Starting closes the settings window and opens the bags; the window goes left of the bag unless dragged
+    (SedimentDB.setupPos). Done sets "don't show" (SedimentDB.welcomeHidden, same flag as the old welcome).
+  - Generated questions are per item class among unruled items; "Split this up" appears with 2+ subclasses.
+    The class question stays in the list marked split, so Back from its first subclass question returns to
+    it un-split (it used to be replaced, so Back skipped it).
+  - Start over saves the rules to History, clears the weights (keep-out rules stay) and asks everything
+    again (user, 2026-11-24). It first kept the answers, so classes already answered were never asked again
+    ("consumes didn't resplit"). A new run after Done still keeps earlier answers by design, so only unset
+    classes get generated questions.
+  - History (user's call, 2026-11-24) replaced the single backup slot, which a reset or a second run after
+    Done could overwrite with test answers. The user picked the triggers: setup Done, login, a button, names.
+  - Open: on the first page, users who already have rules could choose "Start fresh" (save, clear, ask
+    everything) or "Keep my rules" (ask only what's unset). Proposed 2026-11-24, not decided.
+  Settings: Select mode takes an optional click handler and slot labels (used by the neighbours question);
+  Settings.SetHighlight. dev/ranking_check.lua, dev/setup_check.lua (mocked frames).
 - 0.16.0: onboarding groundwork. The default rule set is empty (it shipped the developer's opinions; the first
   outside tester found them unhelpful): with no rules, ties fall back to the full order, so it starts as a
   by-type sort. New installs (no saved rules) also start on the Full auto-sort order and at the current rules

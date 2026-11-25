@@ -6,13 +6,29 @@ While your bags are closed, Sediment keeps them in order quietly in the backgrou
 
 ## Getting started
 
-Open the settings with the **gear** next to the bag's sort button (or `/sed`). The first time, a short
-welcome explains the idea; the **?** next to the title brings it back.
+Open the settings with the **gear** next to the bag's sort button (or `/sed`). The first time, the
+**setup questions** come up: a page on what Sediment does, then a few questions that set it up for what's
+in your bags now. Each answer sorts your bags right away, so you see what it does:
 
-Then give your items weights: on the **Weights** section, turn **Select mode** on (it opens your bags) and
-click items in them. Each slot shows its current weight (orange means it's using the default); clicking an item opens
-its weight popup. Lower numbers float, higher numbers sink. **Alt+right-click** any bag item opens the
-same popup without the settings window.
+1. Where you want the empty space: in the middle (things float up or sink down), at the bottom
+   (everything packed from the top, like a normal sort) or at the top.
+2. Your hearthstone first or last, and anything you want next to it (click items in your bags, in order).
+3. Gray junk and trade goods: float or sink (or "higher up / lower down" if your space isn't in the middle).
+4. If you have them: equipment set items, BoE gear, spare bags, quest items.
+5. Each kind of item in your bags that still has no rule, the one covering the most items first. **Split
+   this up** asks about its subkinds instead (Consumable: Potions, Food & Drink, ...).
+6. A review: every rule top to bottom, with the empty space marked; click a row and move it up or down.
+
+**Back** undoes the previous answer, **Skip** leaves a question unanswered, **Finish later** keeps your
+place, and **Start over** clears your rules and asks everything again. While the questions are open, items
+not set yet are outlined orange in your bags, and the ones the current question is about gold. Your rules
+are saved to **History** before you start (and when you finish), so you can always go back. The **?** next
+to the settings title brings the questions back any time.
+
+To change things later: on the **Weights** section, turn **Select mode** on (it opens your bags) and click
+items in them. Each slot shows its current weight (orange means it's using the default); clicking an item
+opens its weight popup. Lower numbers float, higher numbers sink. **Alt+right-click** any bag item opens
+the same popup without the settings window.
 
 ## How it sorts
 
@@ -59,7 +75,7 @@ always does what you expect.
 - **Weights:** Select mode (above), and every weight you've set, light to heavy, with the sink line
   drawn across. Edit numbers in place; x removes a rule (with Undo); Escape cancels an edit. **Not set**
   lists the categories in your bags that still use the default. **Reset to default** removes all rules
-  (it asks first and keeps a backup; **Restore previous rules** brings them back).
+  (it asks first and saves them to History; **Restore previous rules** loads the most recent other version).
 - **Sorting:** auto-sort on/off; its order (**Partial**: only what the weights require, fewest moves, or
   **Full**: the exact order, like the sort button); how long it waits after changes; how smoothly it
   runs; and whether opening the bags mid-sort pauses it or finishes it at once. **Debug mode** reveals
@@ -67,6 +83,12 @@ always does what you expect.
 - **Special bags:** the special bags you have; **Fill reagent and profession bags automatically**
   (off: nothing is moved in, what's there stays and is still sorted); and everything you keep in your
   normal bags (all Cloth, Silk Cloth, ...), with x to remove (Undo puts it back).
+- **History:** saved versions of your rules (weights, sink line, default and keep-out rules; not the
+  sorting options), newest first. One is saved before anything replaces your rules (Reset to default,
+  the setup questions, loading a version), when you finish the setup questions, and when you log in if
+  your rules changed (labelled with the character, e.g. "Thrall login"); **Save a copy** saves one now, with an optional name. Each version has **Load**
+  (your current rules are saved first, so it can be undone), **Name** and **x**; hover one to see its
+  rules. The newest 20 are kept, and named ones (marked "kept") until you delete them.
 - **Testing** (debug mode): scramble the bags with a seed (Drift, Minimal, Full or Maximal; the same
   seed on the same sorted bag makes the same mess), then let auto-sort clean up. An optional one-line
   status text under the bag's search box shows what the last sort cost (hover for details), and the section
@@ -115,5 +137,10 @@ the game:
   auto-sort use the full order; `SEDIMENT_MEASURE=1` compares plans with the proven minimum swaps.
 - `dev/min_swaps.lua`: the proven-minimum swap solver used by that measurement.
 - `dev/resolve_check.lua`: checks the fast weight lookup against the full rule cascade.
-- `dev/rules_check.lua`: new installs start empty on the Full order, older saves migrate once, and backup,
-  reset to default and restore behave.
+- `dev/rules_check.lua`: new installs start empty on the Full order, older saves migrate once, and
+  History (saving, no duplicates, loading, naming, the 20-version limit, the login version) behaves.
+- `dev/ranking_check.lua`: the order the setup questions work in: where each answer lands, weights on the
+  right side of the sink line in every layout, ties kept.
+- `dev/setup_check.lua`: clicks through the setup questions against mocked frames (every question type,
+  Back, Skip, Split, Finish later, Start over, the review's moves, Done, the slot highlights) and the
+  History section.

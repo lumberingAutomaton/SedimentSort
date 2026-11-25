@@ -35,28 +35,78 @@ W = Load()
 W.Init()
 assert(SedimentDB.weights.classes[7] == 80 and next(SedimentDB.weights.flags) == nil, "a version-2 save changed")
 
--- Backup, reset to default, restore (and restore again to swap back).
+-- History: reset to default saves a version first; restoring loads it and saves the rules it replaces.
+local function Count() return #W.History() end
 SedimentDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
+local before = Count()
 W.ResetToDefault()
 assert(not W.HasRules(), "reset left rules behind")
 assert(SedimentDB.keepOut == nil, "reset left keep-out rules")
-local b = W.BackupInfo()
-assert(b and b.weights.classes[7] == 80 and b.keepOut.subclasses["7:5"], "reset didn't back up rules and keep-out")
-assert(W.RestoreBackup(), "restore failed")
-assert(SedimentDB.weights.classes[7] == 80 and SedimentDB.keepOut.subclasses["7:5"], "restore didn't bring rules back")
-assert(W.HasRules(), "restored rules not seen")
-assert(W.BackupInfo() == nil, "restoring over an empty rule set kept an empty backup")
+assert(Count() == before + 1, "reset didn't save a version")
+local saved = W.History()[1]
+assert(saved.reason == "before Reset to default" and saved.weights.classes[7] == 80 and saved.keepOut.subclasses["7:5"],
+	"the saved version lacks the rules or keep-out")
+assert(W.PreviousVersion() == saved, "previous version isn't the one just saved")
+W.LoadVersion(W.PreviousVersion())
+assert(SedimentDB.weights.classes[7] == 80 and SedimentDB.keepOut.subclasses["7:5"], "loading didn't bring rules back")
+assert(W.IsCurrent(saved), "the loaded version isn't marked in use")
+assert(Count() == before + 1, "loading saved the empty rules it replaced")
 
--- Restoring over real rules keeps them as the backup, so the restore can be undone.
-W.Backup("test")
+-- Loading over real rules saves them, so it can be undone (restore twice = back where you were).
 SedimentDB.weights.classes[7] = 55
-assert(W.RestoreBackup() and SedimentDB.weights.classes[7] == 80, "restore didn't bring the backup back")
-assert(W.BackupInfo() and W.BackupInfo().weights.classes[7] == 55, "restoring over real rules didn't keep them")
+W.LoadVersion(W.PreviousVersion())
+assert(SedimentDB.weights.classes[7] == 80, "didn't load the saved version")
+assert(W.PreviousVersion().weights.classes[7] == 55, "the replaced rules weren't saved")
+W.LoadVersion(W.PreviousVersion())
+assert(SedimentDB.weights.classes[7] == 55, "loading back didn't undo")
 
--- Nothing to back up: no backup is taken over an existing one.
-SedimentDB = { weightsVersion = 3, weights = { sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {}, classes = {} } }
-W = Load()
+-- No duplicates in a row; nothing empty unless asked; Save a copy names an unchanged version.
+W.Snapshot("once")
+local n = Count()
+assert(W.Snapshot("again") == nil and Count() == n, "saved the same rules twice in a row")
+local e, new = W.SaveCopy("  mine ")
+assert(not new and e == W.History()[1] and e.name == "mine", "Save a copy didn't name the unchanged version")
+SedimentDB.weights.classes[7] = 56
+e, new = W.SaveCopy("")
+assert(new and e.name == nil and e.reason == "saved by you", "Save a copy didn't save changed rules")
+W.RenameVersion(e, "named")
+assert(e.name == "named")
+W.DeleteVersion(e)
+assert(W.History()[1] ~= e, "delete didn't remove the version")
+W.ClearWeights()
+assert(SedimentDB.keepOut.subclasses["7:5"], "clearing the weights cleared keep-out rules")
+SedimentDB.keepOut = nil
+assert(W.Snapshot("empty") == nil, "saved an empty rule set")
+assert(W.SaveCopy("blank") and W.History()[1].name == "blank", "Save a copy refused an empty rule set")
+
+-- The newest 20 unnamed versions are kept; named ones aren't dropped.
+for i = 1, 30 do
+	SedimentDB.weights.classes[9] = i
+	W.Snapshot("loop " .. i)
+end
+local unnamed, named = 0, 0
+for _, v in ipairs(W.History()) do
+	if v.name then named = named + 1 else unnamed = unnamed + 1 end
+end
+assert(unnamed == 20, "kept " .. unnamed .. " unnamed versions")
+assert(named == 2, "a named version was dropped: " .. named)
+assert(W.History()[1].reason == "loop 30", "newest isn't first")
+
+-- Login: a version only if the rules changed; the old single backup slot becomes the oldest version.
+n = Count()
 W.Init()
-W.Backup("test")
-assert(W.BackupInfo() == nil, "backed up an empty rule set")
-print("rules check: new install, migrations, backup, reset and restore all OK")
+W.LoginSnapshot("Testchar")
+assert(Count() == n, "login saved unchanged rules")
+-- (An upgrade from 0.16.0: no History yet, the old backup slot filled.)
+SedimentDB = { weightsVersion = 3, weights = { sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {},
+	classes = { [9] = 99 } } }
+SedimentDB.rulesBackup = { time = "old", reason = "before Reset to default", weights = { sinkLine = 40, default = 39,
+	items = {}, flags = {}, subclasses = {}, classes = { [7] = 1 } } }
+W.Init()
+W.LoginSnapshot("Testchar")
+local h = W.History()
+assert(#h == 2, "upgrade should give two versions (the old backup, the rules at login), got " .. #h)
+assert(h[1].reason == "Testchar login" and h[1].weights.classes[9] == 99, "login didn't save changed rules")
+assert(h[#h].time == "old" and h[#h].weights.classes[7] == 1, "the old backup didn't become the oldest version")
+assert(SedimentDB.rulesBackup == nil, "the old backup slot is still there")
+print("rules check: new install, migrations, history, reset and restore all OK")

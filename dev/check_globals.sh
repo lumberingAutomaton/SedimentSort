@@ -3,7 +3,7 @@
 # Sediment's own. Catches "local declared below the function that uses it" bugs (twice so far:
 # cpuMs in Sort.lua, lastBagUpdate in AutoSort.lua), which the sim misses for files it mocks.
 # Usage: sh dev/check_globals.sh   (from the addon folder). Add new legitimate names to ALLOWED.
-ALLOWED="_G bit date ipairs math next pairs print select string table tonumber tostring type unpack
+ALLOWED="_G bit date error ipairs math next pairs pcall print select string table tonumber tostring type unpack
 strtrim tinsert hooksecurefunc
 C_Container C_Item C_Timer Enum CreateFrame UIParent UISpecialFrames GameTooltip
 GameTooltip_AddBlankLineToTooltip GameTooltip_AddInstructionLine GameTooltip_AddNormalLine
@@ -11,9 +11,9 @@ GameTooltip_SetTitle GameTooltip_Hide HIGHLIGHT_FONT_COLOR SOUNDKIT PlaySound Mu
 BagItemAutoSortButton ContainerFrameCombinedBags BagItemSearchBox IsAnyBagOpen GetInventoryItemID
 NUM_CONTAINER_FRAMES ContainerFrameContainer OpenAllBags
 GetCursorInfo ClearCursor GetCursorPosition GetMouseButtonClicked GetMouseFoci GetMouseFocus
-IsAltKeyDown IsControlKeyDown IsShiftKeyDown InCombatLockdown GetTime GetFramerate debugprofilestop
+UnitName IsAltKeyDown IsControlKeyDown IsShiftKeyDown InCombatLockdown GetTime GetFramerate debugprofilestop
 SlashCmdList SLASH_SEDIMENT1 SLASH_SEDIMENT2 SedimentDB
-StaticPopupDialogs StaticPopup_Show YES NO"
+StaticPopupDialogs StaticPopup_Show YES NO ACCEPT CANCEL"
 status=0
 for f in *.lua; do
 	luac -p "$f" || { status=1; continue; }
