@@ -33,7 +33,11 @@ local function Build()
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+	frame:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		-- Remember where the user put it (top-left corner, relative to the screen), for next time.
+		SedimentDB.popupPos = { x = self:GetLeft(), y = self:GetTop() }
+	end)
 	frame:SetBackdrop({
 		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -299,10 +303,17 @@ function Popup.Open(bag, slot)
 	end
 	current = { bag = bag, slot = slot, itemID = info.itemID }
 	if not frame:IsShown() then
-		local x, y = GetCursorPosition()
-		local scale = UIParent:GetEffectiveScale()
 		frame:ClearAllPoints()
-		frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x / scale - 16, y / scale + 16)
+		local pos = SedimentDB.popupPos
+		if pos then
+			-- Where the user last dragged it (kept across sessions; it's clamped to the screen).
+			frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+		else
+			-- Until it's been moved: next to the cursor.
+			local x, y = GetCursorPosition()
+			local scale = UIParent:GetEffectiveScale()
+			frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x / scale - 16, y / scale + 16)
+		end
 	end
 	frame:Show()
 	Popup.Refresh()

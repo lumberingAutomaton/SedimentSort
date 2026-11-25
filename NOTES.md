@@ -151,6 +151,8 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.14.2: the weight popup remembers where it was dragged (SedimentDB.popupPos, top-left corner relative to the
+  screen, kept across sessions; clamped to the screen); until first moved it opens next to the cursor.
 - 0.14.1: wording. The item-level keep-out box named the item ("Keep all Silk Cloth in my normal bags"), not "Keep
   just this item", which read like one stack; item weights read with the item's name ("Silk Cloth") instead of
   "This item" (a "(this type)" suffix was tried and dropped, user: just the name). Both cover every stack.
