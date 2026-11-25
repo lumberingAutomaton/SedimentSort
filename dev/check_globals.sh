@@ -3,7 +3,7 @@
 # Sediment's own. Catches "local declared below the function that uses it" bugs (twice so far:
 # cpuMs in Sort.lua, lastBagUpdate in AutoSort.lua), which the sim misses for files it mocks.
 # Usage: sh dev/check_globals.sh   (from the addon folder). Add new legitimate names to ALLOWED.
-ALLOWED="_G bit date ipairs math pairs print select string table tonumber tostring type unpack
+ALLOWED="_G bit date ipairs math next pairs print select string table tonumber tostring type unpack
 strtrim tinsert hooksecurefunc
 C_Container C_Item C_Timer Enum CreateFrame UIParent UISpecialFrames GameTooltip
 GameTooltip_AddBlankLineToTooltip GameTooltip_AddInstructionLine GameTooltip_AddNormalLine

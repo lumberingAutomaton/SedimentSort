@@ -314,6 +314,14 @@ if MEASURE then
 	end
 end
 ns.Weights.Init()
+-- Test fixture: the old starter rules (the addon now starts with none), so the sorts have real weights.
+SedimentDB.weights = {
+	sinkLine = 50, default = 20,
+	items = { [6948] = 0, [2901] = 0.01, [6206] = 0.01, [5956] = 0.01, [6256] = 0.02, [4471] = 0.03 },
+	flags = { equipmentSet = 35, quest = 51, gray = 100, unboundGear = 45 },
+	subclasses = { ["0:1"] = 8, ["0:5"] = 9 },
+	classes = { [0] = 10, [2] = 40, [4] = 40, [7] = 30, [12] = 51, [15] = 15 },
+}
 SedimentDB.autoOrder = ORDER
 
 local function Total()

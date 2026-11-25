@@ -16,6 +16,9 @@ same popup without the settings window.
 
 ## How it sorts
 
+Sediment starts with no rules: until you add some, it sorts your bags by item type, like an ordinary bag
+sort. Rules are how you make the order yours.
+
 - **Weights.** Each item's weight comes from the most specific rule that has one:
   1. a weight for that exact item (for example, Hearthstone 0, so it's always first),
   2. a flag, checked in this order: **Equipment set**, **Quest item**, **Gray quality**, **BoE gear**
@@ -55,7 +58,8 @@ always does what you expect.
 
 - **Weights:** Select mode (above), and every weight you've set, light to heavy, with the sink line
   drawn across. Edit numbers in place; x removes a rule (with Undo); Escape cancels an edit. **Not set**
-  lists the categories in your bags that still use the default. **Reset to starter weights** asks first.
+  lists the categories in your bags that still use the default. **Reset to default** removes all rules
+  (it asks first and keeps a backup; **Restore previous rules** brings them back).
 - **Sorting:** auto-sort on/off; its order (**Partial**: only what the weights require, fewest moves, or
   **Full**: the exact order, like the sort button); how long it waits after changes; how smoothly it
   runs; and whether opening the bags mid-sort pauses it or finishes it at once. **Debug mode** reveals
@@ -111,3 +115,5 @@ the game:
   auto-sort use the full order; `SEDIMENT_MEASURE=1` compares plans with the proven minimum swaps.
 - `dev/min_swaps.lua`: the proven-minimum swap solver used by that measurement.
 - `dev/resolve_check.lua`: checks the fast weight lookup against the full rule cascade.
+- `dev/rules_check.lua`: new installs start empty on the Full order, older saves migrate once, and backup,
+  reset to default and restore behave.

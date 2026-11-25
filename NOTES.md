@@ -8,7 +8,8 @@ User-facing overview: README.md. This section is the developer's view; history i
 - **Weights** (Weights.lua): most specific rule with a weight wins: item > flags (Equipment set > Quest > Gray >
   BoE gear, stored as unboundGear: equippable and not soulbound) > subclass > class > default. Gray quality is
   trash (not Miscellaneous > Junk: classic data files normal items there). Account-wide, in
-  SedimentDB.weights; starter set = PRESET in Weights.lua. Resolve is a table-free version of Explain.
+  SedimentDB.weights; the default (DEFAULTS in Weights.lua) is no rules, so ties fall back to the full order and
+  it starts out as a by-type sort. One backup (SedimentDB.rulesBackup) before rules are replaced; restore swaps. Resolve is a table-free version of Explain.
 - **Layout**: below the sink line packs from the top, at or above it from the bottom, gap in the middle.
   Full order (button): weight, equipment set names, class, subclass, item ID, bigger stack first. Partial
   order (auto-sort default): weight, then groups of identical items in their current order, with whole
@@ -38,10 +39,8 @@ In-game tests left: none.
 
 Code left:
 - Onboarding (see "Planned: onboarding questionnaire" below), agreed 2026-11-24, in this order:
-  1. "Reset to starter weights" -> "Reset to default"; the default rule set becomes empty for new installs;
-     new installs (no saved rules) default auto-sort to the Full order; existing users keep their rules.
-  2. Back up the rules automatically before onboarding changes anything, if there are existing rules, with a
-     "Restore my previous rules" button.
+  1. Done (0.16.0): "Reset to default"; empty default rules; Full order for new installs.
+  2. Done (0.16.0): automatic backup before rules are replaced, if there are any; "Restore previous rules".
   3. The questionnaire, whose first page replaces the welcome screen; it walks through getting the bag right
      with what's in it now. While it runs, bag slots with no rule of their own ("no sort for this") are
      highlighted, so progress is visible as answers cover them.
@@ -153,6 +152,15 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.16.0: onboarding groundwork. The default rule set is empty (it shipped the developer's opinions; the first
+  outside tester found them unhelpful): with no rules, ties fall back to the full order, so it starts as a
+  by-type sort. New installs (no saved rules) also start on the Full auto-sort order and at the current rules
+  version (WEIGHTS_VERSION 3), so old migrations don't add anything; existing saves keep their rules and order.
+  "Reset to starter weights" -> "Reset to default" (also clears keep-out rules). Weights.Backup keeps one copy
+  of the rules (weights + keep-out) before a wholesale change, only if there are rules; "Restore previous
+  rules" (shown while a backup exists) swaps it back in, so it can be undone, except that an empty rule set
+  isn't kept as a backup (found in game: after reset + restore, the button offered to restore "no rules"). dev/rules_check.lua tests the
+  lifecycle; the sim uses the old starter rules as a fixture.
 - 0.15.0: Special bags tab (user's call: its own tab, not the Sorting tab nor ladder rows; the ladder only lists
   weighted rules, so Cloth usually has no row there). Shows the special bags the player has (Bags.SpecialBags),
   the "Fill reagent and profession bags automatically" switch (moved from Sorting) and every keep-out rule

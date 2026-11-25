@@ -592,12 +592,35 @@ local function BuildWeightsPage(page)
 	scroll:SetScrollChild(ladderChild)
 
 	local reset = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	reset:SetSize(170, 24)
+	reset:SetSize(140, 24)
 	reset:SetPoint("BOTTOMLEFT", 2, 2)
-	reset:SetText("Reset to starter weights")
+	reset:SetText("Reset to default")
 	reset:SetScript("OnClick", function()
 		StaticPopup_Show("SEDIMENT_RESET_WEIGHTS")
 	end)
+
+	-- Shown while a backup exists (taken before a reset, or before onboarding replaces rules).
+	local restore = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+	restore:SetSize(170, 24)
+	restore:SetPoint("LEFT", reset, "RIGHT", 8, 0)
+	restore:SetText("Restore previous rules")
+	restore:SetScript("OnClick", function()
+		StaticPopup_Show("SEDIMENT_RESTORE_RULES")
+	end)
+	restore:SetScript("OnEnter", function(self)
+		local b = ns.Weights.BackupInfo()
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, "Restore previous rules")
+		if b then
+			GameTooltip_AddNormalLine(GameTooltip, ("Saved %s, %s. Your current rules are kept as the new backup, "
+				.. "so this can be undone."):format(b.time or "?", b.reason or ""))
+		end
+		GameTooltip:Show()
+	end)
+	restore:SetScript("OnLeave", GameTooltip_Hide)
+	page.refreshers[#page.refreshers + 1] = function()
+		restore:SetShown(ns.Weights.BackupInfo() ~= nil)
+	end
 end
 
 local function LabeledBox(page, y, label, help, get, set)
@@ -674,12 +697,29 @@ local function CheckRow(page, y, label, get, set)
 end
 
 StaticPopupDialogs["SEDIMENT_RESET_WEIGHTS"] = {
-	text = "Reset all Sediment weights to the starter set? Your edits will be lost.",
+	text = "Reset to default? This removes all your rules (weights and \"keep in my normal bags\"); your bags "
+		.. "then sort by item type. They're backed up first: \"Restore previous rules\" brings them back.",
 	button1 = YES,
 	button2 = NO,
 	OnAccept = function()
-		ns.Weights.ResetToPreset()
+		ns.Weights.ResetToDefault()
 		Changed()
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+StaticPopupDialogs["SEDIMENT_RESTORE_RULES"] = {
+	text = "Restore your previous rules? Your current rules are kept as the backup, so you can switch back.",
+	button1 = YES,
+	button2 = NO,
+	OnAccept = function()
+		ns.Weights.RestoreBackup()
+		Changed()
+		if Settings.RefreshSpecialList then
+			Settings.RefreshSpecialList() -- keep-out rules came back too
+		end
 	end,
 	timeout = 0,
 	whileDead = true,

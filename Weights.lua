@@ -6,37 +6,20 @@ local _, ns = ...
 local Weights = {}
 ns.Weights = Weights
 
--- Starter preset. Copied into SedimentDB on first load; after that the saved copy is what counts.
-local PRESET = {
+-- The default rule set: no rules. Copied into SedimentDB on first load, and by "Reset to default"; after
+-- that the saved copy is what counts. With no rules every item ties, and ties fall back to the full order
+-- (class > subclass > item), so Sediment starts out as an ordinary by-type bag sort; rules add the
+-- player's own preferences. (It used to ship with the developer's own opinions, hearthstone on top and
+-- weights for specific tools; the first outside tester found those unhelpful, 2026-11-24.)
+local DEFAULTS = {
 	sinkLine = 50,
 	default = 20,
-	items = {
-		[6948] = 0,    -- Hearthstone
-		[2901] = 0.01, -- Mining Pick
-		[6206] = 0.01, -- Rock Chipper
-		[5956] = 0.01, -- Blacksmith Hammer
-		[6256] = 0.02, -- Fishing Pole
-		[4471] = 0.03, -- Flint and Tinder
-	},
-	flags = {
-		equipmentSet = 35,
-		quest = 51,
-		gray = 100,
-		unboundGear = 45,
-	},
-	subclasses = { -- key "classID:subclassID"
-		["0:1"] = 8, -- Consumable > Potion
-		["0:5"] = 9, -- Consumable > Food & Drink
-	},
-	classes = {
-		[0] = 10,  -- Consumable
-		[2] = 40,  -- Weapon
-		[4] = 40,  -- Armor
-		[7] = 30,  -- Trade Goods
-		[12] = 51, -- Quest
-		[15] = 15, -- Miscellaneous
-	},
+	items = {},
+	flags = {},
+	subclasses = {},
+	classes = {},
 }
+local WEIGHTS_VERSION = 3 -- bump when a migration below is added
 
 -- Equipment set comes first: if you put something in a set, you're keeping it, even if it's gray.
 local FLAG_ORDER = { "equipmentSet", "quest", "gray", "unboundGear" }
@@ -66,24 +49,31 @@ end
 
 function Weights.Init()
 	if not SedimentDB.weights then
-		SedimentDB.weights = DeepCopy(PRESET)
+		-- A new install: the default (empty) rules, the Full auto-sort order (with no rules everything ties,
+		-- and Partial keeps tied items where they are, so a messy bag would never get organized), and
+		-- already up to date, so no migration below adds anything.
+		SedimentDB.weights = DeepCopy(DEFAULTS)
+		SedimentDB.weightsVersion = WEIGHTS_VERSION
+		if SedimentDB.autoOrder == nil then
+			SedimentDB.autoOrder = "full"
+		end
 	end
 	local w = SedimentDB.weights
 	-- Fill any level a newer version added, without touching the user's values.
-	for k, v in pairs(PRESET) do
+	for k, v in pairs(DEFAULTS) do
 		if w[k] == nil then
 			w[k] = type(v) == "table" and DeepCopy(v) or v
 		end
 	end
-	-- Flags added after the first release get their starter weight once. After that a cleared flag
-	-- stays cleared.
+	-- Migrations for saved rules from older versions; each runs once.
 	SedimentDB.weightsVersion = SedimentDB.weightsVersion or 1
 	if SedimentDB.weightsVersion < 2 then
+		-- 0.3.0 added the Equipment set flag to the starter set of the time.
 		if w.flags.equipmentSet == nil then
-			w.flags.equipmentSet = PRESET.flags.equipmentSet
+			w.flags.equipmentSet = 35
 		end
-		SedimentDB.weightsVersion = 2
 	end
+	SedimentDB.weightsVersion = WEIGHTS_VERSION
 end
 
 -- For the settings panel: flags in priority order with their labels, and a full reset.
@@ -93,9 +83,64 @@ function Weights.FlagLabel(flag)
 	return FLAG_LABELS[flag] or flag
 end
 
-function Weights.ResetToPreset()
-	SedimentDB.weights = DeepCopy(PRESET)
-	SedimentDB.weightsVersion = 2
+-- Do these rules say anything (any item, flag, subclass or class rule, or a keep-out rule)?
+function Weights.HasRules()
+	local w = SedimentDB.weights
+	for _, t in ipairs({ w.items, w.flags, w.subclasses, w.classes }) do
+		if next(t) then
+			return true
+		end
+	end
+	local ko = SedimentDB.keepOut
+	return ko ~= nil and ((ko.items and next(ko.items)) or (ko.subclasses and next(ko.subclasses))) and true or false
+end
+
+-- One backup of the rules (weights and keep-out), taken before something replaces them wholesale: "Reset
+-- to default" now, the onboarding questionnaire later. Only taken if there's something to keep.
+function Weights.Backup(reason)
+	if not Weights.HasRules() then
+		return
+	end
+	SedimentDB.rulesBackup = {
+		time = date("%Y-%m-%d %H:%M"),
+		reason = reason,
+		weights = DeepCopy(SedimentDB.weights),
+		keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
+	}
+end
+
+function Weights.BackupInfo()
+	return SedimentDB.rulesBackup
+end
+
+-- Restore swaps: the current rules become the backup, so a restore can itself be undone. Unless the
+-- current rules are empty (e.g. right after "Reset to default"): then there's nothing to keep, the backup
+-- is cleared and the Restore button goes away, rather than offering to restore "no rules".
+function Weights.RestoreBackup()
+	local b = SedimentDB.rulesBackup
+	if not b then
+		return false
+	end
+	local current
+	if Weights.HasRules() then
+		current = {
+			time = date("%Y-%m-%d %H:%M"),
+			reason = "before restoring",
+			weights = DeepCopy(SedimentDB.weights),
+			keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
+		}
+	end
+	SedimentDB.weights = DeepCopy(b.weights)
+	SedimentDB.keepOut = b.keepOut and DeepCopy(b.keepOut) or nil
+	SedimentDB.rulesBackup = current
+	return true
+end
+
+-- "Reset to default": back up, then the default (empty) rules and no keep-out rules.
+function Weights.ResetToDefault()
+	Weights.Backup("before Reset to default")
+	SedimentDB.weights = DeepCopy(DEFAULTS)
+	SedimentDB.keepOut = nil
 end
 
 function Weights.SinkLine()
