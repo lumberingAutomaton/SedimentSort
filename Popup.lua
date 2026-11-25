@@ -76,21 +76,30 @@ local function Build()
 		ns.Sort.Start()
 	end)
 
-	local function KeepOutBox(text, tip)
+	frame.keepOutHeading = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	frame.keepOutHeading:SetText("Keep in my normal bags:")
+	frame.keepOutHeading:Hide()
+	local function KeepOutBox(tip)
 		local box = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
 		box:SetSize(24, 24)
 		box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		box.label:SetPoint("LEFT", box, "RIGHT", 2, 0)
-		box.label:SetText(text)
+		box.label:SetJustifyH("LEFT")
+		box.label:SetWordWrap(false)
 		box:SetScript("OnClick", function(self)
-			ns.Bags.SetKeepOut(self.kind, self.key, self:GetChecked())
+			local on = self:GetChecked()
+			ns.Bags.SetKeepOut(self.kind, self.key, on)
+			if on then
+				-- One or the other: ticking this one clears the other's rule.
+				ns.Bags.SetKeepOut(self.other.kind, self.other.key, false)
+			end
 			ns.AutoSort.Resume()
 			Popup.Refresh()
 			ns.Settings.Refresh()
 		end)
 		box:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip_SetTitle(GameTooltip, self.label:GetText())
+			GameTooltip_SetTitle(GameTooltip, "Keep " .. self.label:GetText() .. " in my normal bags")
 			GameTooltip_AddNormalLine(GameTooltip, tip)
 			GameTooltip:Show()
 		end)
@@ -98,10 +107,10 @@ local function Build()
 		box:Hide()
 		return box
 	end
-	frame.keepOutSub = KeepOutBox("Keep all of these in my normal bags", "Never move items of this kind into a "
-		.. "reagent or profession bag. Ones already in one move back out (when there's room).")
-	frame.keepOutItem = KeepOutBox("Keep all of this item in my normal bags", "Never move this item (every "
-		.. "stack of it) into a reagent or profession bag, whatever the box above says.")
+	frame.keepOutSub = KeepOutBox("Never move items of this kind into a reagent or profession bag. Ones already in "
+		.. "one move back out (when there's room).")
+	frame.keepOutItem = KeepOutBox("Never move this item (every stack of it) into a reagent or profession bag; "
+		.. "other items of its kind still go in.")
 
 	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.settingsButton:SetSize(80, 22)
@@ -256,9 +265,11 @@ function Popup.Refresh()
 		rows[i].level = nil
 	end
 
-	-- "Keep ... in my normal bags": only for items a special bag would take, or that are in one now. Two
-	-- boxes, each naming what it covers: the whole subclass ("Keep all Cloth ...", people think "my cloth")
-	-- and this item type ("Keep all Silk Cloth ...": every stack of it, not one slot).
+	-- "Keep in my normal bags:" a heading, then two short checkboxes on one line: the whole subclass
+	-- ("all Cloth", people think "my cloth") and this item ("Mageweave Cloth", every stack of it). The
+	-- heading says what they mean once, so the labels stay short; a long item name is cut off rather than
+	-- spilling out. They're mutually exclusive (one or the other, or neither). Shown only for items a special
+	-- bag would take, or that are in one now.
 	local inSpecial = false
 	for _, sl in ipairs(ns.Bags.Read()) do
 		if sl.bag == current.bag and sl.slot == current.slot then
@@ -266,21 +277,29 @@ function Popup.Refresh()
 		end
 	end
 	if inSpecial or ns.Bags.SpecialBagItem(item) then
-		local category = item.subclassName or "items like this"
-		frame.keepOutSub.label:SetText(("Keep all %s in my normal bags"):format(category))
+		local subOn = ns.Bags.KeepOutRule("subclass", item.subKey)
+		local itemOn = ns.Bags.KeepOutRule("item", item.itemID) and not subOn
+		frame.keepOutHeading:ClearAllPoints()
+		frame.keepOutHeading:SetPoint("TOPLEFT", 12, y - 4)
+		frame.keepOutHeading:Show()
+		frame.keepOutSub.label:SetText("all " .. (item.subclassName or "of this kind"))
 		frame.keepOutSub.kind, frame.keepOutSub.key = "subclass", item.subKey
-		frame.keepOutSub:SetChecked(ns.Bags.KeepOutRule("subclass", item.subKey))
+		frame.keepOutSub.other = frame.keepOutItem
+		frame.keepOutSub:SetChecked(subOn)
 		frame.keepOutSub:ClearAllPoints()
-		frame.keepOutSub:SetPoint("TOPLEFT", 8, y - 2)
+		frame.keepOutSub:SetPoint("TOPLEFT", 8, y - 20)
 		frame.keepOutSub:Show()
-		frame.keepOutItem.label:SetText(("Keep all %s in my normal bags"):format(item.name or "of this item"))
+		frame.keepOutItem.label:SetText(item.name or "this item")
 		frame.keepOutItem.kind, frame.keepOutItem.key = "item", item.itemID
-		frame.keepOutItem:SetChecked(ns.Bags.KeepOutRule("item", item.itemID))
+		frame.keepOutItem.other = frame.keepOutSub
+		frame.keepOutItem:SetChecked(itemOn)
 		frame.keepOutItem:ClearAllPoints()
-		frame.keepOutItem:SetPoint("TOPLEFT", 8, y - 26)
+		frame.keepOutItem:SetPoint("LEFT", frame.keepOutSub.label, "RIGHT", 14, 0)
+		frame.keepOutItem.label:SetWidth(math.max(40, WIDTH - 24 - (frame.keepOutSub.label:GetStringWidth() + 70)))
 		frame.keepOutItem:Show()
-		y = y - 50
+		y = y - 46
 	else
+		frame.keepOutHeading:Hide()
 		frame.keepOutSub:Hide()
 		frame.keepOutItem:Hide()
 	end

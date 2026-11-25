@@ -35,7 +35,8 @@ User-facing overview: README.md. This section is the developer's view; history i
 ## To do (updated 2026-11-24)
 In-game tests left:
 - 0.14.0: Alt+right-click some cloth, tick "Keep all Cloth in my normal bags": every cloth leaves
-  the reagent bag and stays out. Untick: it goes back in. "Keep all Silk Cloth" does the same for one item type. Sorting tab "Fill reagent and profession bags automatically" off:
+  the reagent bag and stays out. Untick: it goes back in. The item box does the same for one item; the two are
+  mutually exclusive. Sorting tab "Fill reagent and profession bags automatically" off:
   nothing new goes in.
 
 Code left:
@@ -151,6 +152,9 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.14.3: keep-out checkboxes compacted (the long "Keep all Mageweave Cloth in my normal bags" ran off the popup):
+  a "Keep in my normal bags:" heading, then "all Cloth" and "<item>" side by side; a long item name is cut off.
+  Mutually exclusive (user): ticking one clears the other's rule.
 - 0.14.2: the weight popup remembers where it was dragged (SedimentDB.popupPos, top-left corner relative to the
   screen, kept across sessions; clamped to the screen); until first moved it opens next to the cursor.
 - 0.14.1: wording. The item-level keep-out box named the item ("Keep all Silk Cloth in my normal bags"), not "Keep
