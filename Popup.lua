@@ -72,6 +72,33 @@ local function Build()
 		ns.Sort.Start()
 	end)
 
+	local function KeepOutBox(text, tip)
+		local box = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+		box:SetSize(24, 24)
+		box.label = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		box.label:SetPoint("LEFT", box, "RIGHT", 2, 0)
+		box.label:SetText(text)
+		box:SetScript("OnClick", function(self)
+			ns.Bags.SetKeepOut(self.kind, self.key, self:GetChecked())
+			ns.AutoSort.Resume()
+			Popup.Refresh()
+			ns.Settings.Refresh()
+		end)
+		box:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			GameTooltip_SetTitle(GameTooltip, self.label:GetText())
+			GameTooltip_AddNormalLine(GameTooltip, tip)
+			GameTooltip:Show()
+		end)
+		box:SetScript("OnLeave", GameTooltip_Hide)
+		box:Hide()
+		return box
+	end
+	frame.keepOutSub = KeepOutBox("Keep all of these in my normal bags", "Never move items of this kind into a "
+		.. "reagent or profession bag. Ones already in one move back out (when there's room).")
+	frame.keepOutItem = KeepOutBox("Keep just this item in my normal bags", "Never move this one item into a "
+		.. "reagent or profession bag, whatever the box above says.")
+
 	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.settingsButton:SetSize(80, 22)
 	frame.settingsButton:SetText("Settings")
@@ -223,6 +250,33 @@ function Popup.Refresh()
 	for i = #shown + 1, #rows do
 		rows[i]:Hide()
 		rows[i].level = nil
+	end
+
+	-- "Keep ... in my normal bags": only for items a special bag would take, or that are in one now. Two
+	-- boxes: the whole subclass (people think "my cloth") and just this item.
+	local inSpecial = false
+	for _, sl in ipairs(ns.Bags.Read()) do
+		if sl.bag == current.bag and sl.slot == current.slot then
+			inSpecial = sl.zone ~= "main"
+		end
+	end
+	if inSpecial or ns.Bags.SpecialBagItem(item) then
+		local category = item.subclassName or "items like this"
+		frame.keepOutSub.label:SetText(("Keep all %s in my normal bags"):format(category))
+		frame.keepOutSub.kind, frame.keepOutSub.key = "subclass", item.subKey
+		frame.keepOutSub:SetChecked(ns.Bags.KeepOutRule("subclass", item.subKey))
+		frame.keepOutSub:ClearAllPoints()
+		frame.keepOutSub:SetPoint("TOPLEFT", 8, y - 2)
+		frame.keepOutSub:Show()
+		frame.keepOutItem.kind, frame.keepOutItem.key = "item", item.itemID
+		frame.keepOutItem:SetChecked(ns.Bags.KeepOutRule("item", item.itemID))
+		frame.keepOutItem:ClearAllPoints()
+		frame.keepOutItem:SetPoint("TOPLEFT", 8, y - 26)
+		frame.keepOutItem:Show()
+		y = y - 50
+	else
+		frame.keepOutSub:Hide()
+		frame.keepOutItem:Hide()
 	end
 
 	frame.hint:ClearAllPoints()

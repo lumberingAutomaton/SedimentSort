@@ -27,7 +27,10 @@ same popup without the settings window.
   the bottom.
 - **Special bags.** A reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...)
   holds what it accepts, wherever it sits. Items that belong there are moved in, and each special bag is
-  sorted on its own.
+  sorted on its own. To keep things out, Alt+right-click one and tick **Keep all <kind> in my normal
+  bags** (for example all Cloth), or **Keep just this item in my normal bags**; ones already in a special
+  bag move back out. To stop filling special bags at all, untick **Fill reagent and profession bags
+  automatically** on the Sorting tab.
 - **Equipment sets** stay together, and identical stacks always sit side by side, with the partial
   stack last.
 - Every normal bag is sorted: Blizzard's per-bag "Ignore cleanup" option is ignored.

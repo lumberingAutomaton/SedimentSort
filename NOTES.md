@@ -17,7 +17,7 @@ User-facing overview: README.md. This section is the developer's view; history i
 - **Zones** (Bags.lua): normal bags in on-screen order (backpack slot 1 top-left), then each special bag,
   identified by the bag item (container subclass 11 = reagent) or its family. Profession bags fill before the
   reagent bag. Blizzard's per-bag "Ignore cleanup" flag is ignored.
-- **Sort engine** (Sort.lua): phases merge -> transfer into special bags -> placement (per zone; every chain in
+- **Sort engine** (Sort.lua): phases merge -> evict kept-out items -> transfer into special bags -> placement (per zone; every chain in
   two rounds by double reversal) -> restack. Every round re-reads the bags and checks them against the plan.
   Combat is checked before every swap and stops a sort at once. Button sorts send a round in one frame;
   auto-sorts stream it at an average budget per frame (default 0.3ms). Takes over BagItemAutoSortButton's
@@ -33,11 +33,18 @@ User-facing overview: README.md. This section is the developer's view; history i
   (Popup.lua). Every Sediment window closes and Select mode ends in combat.
 
 ## To do (updated 2026-11-24)
-In-game tests left: none.
+In-game tests left:
+- 0.14.0: Alt+right-click some cloth, tick "Keep all Cloth in my normal bags": every cloth leaves
+  the reagent bag and stays out. Untick: it goes back in. "Keep just this item" does the same for one item. Sorting tab "Fill reagent and profession bags automatically" off:
+  nothing new goes in.
 
 Code left:
+- HIGH PRIORITY (user, 2026-11-24): a place to review keep-out rules ("Keep all Cloth / just this item in my
+  normal bags"), with remove buttons. Not on the Sorting tab (user). Today they're only visible in the popup.
+  Options to discuss: a section in the Weights tab's ladder, or the rule rows themselves (e.g. a "kept out"
+  marker on Cloth's row), or its own small tab.
 - From the first outside user's feedback (see "Planned: onboarding questionnaire" below), in this order:
-  keep items out of special bags; empty starter rules + Full auto-sort order for new installs; the
+  keep items out of special bags (built, 0.14.0); empty starter rules + Full auto-sort order for new installs; the
   questionnaire (layout question, fixed + per-class + special-case questions, Back/Skip/Finish later, review).
 - Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
   browser (today "Not set" only lists categories in the bags).
@@ -144,6 +151,14 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.14.0: keep items out of special bags (first outside user's feedback: she didn't want her cloth in the
+  reagent bag, so it works per subclass: "Keep all Cloth in my normal bags", plus "Keep just this item"). Two
+  checkboxes in the weight popup (shown for items a special bag would take or that are in one;
+  SedimentDB.keepOut = { items, subclasses }; an early per-item-only format converts):
+  never transferred in; a new evict phase (after merge, before transfer) moves ones already in a special bag to
+  empty normal-bag slots; their partial stacks merge towards the normal bags. Global switch on the Sorting tab,
+  "Fill reagent and profession bags automatically" (SedimentDB.fillSpecialBags): off = nothing moved in, what's
+  there stays and is sorted. Sim: keep-out and fill-off tests.
 - 0.13.0: onboarding and docs. A welcome screen in the settings window explains float/sink, background sorting,
   and how to start (Select mode), with "Set weights", OK and "Don't show this again"; ? brings it back.
   "Show testing tools" became "Debug mode", which also reveals a Commands tab. All /sed commands live in one

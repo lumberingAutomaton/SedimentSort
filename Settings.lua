@@ -699,6 +699,13 @@ local function BuildSortingPage(page)
 		"How much time per frame, on average, auto-sort may spend moving items. Lower is smoother but "
 		.. "slower. The sort button always goes full speed.",
 		ns.Sort.BudgetMs, function(n) SedimentDB.streamBudgetMs = math.max(0.01, math.min(50, n)) end)
+	local _, fillText = CheckRow(page, -276, "Fill reagent and profession bags automatically",
+		ns.Bags.FillSpecialBags, function(on)
+			SedimentDB.fillSpecialBags = on and nil or false
+			ns.AutoSort.Resume()
+		end)
+	HelpText(page, fillText, "Off: Sediment never moves anything into those bags; what's already in them stays "
+		.. "and is still sorted there. To keep single items out, Alt+right-click them.")
 	ChoiceRow(page, -212, "If the bags open during an auto-sort", 100,
 		ns.Sort.OpenBagsMode, function(v) SedimentDB.openBags = v end, {
 			{ value = "pause", label = "Pause", help = "Nothing moves while the bags are open; the sort "
@@ -706,7 +713,7 @@ local function BuildSortingPage(page)
 			{ value = "finish", label = "Finish now", help = "Everything left goes out at once, so the bag "
 				.. "settles within about half a second of opening. Expect a short stutter." },
 		})
-	local _, debugText = CheckRow(page, -280, "Debug mode",
+	local _, debugText = CheckRow(page, -340, "Debug mode",
 		function() return SedimentDB.testingTools and true or false end,
 		function(on)
 			SedimentDB.testingTools = on

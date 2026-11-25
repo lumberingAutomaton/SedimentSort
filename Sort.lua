@@ -96,15 +96,17 @@ local function MergeMoves(slots)
 	for _, sig in ipairs(order) do
 		local list = partials[sig]
 		-- Stacks in special bags (reagent, profession) first, so they're the ones topped up and strays
-		-- from the normal bags get folded in. A stable move-to-front.
-		local specialFirst = {}
+		-- from the normal bags get folded in. A stable move-to-front. Items kept out of special bags go
+		-- the other way: normal-bag stacks first, so stacks drain out of the special bag.
+		local keptOut = ns.Bags.KeepOut(list[1].item)
+		local first = {}
 		for _, s in ipairs(list) do
-			if s.zone ~= "main" then specialFirst[#specialFirst + 1] = s end
+			if (s.zone ~= "main") ~= keptOut then first[#first + 1] = s end
 		end
 		for _, s in ipairs(list) do
-			if s.zone == "main" then specialFirst[#specialFirst + 1] = s end
+			if (s.zone ~= "main") == keptOut then first[#first + 1] = s end
 		end
-		list = specialFirst
+		list = first
 		local i, j = 1, #list
 		while i < j do
 			local dst, src = list[i], list[j]
@@ -267,6 +269,27 @@ local function PlanTargets(slots)
 		targets[first + i] = item.sig
 	end
 	return targets
+end
+
+-- Items kept out of special bags ("Keep in my normal bags") that are in one move to empty normal-bag
+-- slots; placement then sorts them by weight. Plain moves into empty slots, one round. If the normal bags
+-- are full, the rest stay where they are until there's room.
+local function EvictMoves(slots)
+	local empties, batch = {}, {}
+	for _, s in ipairs(slots) do
+		if s.zone == "main" and not s.item then
+			empties[#empties + 1] = s
+		end
+	end
+	for _, s in ipairs(slots) do
+		if #batch >= #empties then
+			break
+		end
+		if s.zone ~= "main" and s.item and ns.Bags.KeepOut(s.item) then
+			batch[#batch + 1] = { kind = "evict", src = s, dst = empties[#batch + 1] }
+		end
+	end
+	return batch
 end
 
 -- Items in the normal bags move into empty slots of a special bag that accepts them: reagents into
@@ -773,7 +796,8 @@ function StepWork()
 		return
 	end
 
-	-- One phase per round: merge stacks, move reagents into the reagent bag, place, restack.
+	-- One phase per round: merge stacks, move kept-out items out of special bags, move items into special
+	-- bags, place, restack.
 	-- Each phase changes what the next one plans from.
 	local batch = plan and TakePlanned(slots)
 	if mode == "scramble" then
@@ -798,6 +822,9 @@ function StepWork()
 		end
 	elseif not batch then
 		batch = MergeMoves(slots)
+		if #batch == 0 then
+			batch = EvictMoves(slots)
+		end
 		if #batch == 0 then
 			batch = TransferMoves(slots)
 		end

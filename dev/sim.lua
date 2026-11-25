@@ -389,6 +389,14 @@ for sb = 0, 5 do if IsSpecial(sb) then
 		local t = bags[sb][s]
 		if t then
 			assert(Fits(sb, t), ("%s in special bag %d, which doesn't take it"):format(t.name, sb))
+			do
+				-- Kept-out items don't stay in a special bag when the normal bags have room.
+				local keptOut = ns.Bags.KeepOut(ns.Bags.ReadSlot(sb, s))
+				local mainEmpty = false
+				for b = 0, 4 do if not IsSpecial(b) then for s2 = 1, BAG_SIZES[b] do
+					if not bags[b][s2] then mainEmpty = true end end end end
+				assert(not (keptOut and mainEmpty), ("%s kept out but still in special bag %d"):format(t.name, sb))
+			end
 			local w = ns.Weights.Resolve(ns.Bags.ReadSlot(sb, s))
 			if show then print(("S%d/%-2d w%-5s %-30s x%d"):format(sb, s, tostring(w), t.name, t.count)) end
 			if w < sink then
@@ -407,7 +415,10 @@ for sb = 0, 5 do if IsSpecial(sb) then
 	end
 	if hasEmpty then
 		for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = bags[b][s]
-			assert(not (t and Fits(sb, t)), ("%s left in the normal bags with room in special bag %d"):format(t and t.name or "", sb))
+			local keptOut = t and ns.Bags.KeepOut(ns.Bags.ReadSlot(b, s))
+			local filling = SedimentDB.fillSpecialBags ~= false
+			assert(not (t and Fits(sb, t) and not keptOut and filling),
+				("%s left in the normal bags with room in special bag %d"):format(t and t.name or "", sb))
 		end end end
 	end
 end end
@@ -516,6 +527,46 @@ do
 	Check(false)
 	local run = SedimentDB.benchHistory and SedimentDB.benchHistory[1]
 	assert(run and run.kind == "auto", "bench history not recorded")
+end
+
+-- Keep-out test: mark every item currently in a special bag "keep in my normal bags", sort, and check
+-- they all moved out (Check asserts it) and nothing kept out went back in. Then switch filling off:
+-- nothing new may move into a special bag.
+do
+	-- Half by subclass (the user's case: "keep my cloth out"), half by item.
+	local kept, toggle = 0, false
+	for b = 0, 5 do if IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = bags[b][s]
+		if t then
+			local item = ns.Bags.ReadSlot(b, s)
+			toggle = not toggle
+			if toggle then ns.Bags.SetKeepOut("subclass", item.subKey, true) else ns.Bags.SetKeepOut("item", item.itemID, true) end
+			kept = kept + 1
+		end end end end
+	print(("keep-out test: %d items kept out (by subclass or item) -> %s"):format(kept, Run(false)))
+	Check(false)
+	for b = 0, 5 do if IsSpecial(b) then for s = 1, BAG_SIZES[b] do
+		assert(not (bags[b][s] and ns.Bags.KeepOut(ns.Bags.ReadSlot(b, s))), "a kept-out item is still in a special bag")
+	end end end
+	-- The old per-item format converts.
+	SedimentDB.keepOut = { [123] = true }
+	assert(ns.Bags.KeepOutRule("item", 123), "old keep-out format didn't convert")
+	SedimentDB.keepOut = nil
+	SedimentDB.fillSpecialBags = false
+	local before = {}
+	for b = 0, 5 do if IsSpecial(b) then for s = 1, BAG_SIZES[b] do before[b * 100 + s] = bags[b][s] and bags[b][s].itemID end end end
+	Run(false)
+	for b = 0, 5 do if IsSpecial(b) then for s = 1, BAG_SIZES[b] do
+		local id = bags[b][s] and bags[b][s].itemID
+		if id then
+			local wasThere = false
+			for _, v in pairs(before) do if v == id then wasThere = true end end
+			assert(wasThere, "filling is off but an item moved into a special bag")
+		end
+	end end end
+	SedimentDB.fillSpecialBags = nil
+	Run(false)
+	Check(false)
+	print("keep-out and fill-off tests passed")
 end
 
 -- Pause test: the same messy start sorted twice by auto-sort, once uninterrupted and once with the

@@ -60,8 +60,65 @@ end
 -- says), keyed "zone:itemID". They stay where they are.
 Bags.refused = {}
 
+-- Kept out of special bags ("Keep ... in my normal bags" in the weight popup). People think in categories
+-- ("my cloth"), so it works per subclass (all Cloth) as well as per item; either keeps an item out. Such
+-- items are never moved into a special bag, and ones already in one are moved back out.
+-- SedimentDB.keepOut = { items = { [itemID] = true }, subclasses = { ["classID:subclassID"] = true } }
+local function KeepOutTable()
+	local ko = SedimentDB.keepOut
+	if not ko then
+		return nil
+	end
+	if not ko.items then
+		-- Converted from the first, per-item-only version: { [itemID] = true }.
+		local items = {}
+		for k, v in pairs(ko) do
+			if type(k) == "number" then
+				items[k] = v
+			end
+		end
+		ko = { items = items, subclasses = {} }
+		SedimentDB.keepOut = ko
+	end
+	ko.subclasses = ko.subclasses or {}
+	return ko
+end
+
+function Bags.KeepOut(item)
+	local ko = KeepOutTable()
+	return ko ~= nil and (ko.items[item.itemID] == true or ko.subclasses[item.subKey] == true)
+end
+
+-- kind = "item" (key = itemID) or "subclass" (key = "classID:subclassID").
+function Bags.KeepOutRule(kind, key)
+	local ko = KeepOutTable()
+	return ko ~= nil and ((kind == "item" and ko.items[key]) or (kind == "subclass" and ko.subclasses[key])) == true
+end
+
+function Bags.SetKeepOut(kind, key, on)
+	local ko = KeepOutTable()
+	if not ko then
+		ko = { items = {}, subclasses = {} }
+		SedimentDB.keepOut = ko
+	end
+	local t = kind == "item" and ko.items or ko.subclasses
+	t[key] = on and true or nil
+end
+
+-- "Fill reagent and profession bags automatically" (Settings > Sorting; on unless switched off). Off: nothing
+-- is moved into special bags; what's already in them stays and is still sorted there.
+function Bags.FillSpecialBags()
+	return SedimentDB.fillSpecialBags ~= false
+end
+
+-- Could this item ever go into a special bag (whatever bags the player has)? For showing the checkbox.
+function Bags.SpecialBagItem(item)
+	return item.isCraftingReagent or (item.family or 0) ~= 0
+end
+
 function Bags.ShouldTransfer(item, info)
-	return Bags.Fits(item, info) and not Bags.refused[info.zone .. ":" .. item.itemID]
+	return Bags.FillSpecialBags() and not Bags.KeepOut(item) and Bags.Fits(item, info)
+		and not Bags.refused[info.zone .. ":" .. item.itemID]
 end
 
 -- Facts about an item type that never change (class, names, stack size), looked up once per item
