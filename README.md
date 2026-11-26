@@ -5,43 +5,51 @@ your bags, heavy items sink to the bottom, and the **Empty Space** stays in the 
 While your bags are closed, **Sediment** keeps them in order quietly in the background.
 
 Writing convention, here and in the game: **Sediment**'s own nouns
-(**Sediment**, **Weight**, **Select Mode**, **Setup**, **History**, **Pinned**, **Empty Space**) are bold here and
+(**Sediment**, **Weight**, **Order**, **History**, **Pinned**, **Empty Space**) are bold here and
 sand-coloured in the game; button names are `in code style` here and gold in the game. "Rules" always means
 your whole set: all your **Weights** plus what you keep out of special bags.
 
 ## Getting started
 
-Click the gear next to the bag's sort button (or type `/sed`). While you have no rules, or haven't finished
-setting up, it opens **Setup**: a page on what **Sediment** does, then a few questions about what's in your
-bags now. After that, the gear opens the settings at your **Weights**. Each answer sorts your bags right
-away, so you see what it does:
+Click the gear next to the bag's sort button (or type `/sed`): the settings open at **Order**, beside your
+bags. The first time, a short welcome covers the list; press `Start Fresh` to begin from a common layout you
+can rearrange: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable, Quest Items, BoE Gear (and
+any other kind of item in your bags), the **Empty Space**, then Weapon, Armor, Trade Goods, Miscellaneous
+and Gray Quality last. `Start Fresh` saves any rules you had to **History** first, clears them (Keep out of
+special bags too), adds a Created entry for the new layout, and turns on Blizzard's Combined Backpack if
+it's off (**Sediment** sorts in that window's order). The ? next to the settings title brings the welcome back.
 
-1. Where you want the **Empty Space**: in the middle (things float up or sink down), at the bottom
-   (everything packed from the top, like a normal sort) or at the top.
-2. Your hearthstone first or last, and anything you want next to it (click items in your bags, the one you
-   want right beside it first).
-3. Gray junk and trade goods: float or sink (or higher up / lower down if your space isn't in the middle).
-4. If you have them: equipment set items, BoE gear, spare bags, quest items.
-5. A question for each part of your bags that's still not set (Consumable, Weapon, ...), biggest first.
-   `Split This Up` asks about its parts instead (Consumable: Potions, Food & Drink, ...).
-6. A review: everything you've set, top to bottom, with the **Empty Space** marked; click a row, then
-   `Move Up` or `Move Down`.
+**Order** lists your rules, top to bottom the way your bags sort, with the **Empty Space** among them. Drag a
+row to move it: by the grip at its left, which picks it up as soon as you press, or anywhere on it once
+the mouse moves a little. Clicking a row outlines its items in your bags, and your bags sort on every
+change. The **Empty Space** moves the same way, and where you put it decides the layout:
+- at the top: everything packs toward the bottom of your bags;
+- at the bottom: everything packs from the top, like a normal bag sort;
+- in between: what's above it floats to the top, what's below it sinks to the bottom, and the gap is in the
+  middle, where new loot lands.
 
-The first page always has the same two buttons. `Start Fresh` saves your rules to **History** (if you have
-any), clears them all (**Weights** and Keep out of special bags) and asks everything. `Continue` keeps your
-rules: it carries on where you left off, or asks only about what isn't set yet. A line above them says
-which applies, and `Continue` is greyed out until there's something to continue. Either one turns on
-Blizzard's Combined Backpack if it's off (**Sediment** sorts in that window's order) and says so.
+Anything not set yet stays next to the **Empty Space** and is outlined orange (the line above the list says
+how many); select the **Empty Space** to see those items in gold. x removes a row; it stays greyed with
+`Undo` until the list changes again or you leave the section.
 
-`Back` undoes the previous answer, `Skip` leaves a question unanswered, and `Finish Later` keeps your place
-(`Continue` picks it up again). While **Setup** is open, items not set yet are outlined orange in your bags,
-and the ones the current question is about gold. Your rules are saved to **History** before you start and
-when you finish, so you can always go back. The ? next to the settings title brings **Setup** back any time.
+`Pick from Bags` is on whenever **Order** shows its list; its button turns it off until you next open
+**Order**. While it's on, hovering an item in your bags lights up the row that sorts it, and clicking an
+item gives it its own row, right above the row that sorts it now, ready to move. Alt+right-click still opens
+the **Weight** popup.
 
-To change things later: in **Weights**, click `Select Mode: off` to enter **Select Mode** (it opens your
-bags), then click items in them. Each slot shows its current **Weight** (orange means not set yet);
-clicking an item opens its **Weight** popup. Lower numbers float, higher numbers sink. Alt+right-click on
-any bag item opens the same popup without the settings window.
+The column right of the list offers wider ways to sort the selected row, e.g. "Sort Mageweave Cloth as:"
+`Trade Goods/Cloth`, `Trade Goods`, or `BoE Gear` for a BoE item; a group/part row offers its whole group.
+Choosing one replaces the row with that one, or joins it to that row if it's already in the list; either
+way, everything it covers sorts there. Hover a choice to see what it would cover.
+
+Alt+right-click on any bag item opens its **Weight** popup: "Sorted as BoE Gear", naming the row in
+**Order** it sorts with, without opening **Order**. It lists what applies to the item, most specific first:
+the item itself, its flags (Equipment Set, Quest Items, Gray Quality, BoE Gear), its group/part, its group.
+The one that decides is marked `wins`;
+the most specific one with a row in **Order** always wins. Each level above it has `Add`, which gives that
+level a row right above the deciding row, so it takes over and your bags sort. The levels below the winner
+can't change this item, so they have no button. `Settings` opens **Order** with the deciding row selected.
+The popup always opens just above your bag window and draws over the settings window.
 
 ## How it sorts
 
@@ -56,8 +64,8 @@ Each item's **Weight** comes from the most specific rule that has one:
 4. its class (for example, Consumable),
 5. the default **Weight**.
 
-The **Empty Space** is where new loot lands. It has a number too: items with a **Weight** below it pack from
-the top, items at or above it pack from the bottom, so the gap sits between them.
+The **Empty Space** is where new loot lands. Rules above it float to the top, rules below it sink to the
+bottom; in **Order** you drag it like any row.
 
 Special bags: a reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...) holds
 what it accepts, wherever it sits. Items that belong there are moved in, and each special bag is sorted on
@@ -87,12 +95,8 @@ The settings window lists its sections on the left, like WoW's own Options windo
 appears in debug mode. It closes in combat, along with everything else **Sediment** opens, so a click in
 combat always does what you expect.
 
-### Weights
-**Select Mode** (above), and every **Weight** you've set, light to heavy, with the **Empty Space** drawn
-across (edit its number to move it).
-Edit numbers in place; x removes a **Weight** (with `Undo`); Escape cancels an edit. "Not set" lists what
-in your bags still uses the default. `Start Fresh` asks first, then saves your rules to **History**, clears
-them and opens **Setup**. To go back to earlier rules, `Load` them in **History**.
+### Order
+The list described above.
 
 ### Special bags
 The special bags you have; Fill reagent and profession bags automatically (off: nothing is moved in, what's
@@ -110,7 +114,7 @@ once or pauses it. Debug mode reveals two more sections (below).
 A safety net of your rules (**Weights**, the **Empty Space**, default and Keep out of special bags; not the sorting
 options), newest first. Two kinds of entry, titled like "Rook — Snapshot — Nov 25, 10:32" (the character
 you were on):
-- **Created**: added when you finish **Setup**.
+- **Created**: added when `Start Fresh` lays out a new order.
 - **Snapshot**: taken automatically when you log out (or `/reload`), and before `Load` or `Start Fresh`, but
   only if your rules have changed since they were last in **History**.
 
@@ -137,7 +141,7 @@ or missing. A missing file usually means the game needs a full restart.
 
 | Command | What it does |
 |---|---|
-| `/sed` | Open the settings at your **Weights**, or **Setup** while you have no rules (also /sed config, /sed settings). |
+| `/sed` | Open the settings at your **Order** (also /sed config, /sed settings). |
 | `/sed sort` | Sort the bags now, the same as clicking the sort button. |
 | `/sed cancel` | Stop a sort that's running. |
 | `/sed auto` | Turn auto-sort on or off (or right-click the sort button). |
@@ -153,7 +157,7 @@ or missing. A missing file usually means the game needs a full restart.
 | Mouse | What it does |
 |---|---|
 | Sort button | Left-click: sort now. Right-click: turn auto-sort on or off. |
-| Gear button | Next to the sort button: the settings at your **Weights**, or **Setup** while you have no rules. |
+| Gear button | Next to the sort button: the settings at your **Order**. |
 | Alt+right-click | On any bag item: its **Weight** popup. |
 
 ## Install
@@ -183,9 +187,8 @@ the game:
 - `dev/resolve_check.lua`: checks the fast weight lookup against the full rule cascade.
 - `dev/rules_check.lua`: new installs start empty on the Full order, older saves migrate once, and
   **History** (saving, no duplicates, loading, naming, the 20-version limit, the login version) behaves.
-- `dev/ranking_check.lua`: the order **Setup** works in: where each answer lands, weights on the
-  right side of the **Empty Space** in every layout, ties kept.
-- `dev/setup_check.lua`: clicks through **Setup** against mocked frames (every question type,
-  Back, Skip, Split, Finish Later, Start Fresh / Continue, Combined Backpack, the review's moves, Done, the
-  slot highlights) and the
-  History section.
+- `dev/ranking_check.lua`: the order behind the **Order** list: the default layout, moving rows and the
+  **Empty Space**, unset items attached to it, old saves converting, ties kept.
+- `dev/setup_check.lua`: clicks through the settings against mocked frames: the **Order** section (welcome,
+  `Start Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, `Pick from Bags` and widen,
+  drag and drop), **History**, Special bags and Debug > Files.

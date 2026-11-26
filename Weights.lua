@@ -32,11 +32,11 @@ local WEIGHTS_VERSION = 3 -- bump when a migration below is added
 
 -- Equipment set comes first: if you put something in a set, you're keeping it, even if it's gray.
 local FLAG_ORDER = { "equipmentSet", "quest", "gray", "unboundGear" }
-local FLAG_LABELS = {
-	equipmentSet = "Equipment set",
-	quest = "Quest item",
-	gray = "Gray quality",
-	unboundGear = "BoE gear", -- equippable and not soulbound yet (internal name unboundGear)
+local FLAG_LABELS = { -- Title Case, like the game's own group names (user, 2026-11-25)
+	equipmentSet = "Equipment Set",
+	quest = "Quest Items",
+	gray = "Gray Quality",
+	unboundGear = "BoE Gear", -- equippable and not soulbound yet (internal name unboundGear)
 }
 
 -- Equip locations that don't count as gear for the BoE gear flag.
@@ -109,6 +109,9 @@ function Weights.Init()
 	end
 	Weights.PurgeDeleted() -- deletes not undone before the last logout
 	Weights.NoteActive()
+	-- The Setup window (0.17-0.18) became the settings' Order section: its saved state goes.
+	SedimentDB.setup, SedimentDB.setupHidden, SedimentDB.setupPos = nil, nil, nil
+	SedimentDB.popupPos = nil -- the weight popup always opens above the bag now (0.19)
 end
 
 
@@ -519,27 +522,18 @@ function Weights.SetWeights(copy)
 end
 
 -- Ranking ------------------------------------------------------------------------------------
--- The same rules seen as an order instead of numbers, which is how the setup questions work: a list of
--- rungs, light to heavy, each rung the rules sharing one weight (the default is a rule too), with one
--- divider between the start half and the end half. In the middle layout the divider is the sink line;
--- in the packed layouts (sink line 100 or 0: everything floats, or everything sinks) it only splits
--- "near the start" from "near the end". Writing a list back gives every rung a tidy weight: start-half
--- rungs between 0 and 50, end-half rungs between 50 and 100, in list order, and a sink line between 0
--- and 100 becomes 50. So after the setup questions every rule's weight is just its place in the order.
+-- The rules seen as an order instead of numbers, which is how the Order list works: a list of rungs, light to heavy, each rung the rules sharing one weight (the
+-- default is a rule too), and one divider: the Empty Space. Rungs above it float, rungs below it sink, so its
+-- position is the layout (user, 2026-11-25): at the top, everything packs toward the bottom; at the bottom,
+-- everything packs from the top; in between, the gap is in the middle. Writing a list back gives every rung a
+-- tidy weight by position (above the divider 0-50, below 50-100) and the sink line is always 50. Saves from
+-- before used 100 / 0 for the packed layouts; RankingList reads those with the divider at the end / start, so
+-- the first write converts them without changing the order.
 
 local KIND_RANK = { item = 1, flag = 2, subclass = 3, class = 4, default = 5 }
 
--- Where the list splits: the sink line in the middle layout, else 50.
-function Weights.RankSplit()
-	local s = SedimentDB.weights.sinkLine
-	if s > 0 and s < 100 then
-		return s
-	end
-	return 50
-end
-
--- "middle" (sink line between 0 and 100: the empty space is in the middle), "bottom" (100 or more:
--- everything packs from the top, the space is at the bottom) or "top" (0 or less).
+-- How an old save's sink line reads: "bottom" (100 or more: the space at the bottom), "top" (0 or less) or
+-- "middle". After any write it's always "middle", with the divider's position doing the work.
 function Weights.Layout()
 	local s = SedimentDB.weights.sinkLine
 	if s >= 100 then
@@ -580,10 +574,15 @@ function Weights.RankingList()
 		end
 		return tostring(a.key) < tostring(b.key)
 	end)
-	local split = Weights.RankSplit()
+	local layout = Weights.Layout()
+	local split = w.sinkLine
 	local list, rung, divided = {}, nil, false
+	if layout == "top" then
+		list[1] = { divider = true }
+		divided = true
+	end
 	for _, r in ipairs(rules) do
-		if not divided and r.weight >= split then
+		if not divided and layout == "middle" and r.weight >= split then
 			list[#list + 1] = { divider = true }
 			divided, rung = true, nil
 		end
@@ -628,7 +627,6 @@ local function FindRule(list, kind, key)
 		end
 	end
 end
-Weights.FindRule = FindRule
 
 local function DividerIndex(list)
 	for i, e in ipairs(list) do
@@ -648,20 +646,17 @@ local function TakeOut(list, kind, key)
 	end
 end
 
--- Everything without a rule (the default) always sits next to the empty space, on a rung of its own: in the
--- middle layout last in the start half, just above the gap, where new loot lands; packed from the top (space
--- at the bottom) last of all; packed from the bottom first of all. It isn't a place you choose. (User,
--- 2026-11-24: as a movable "Everything else" row it put random stuff among the packed items.)
+-- Everything without a rule (the default) is attached to the Empty Space, on its own rung, on the side that
+-- has items: just below it when nothing is above it, else just above it. It isn't a row you move (user,
+-- 2026-11-24/25: a movable "Everything else" put random stuff among the packed items).
 function Weights.PinDefault(list)
 	TakeOut(list, "default")
 	local rung = { rules = { { kind = "default" } } }
-	local layout = Weights.Layout()
-	if layout == "bottom" then
-		list[#list + 1] = rung
-	elseif layout == "top" then
-		table.insert(list, 1, rung)
+	local d = DividerIndex(list)
+	if d == 1 then
+		table.insert(list, 2, rung)
 	else
-		table.insert(list, DividerIndex(list), rung)
+		table.insert(list, d, rung)
 	end
 	return list
 end
@@ -704,63 +699,124 @@ function Weights.WriteRankingList(list)
 			end
 		end
 	end
-	if w.sinkLine > 0 and w.sinkLine < 100 then
-		w.sinkLine = 50
-	end
+	w.sinkLine = 50
 end
 
--- Which half a rule is in: "float" (start) or "sink" (end); nil if it has no weight.
-function Weights.RuleSide(kind, key)
+-- Move the Empty Space one row up (dir -1) or down (+1) past the next rung, then write the order back (the
+-- default follows it). Returns true if it moved.
+function Weights.MoveEmptySpace(dir)
 	local list = Weights.RankingList()
-	local i = FindRule(list, kind, key)
-	if not i then
-		return nil
-	end
-	return i < DividerIndex(list) and "float" or "sink"
-end
-
--- Give a rule its own rung at a place in the order (taking it out of wherever it was), then write the
--- order back (which puts the default next to the empty space). where:
---   "first" / "last":  before / after everything you've set.
---   "float":  last in the start half (in the middle layout, just above the default, next to the gap).
---   "sink":   first in the end half.
---   "bottom": last, but above the anchor rule if that's last (gray junk under everything, except a
---             hearthstone someone put last).
---   "after" / "before": next to the anchor rule (anchorKind, anchorKey).
-function Weights.PlaceRule(kind, key, where, anchorKind, anchorKey)
-	local list = Weights.RankingList()
-	TakeOut(list, kind, key)
-	TakeOut(list, "default") -- placed by the write
+	TakeOut(list, "default")
 	local d = DividerIndex(list)
-	local at
-	if where == "first" then
-		at = 1
-	elseif where == "last" then
-		at = #list + 1
-	elseif where == "float" then
-		at = d
-	elseif where == "sink" then
-		at = d + 1
-	elseif where == "bottom" then
-		at = #list + 1
-		local a = anchorKind and FindRule(list, anchorKind, anchorKey)
-		if a and a == #list and a > d then
-			at = a
-		end
-	elseif where == "after" or where == "before" then
-		local a = FindRule(list, anchorKind, anchorKey)
-		at = a and (where == "after" and a + 1 or a) or d
-	else
-		error("PlaceRule: unknown place " .. tostring(where))
+	local j = d + dir
+	if j < 1 or j > #list then
+		return false
+	end
+	list[d], list[j] = list[j], list[d]
+	Weights.WriteRankingList(list)
+	return true
+end
+
+-- Can the Empty Space move that way (is there a row other than the unset items to pass)?
+function Weights.CanMoveEmptySpace(dir)
+	local list = Weights.RankingList()
+	TakeOut(list, "default")
+	local j = DividerIndex(list) + dir
+	return j >= 1 and j <= #list
+end
+
+-- Setup's Pick from Bags: give a rule its own row right above the row that decides this item today, so the
+-- sort barely changes until it's moved (for an unset item, next to the unset items by the Empty Space).
+-- Returns false if the rule already has a row.
+function Weights.AddRuleAbove(kind, key, item)
+	local list = Weights.PinDefault(Weights.RankingList())
+	if FindRule(list, kind, key) then
+		return false
+	end
+	local levels, winner = Weights.Explain(item)
+	local deciding = levels[winner]
+	local at = FindRule(list, deciding.kind, deciding.key)
+	if deciding.kind == "default" and at > DividerIndex(list) then
+		at = at + 1 -- unset items below the Empty Space: just after them
 	end
 	table.insert(list, at, { rules = { { kind = kind, key = key } } })
 	Weights.WriteRankingList(list)
+	return true
 end
 
--- The setup's first question: where the empty space goes. Tidies the weights into the order first, then
--- sets the sink line: 50 (middle), 100 (everything packs from the top) or 0 (from the bottom).
-function Weights.SetLayout(layout)
-	local list = Weights.RankingList() -- split by the old sink line
-	SedimentDB.weights.sinkLine = layout == "bottom" and 100 or layout == "top" and 0 or 50
-	Weights.WriteRankingList(list) -- the default moves next to the new empty space
+-- Widening a pick: the new rule takes the old one's place in its row (all Cloth where Mageweave Cloth was).
+-- If the new rule already has a row, the old one just goes.
+function Weights.ReplaceRule(oldKind, oldKey, newKind, newKey)
+	local list = Weights.PinDefault(Weights.RankingList())
+	local i, j = FindRule(list, oldKind, oldKey)
+	if not i then
+		return
+	end
+	Weights.SetLevel(oldKind, oldKey, nil)
+	if FindRule(list, newKind, newKey) then
+		TakeOut(list, oldKind, oldKey)
+	else
+		list[i].rules[j] = { kind = newKind, key = newKey }
+	end
+	Weights.WriteRankingList(list)
+end
+
+-- Start Fresh's order (user, 2026-11-25, from their own rules): the groups everyone has or will loot, always
+-- listed, in a conventional layout that's easy to change. Quest Items is one row holding both quest rules
+-- (the flag for items a quest needs now, and the game's Quest category). extraClasses: other item classes in
+-- the bags, listed just above the Empty Space in class order.
+local DEFAULT_ABOVE = {
+	{ { kind = "item", key = 6948 } },          -- Hearthstone
+	{ { kind = "subclass", key = "0:1" } },     -- Consumable/Potions
+	{ { kind = "subclass", key = "0:7" } },     -- Consumable/Bandages
+	{ { kind = "class", key = 0 } },            -- Consumable
+	{ { kind = "flag", key = "quest" }, { kind = "class", key = 12 } }, -- Quest Items
+	{ { kind = "flag", key = "unboundGear" } }, -- BoE Gear
+}
+local DEFAULT_BELOW = {
+	{ { kind = "class", key = 2 } },            -- Weapon
+	{ { kind = "class", key = 4 } },            -- Armor
+	{ { kind = "class", key = 7 } },            -- Trade Goods
+	{ { kind = "class", key = 15 } },           -- Miscellaneous
+	{ { kind = "flag", key = "gray" } },        -- Gray Quality
+}
+local DEFAULT_CLASSES = { [0] = true, [2] = true, [4] = true, [7] = true, [12] = true, [15] = true }
+
+function Weights.DefaultOrder(extraClasses)
+	local list = {}
+	local function Rung(rules)
+		local copy = {}
+		for i, r in ipairs(rules) do
+			copy[i] = { kind = r.kind, key = r.key }
+		end
+		list[#list + 1] = { rules = copy }
+	end
+	for _, rules in ipairs(DEFAULT_ABOVE) do
+		Rung(rules)
+	end
+	for _, c in ipairs(extraClasses or {}) do
+		if not DEFAULT_CLASSES[c] then
+			Rung({ { kind = "class", key = c } })
+		end
+	end
+	list[#list + 1] = { divider = true }
+	for _, rules in ipairs(DEFAULT_BELOW) do
+		Rung(rules)
+	end
+	Weights.WriteRankingList(list)
+end
+
+-- Move a row (any rung but the unset items', or the Empty Space) to a new place among the rows shown: drag
+-- and drop in the Order list. from / to are positions in the list without the unset items' rung; to is where it ends
+-- up. The unset items re-attach to the Empty Space on the write.
+function Weights.MoveRow(from, to)
+	local list = Weights.RankingList()
+	TakeOut(list, "default")
+	if from < 1 or from > #list or to < 1 or to > #list or from == to then
+		return false
+	end
+	local e = table.remove(list, from)
+	table.insert(list, to, e)
+	Weights.WriteRankingList(list)
+	return true
 end

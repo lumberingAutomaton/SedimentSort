@@ -15,7 +15,7 @@ local Print = ns.Print
 -- Every file the addon expects, in .toc order. Each marks itself in ns.loadedFiles as it loads; the login
 -- check and the Debug > Files section compare the two (dev/files_check.lua keeps this list equal to the .toc).
 ns.FILES = { "Text.lua", "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Popup.lua",
-	"Settings.lua", "Setup.lua", "Sediment.lua" }
+	"Settings.lua", "Order.lua", "Sediment.lua" }
 ns.ADDON = ADDON
 
 -- Files in ns.FILES that didn't load (a /reload may not pick up a file new to the .toc; a restart does).
@@ -31,7 +31,7 @@ end
 
 -- Every /sed command, in the order they're listed. usage = what to type; text = what it does.
 ns.COMMANDS = {
-	{ usage = "/sed", text = "Open the settings at your " .. N("SortValues") .. ", or " .. N("Onboarding") .. " while you have no rules (also /sed config, /sed settings)." },
+	{ usage = "/sed", text = "Open the settings at your " .. N("OrderSection") .. " (also /sed config, /sed settings)." },
 	{ usage = "/sed sort", text = "Sort the bags now, the same as clicking the sort button." },
 	{ usage = "/sed cancel", text = "Stop a sort that's running." },
 	{ usage = "/sed auto", text = "Turn auto-sort on or off (or right-click the sort button)." },
@@ -48,7 +48,7 @@ ns.COMMANDS = {
 -- Mouse shortcuts, listed with the commands.
 ns.SHORTCUTS = {
 	{ usage = "Sort button", text = "Left-click: sort now. Right-click: turn auto-sort on or off." },
-	{ usage = "Gear button", text = "Next to the sort button: the settings at your " .. N("SortValues") .. ", or " .. N("Onboarding") .. " while you have no rules." },
+	{ usage = "Gear button", text = "Next to the sort button: the settings at your " .. N("OrderSection") .. "." },
 	{ usage = "Alt+right-click", text = "On any bag item: its " .. N("SortValue") .. " popup." },
 }
 
@@ -394,7 +394,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		ns.AutoSort.OnEnteringWorld()
 	elseif event == "GET_ITEM_INFO_RECEIVED" then
 		ns.Settings.RefreshNames() -- item names in the ladder that weren't loaded yet (no re-sort)
-		ns.Setup.RefreshNames()
+		ns.Order.OnBagUpdate() -- item names in the Order list
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		ns.Sort.OnCombatStart()
 		ns.Settings.OnCombat()
@@ -407,6 +407,6 @@ frame:SetScript("OnEvent", function(self, event, arg1)
 		if ns.Settings.OverlaysActive() then
 			ns.Settings.RefreshOverlays()
 		end
-		ns.Setup.OnBagUpdate()
+		ns.Order.OnBagUpdate()
 	end
 end)

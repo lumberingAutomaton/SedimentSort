@@ -1,21 +1,14 @@
 -- Settings: the Sediment window. A section list on the left (like WoW's Options window), the selected
--- section on the right. Opened with the gear left of the bag's sort button (Sorting), /sed, or the
--- Settings button in the weight popup (Weights). It closes in combat.
+-- section on the right. Opened with the gear left of the bag's sort button, /sed, or the Settings button in
+-- the weight popup, always at Order unless you pick another section. It closes in combat; where you drag it
+-- is remembered (SedimentDB.settingsPos), else on Order it sits beside the bags.
 --
--- Weights: Select mode (click bag items to set their weights) and the ladder: every weight you've set
---   (items, flags, subclasses, classes, the default), light to heavy, with the sink line drawn across.
---   Edit in place; x removes a rule (with Undo). "Not set": categories in the bags still on the default.
--- Sorting: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
---   "Debug mode", which adds a Debug group: Testing (seeded scrambles, status text, recent sorts) and
---   Commands (every /sed command).
+-- Order: the list of rules, the one place to arrange Sediment (Order.lua; it replaced the Weights page and
+--   the Setup window, 2026-11-25). Its welcome shows while there are no rules; ? brings it back.
 -- Special bags: the special bags you have, the fill switch, and the keep-out rules with x/Undo.
--- History: saved versions of the rules (Weights.Snapshot and friends), newest first, with Load, Name and x;
---   "Save a copy" (optionally named) at the top.
--- The setup questions (Setup.lua) open with the window, until "Don't show this again" or they're done;
--- the ? next to the title brings their first page back. (It replaced the old welcome screen.)
---
--- Numbers are still what's stored and edited. The ladder is laid out so it could become a ranking
--- (move rules between rungs instead of typing numbers) without changing anything underneath.
+-- Sorting: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
+--   "Debug mode", which adds a Debug group: Testing, Commands and Files.
+-- History: Created and Snapshot entries of the rules, the pinned one first, with Pin / Unpin, Load and x.
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
@@ -28,37 +21,23 @@ local Print = function(msg) ns.Print(msg) end
 -- Layout like WoW's own Options window: a section list on the left (grouped, with a Debug group that only
 -- shows in debug mode), the selected section's settings on the right under its name. A list scales to any
 -- number of sections, where a row of tabs ran out of width at five.
-local WIDTH, HEIGHT = 760, 600 -- was 600x520: cramped (user, 2026-11-25)
+local WIDTH, HEIGHT = 760, 680 -- was 600x520, then 760x600: the Order list barely fit (user, 2026-11-25)
 local NAV_W = 140                         -- the section list
 local CONTENT_X = NAV_W + 24              -- where the settings pane starts
 local CONTENT_W = WIDTH - CONTENT_X - 14  -- the settings pane's width
 local NAV_GROUPS = {
-	{ header = "Sediment", items = { "Weights", "Special bags", "Sorting", "History" } }, -- user's order, 2026-11-25
+	{ header = "Sediment", items = { "Order", "Special bags", "Sorting", "History" } }, -- user's order, 2026-11-25
 	{ header = "Debug", items = { "Testing", "Commands", "Files" }, debug = true },
 }
 -- The section ids above are internal; what the list and the page title show comes from Text.lua for the
 -- sections named after one of Sediment's nouns, so renaming the noun renames the section.
-local SECTION_TEXT = { Weights = "SortValues", History = "SavedRules" }
+local SECTION_TEXT = { Order = "OrderSection", History = "SavedRules" }
 local function SectionLabel(id)
 	return SECTION_TEXT[id] and L(SECTION_TEXT[id]) or id
 end
 
 local ROW_HEIGHT = 22
--- The Weights list's rows stop here, so each x sits just past the longest name rather than across the
--- window (user, 2026-11-25: after the window grew, it was hard to tell which item an x belonged to).
-local LADDER_W = 430
-
-local KIND_ORDER = { item = 1, flag = 2, subclass = 3, class = 4, default = 5 }
-local KIND_LABEL = { item = "Item", flag = "Flag", subclass = "Subclass", class = "Class", default = "Default" }
-local KIND_COLOR = {
-	item = "ffd9b46a", flag = "ff9ad1ff", subclass = "ffb4e0a0", class = "ff8fd18f", default = "ffaaaaaa",
-}
-local FLOAT_COLOR = { 0.85, 0.85, 0.85 }
-local SINK_COLOR = { 0.7, 0.6, 0.5 }
-local UNSET_COLOR = { 1, 0.5, 0.1 } -- orange, like the not-set numbers in Select Mode
-
 local frame, tabs, pages = nil, {}, {}
-local ladderRows, ladderChild = {}, nil
 
 local function FormatWeight(w)
 	if w == nil then
@@ -80,20 +59,7 @@ local function WeightChanged()
 	ns.Sort.StartSoon()
 end
 
--- Editing safety. The ladder re-sorts when a weight changes, so a row can change hands: the same row
--- frame then shows a different rule. A number box still focused across that used to save its stale
--- text onto the new rule (blank = remove), which silently removed two of the user's weights
--- (2026-11-24). Now: a box remembers which rule it was focused on and what it showed; it only saves
--- if it's still that rule and the text actually changed. Any focused box is finished before the ladder
--- re-sorts. Removing a rule doesn't re-sort at all: the row stays in place, greyed, with Undo.
-local rebuilding = false        -- inside RefreshLadder: commits mustn't trigger another refresh
-local committedWhileRebuilding = false
-local lastRebuild = 0           -- clicks right after a re-sort are ignored (the list just moved)
-local CLICK_GUARD = 0.3
-
-local function EntryId(entry)
-	return entry and (entry.kind .. ":" .. tostring(entry.key)) or nil
-end
+local CLICK_GUARD = 0.3 -- clicks right after a list redrew are ignored (rows may have moved)
 
 local function ItemLabel(itemID)
 	local name = C_Item.GetItemNameByID(itemID)
@@ -112,10 +78,21 @@ local function SubclassLabel(key)
 	local classID, subclassID = key:match("^(%-?%d+):(%-?%d+)$")
 	classID, subclassID = tonumber(classID), tonumber(subclassID)
 	local sub = classID and subclassID and C_Item.GetItemSubClassInfo(classID, subclassID)
-	return ("%s (%s)"):format(sub or key, classID and ClassLabel(classID) or "?")
+	-- Group/Part, like a folder path (user, 2026-11-25): "Armor/Cloth" and "Trade Goods/Cloth" can't be confused.
+	return ("%s/%s"):format(classID and ClassLabel(classID) or "?", sub or key)
 end
 
 -- A rule's name (and icon, for items), for the setup questions' review list.
+-- A group with a part of the same name ("Quest/Quest"): the part line says nothing the group line doesn't.
+function Settings.PartSameAsGroup(subKey)
+	local c, sc = tostring(subKey):match("^(%d+):(%d+)$")
+	if not c then
+		return false
+	end
+	local group = C_Item.GetItemClassInfo(tonumber(c))
+	return group ~= nil and C_Item.GetItemSubClassInfo(tonumber(c), tonumber(sc)) == group
+end
+
 function Settings.RuleLabel(kind, key)
 	if kind == "item" then
 		return ItemLabel(key), C_Item.GetItemIconByID(key)
@@ -127,72 +104,6 @@ function Settings.RuleLabel(kind, key)
 		return ClassLabel(key)
 	end
 	return "Everything else"
-end
-
--- Every rule with a weight, as ladder entries: { kind, key, label, weight, icon }.
-local function LadderEntries()
-	local w = SedimentDB.weights
-	local list = {}
-	for itemID, weight in pairs(w.items) do
-		list[#list + 1] = { kind = "item", key = itemID, label = ItemLabel(itemID), weight = weight,
-			icon = C_Item.GetItemIconByID(itemID) }
-	end
-	for _, flag in ipairs(ns.Weights.FLAG_ORDER) do
-		if w.flags[flag] ~= nil then
-			list[#list + 1] = { kind = "flag", key = flag, label = ns.Weights.FlagLabel(flag), weight = w.flags[flag] }
-		end
-	end
-	for key, weight in pairs(w.subclasses) do
-		list[#list + 1] = { kind = "subclass", key = key, label = SubclassLabel(key), weight = weight }
-	end
-	for classID, weight in pairs(w.classes) do
-		list[#list + 1] = { kind = "class", key = classID, label = ClassLabel(classID), weight = weight }
-	end
-	list[#list + 1] = { kind = "default", label = "Not set (default)", weight = w.default }
-	table.sort(list, function(a, b)
-		if a.weight ~= b.weight then
-			return a.weight < b.weight
-		end
-		if KIND_ORDER[a.kind] ~= KIND_ORDER[b.kind] then
-			return KIND_ORDER[a.kind] < KIND_ORDER[b.kind]
-		end
-		return a.label < b.label
-	end)
-	return list
-end
-
--- Categories among the current bag items that fall through to the default weight: for each, the
--- class and the subclass, with how many items use the default because of it.
-local function MissingEntries()
-	local seen, list = {}, {}
-	local function Add(kind, key, label)
-		local e = seen[kind .. ":" .. key]
-		if not e then
-			e = { kind = kind, key = key, label = label, count = 0 }
-			seen[kind .. ":" .. key] = e
-			list[#list + 1] = e
-		end
-		e.count = e.count + 1
-	end
-	local items = 0
-	for _, s in ipairs(ns.Bags.Read()) do
-		local item = s.item
-		if item then
-			local levels, winner = ns.Weights.Explain(item)
-			if levels[winner].kind == "default" then
-				items = items + 1
-				Add("class", item.classID, ClassLabel(item.classID))
-				Add("subclass", item.subKey, SubclassLabel(item.subKey))
-			end
-		end
-	end
-	table.sort(list, function(a, b)
-		if a.count ~= b.count then
-			return a.count > b.count
-		end
-		return a.label < b.label
-	end)
-	return list, items
 end
 
 -- Rows ----------------------------------------------------------------------------------------
@@ -212,290 +123,22 @@ local function NewBox(parent, width)
 	return box
 end
 
--- Parse a box: returns ok, value (nil = clear).
-local function ParseBox(text)
-	text = strtrim(text or "")
-	if text == "" then
-		return true, nil
-	end
-	local n = tonumber(text)
-	return n ~= nil, n
-end
-
-local function GetRow(i)
-	local row = ladderRows[i]
-	if row then
-		return row
-	end
-	row = CreateFrame("Frame", nil, ladderChild)
-	row:SetSize(LADDER_W, ROW_HEIGHT)
-	-- Every other row striped, so the eye can follow a line from the number to its x.
-	row.stripe = row:CreateTexture(nil, "BACKGROUND")
-	row.stripe:SetAllPoints()
-	row.stripe:SetColorTexture(1, 1, 1, 0.05)
-
-	row.box = NewBox(row)
-	row.box:SetPoint("LEFT", 6, 0)
-	row.box:SetScript("OnEditFocusGained", function(box)
-		row.editId, row.editStart = EntryId(row.entry), box:GetText()
-	end)
-	local function Commit(box)
-		local entry, editId, editStart = row.entry, row.editId, row.editStart
-		row.editId, row.editStart = nil, nil
-		if not entry or editId ~= EntryId(entry) or box:GetText() == editStart then
-			-- Not an edit of this rule (the row changed hands, or nothing was typed): show its value.
-			if entry and not row.removed then
-				box:SetText(FormatWeight(entry.weight))
-				box:SetCursorPosition(0)
-			end
-			return
-		end
-		local ok, value = ParseBox(box:GetText())
-		if ok and (value ~= nil or (entry.kind ~= "default" and entry.kind ~= "sinkLine")) then
-			ns.Weights.SetLevel(entry.kind, entry.key, value)
-		end
-		if rebuilding then
-			committedWhileRebuilding = true
-		else
-			WeightChanged()
-		end
-	end
-	row.box:SetScript("OnEnterPressed", function(box)
-		box:ClearFocus() -- saves through OnEditFocusLost
-	end)
-	row.box:SetScript("OnEscapePressed", function(box)
-		box:SetText(row.editStart or box:GetText()) -- cancel: unchanged text saves nothing
-		box:ClearFocus()
-	end)
-	row.box:SetScript("OnEditFocusLost", Commit)
-
-	row.kind = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	row.kind:SetPoint("LEFT", row.box, "RIGHT", 8, 0)
-	row.kind:SetWidth(58)
-	row.kind:SetJustifyH("LEFT")
-
-	row.icon = row:CreateTexture(nil, "ARTWORK")
-	row.icon:SetSize(16, 16)
-	row.icon:SetPoint("LEFT", row.kind, "RIGHT", 2, 0)
-
-	row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	row.label:SetJustifyH("LEFT")
-	row.label:SetWordWrap(false)
-
-	row.remove = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-	row.remove:SetSize(20, 20)
-	row.remove:SetPoint("RIGHT", -2, 0)
-	row.remove:SetScript("OnClick", function()
-		local entry = row.entry
-		if GetTime() - lastRebuild < CLICK_GUARD or row.removed then
-			return
-		end
-		if entry and entry.kind ~= "default" and entry.kind ~= "sinkLine" and not entry.missing then
-			if row.box:HasFocus() then
-				row.box:SetText(row.editStart or row.box:GetText())
-				row.box:ClearFocus()
-			end
-			ns.Weights.SetLevel(entry.kind, entry.key, nil)
-			Settings.ShowRemoved(row)
-			ns.Popup.Refresh()
-			ns.AutoSort.Resume() -- no ladder re-sort: nothing moves under the mouse
-			ns.Sort.StartSoon() -- the bags do re-sort, to show the outcome
-		end
-	end)
-
-	-- Shown in place of x on a removed row; puts the rule back.
-	row.undo = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-	row.undo:SetSize(52, 18)
-	row.undo:SetPoint("RIGHT", -2, 0)
-	row.undo:SetText(L("UndoButton"))
-	row.undo:Hide()
-	row.undo:SetScript("OnClick", function()
-		local entry = row.entry
-		if entry and row.removed then
-			ns.Weights.SetLevel(entry.kind, entry.key, entry.weight)
-			row.removed = nil
-			Settings.ShowEntryRow(row, entry, row.y)
-			ns.Popup.Refresh()
-			ns.AutoSort.Resume()
-			ns.Sort.StartSoon()
-		end
-	end)
-
-	row.line = row:CreateTexture(nil, "ARTWORK")
-	row.line:SetHeight(2)
-	row.line:SetColorTexture(0.9, 0.6, 0.2, 0.9)
-
-	ladderRows[i] = row
-	return row
-end
-
-local function ShowEntryRow(row, entry, y)
-	row.entry, row.y, row.removed = entry, y, nil
-	row:SetWidth(LADDER_W) -- rows share frames with headings, which are wider
-	row.undo:Hide()
-	row:ClearAllPoints()
-	row:SetPoint("TOPLEFT", 0, y)
-	row:Show()
-	row.box:SetText(FormatWeight(entry.weight)) -- no box is focused here: RefreshLadder finished any edit
-	row.box:SetCursorPosition(0)
-	row.box:Show()
-	row.line:Hide()
-	row.label:ClearAllPoints()
-	if entry.kind == "sinkLine" then
-		-- The Empty Space row (stored as the sink line): its name, then a line across to the row's end.
-		row.kind:SetText("")
-		row.icon:Hide()
-		row.label:SetPoint("LEFT", row.kind, "LEFT", 0, 0)
-		row.label:SetText(L("LootGap"))
-		row.label:SetTextColor(1, 0.69, 0.25)
-		row.line:ClearAllPoints()
-		row.line:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
-		row.line:SetPoint("RIGHT", -6, 0)
-		row.line:Show()
-		row.remove:Hide()
-		return
-	end
-	row.kind:SetText(("|c%s%s|r"):format(KIND_COLOR[entry.kind] or "ffffffff", KIND_LABEL[entry.kind] or entry.kind))
-	if entry.icon then
-		row.icon:SetTexture(entry.icon)
-		row.icon:Show()
-		row.label:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-	else
-		row.icon:Hide()
-		row.label:SetPoint("LEFT", row.kind, "RIGHT", 4, 0)
-	end
-	row.label:SetPoint("RIGHT", row.remove, "LEFT", -4, 0)
-	local text = entry.label
-	if entry.missing then
-		text = ("%s |cff888888(%d item%s)|r"):format(entry.label, entry.count, entry.count == 1 and "" or "s")
-	end
-	row.label:SetText(text)
-	local color = entry.missing and UNSET_COLOR or (entry.sinks and SINK_COLOR or FLOAT_COLOR)
-	row.label:SetTextColor(color[1], color[2], color[3])
-	row.remove:SetShown(entry.kind ~= "default" and not entry.missing)
-end
-Settings.ShowEntryRow = ShowEntryRow
-
--- A just-removed rule: greyed, in place, with Undo instead of x. It goes away at the next re-sort.
-function Settings.ShowRemoved(row)
-	row.removed = true
-	row.box:Hide()
-	row.remove:Hide()
-	row.undo:Show()
-	row.label:SetText(row.entry.label .. " |cff888888(removed)|r")
-	row.label:SetTextColor(0.5, 0.5, 0.5)
-end
-
-local function ShowHeadingRow(row, text, y)
-	row.entry, row.removed = nil, nil
-	row:SetWidth(CONTENT_W - 30) -- headings get the full width (rows stop at LADDER_W), and no stripe
-	row.stripe:Hide()
-	row.undo:Hide()
-	row:ClearAllPoints()
-	row:SetPoint("TOPLEFT", 0, y)
-	row:Show()
-	row.box:Hide()
-	row.icon:Hide()
-	row.remove:Hide()
-	row.line:Hide()
-	row.kind:SetText("")
-	row.label:ClearAllPoints()
-	row.label:SetPoint("LEFT", 6, 0)
-	row.label:SetPoint("RIGHT", -6, 0)
-	row.label:SetText(text)
-	row.label:SetTextColor(1, 0.82, 0)
-end
-
-function Settings.RefreshLadder()
-	if not ladderChild then
-		return
-	end
-	-- Finish any edit in progress first, while each box is still on its own rule.
-	rebuilding, committedWhileRebuilding = true, false
-	for _, r in ipairs(ladderRows) do
-		if r.box:HasFocus() then
-			r.box:ClearFocus()
-		end
-	end
-	rebuilding = false
-	if committedWhileRebuilding then
-		ns.Popup.Refresh()
-		ns.AutoSort.Resume()
-		ns.Sort.StartSoon()
-	end
-	lastRebuild = GetTime()
-	local sinkLine = ns.Weights.SinkLine()
-	local entries = LadderEntries()
-	local i, y = 0, 0
-	local function Next()
-		i = i + 1
-		local row = GetRow(i)
-		row.stripe:SetShown(i % 2 == 0)
-		local thisY = y
-		y = y - ROW_HEIGHT
-		return row, thisY
-	end
-	-- One list (user, 2026-11-25). What has no Weight of its own sorts at the default's place, so that's where
-	-- its groups are listed: orange rows right after the default's row, both the broad group and the narrower
-	-- one for now (which to keep is undecided). Give one a Weight and it sorts to its place like any other.
-	local missing, unsetItems = MissingEntries()
-	if Settings.unsetLine then
-		Settings.unsetLine:SetText(unsetItems > 0 and ("%d item%s in your bags %s no %s yet."):format(unsetItems,
-			unsetItems == 1 and "" or "s", unsetItems == 1 and "has" or "have", L("SortValue")) or "")
-	end
-	local sinkShown = false
-	local function SinkLineRow()
-		local r, ey = Next()
-		ShowEntryRow(r, { kind = "sinkLine", weight = sinkLine }, ey)
-		sinkShown = true
-	end
-	for _, entry in ipairs(entries) do
-		if not sinkShown and entry.weight >= sinkLine then
-			SinkLineRow()
-		end
-		entry.sinks = entry.weight >= sinkLine
-		local r, ey = Next()
-		ShowEntryRow(r, entry, ey)
-		if entry.kind == "default" then
-			for _, m in ipairs(missing) do
-				m.missing, m.sinks = true, entry.sinks
-				local mr, my = Next()
-				ShowEntryRow(mr, m, my)
-			end
-		end
-	end
-	if not sinkShown then
-		SinkLineRow()
-	end
-	for k = i + 1, #ladderRows do
-		ladderRows[k]:Hide()
-		ladderRows[k].entry = nil
-	end
-	ladderChild:SetHeight(-y + 4)
-end
-
 -- Select mode ---------------------------------------------------------------------------------
--- On the Weights tab: while it's on, every bag slot gets a light highlight and its current weight, and
--- clicking an item opens its weight popup (clicking the next item switches to it). The clicks land on
--- Sediment's own catcher frames laid over the slots (children of the item buttons, so they move and
--- hide with them); Blizzard's item buttons are never changed, so nothing is tainted. While it's on, a
--- plain click can't use or pick up an item. Turning it on opens the bags; ending it leaves them open. It
--- ends when toggled off, when the window closes, and when combat starts (all
--- Sediment windows close then, so a potion always works when it matters).
+-- Order's Pick from Bags: while it's on, every bag slot gets a light highlight; clicking an item adds its
+-- row (Order's handler), hovering one lights up the row that sorts it. Alt+right-click still opens the weight
+-- popup. The clicks land on Sediment's own catcher frames laid over the slots (children of the item buttons,
+-- so they move and hide with them); Blizzard's item buttons are never changed, so nothing is tainted. While
+-- it's on, a plain click can't use or pick up an item. Turning it on opens the bags; ending it leaves them
+-- open. It ends with the settings window, the Order section, or combat.
 --
--- The setup questions borrow it ("anything next to your hearthstone?"): they pass their own click handler
--- and slot labels, so a click picks the item instead of opening the popup.
---
--- Highlights (the setup questions): while on, slots whose item has no rule of its own get an orange
--- outline, and the items the current question is about a gold one. Plain textures on a frame that takes
--- no clicks, so the bag works as usual underneath.
+-- Highlights (Order): while on, slots whose item has no rule of its own get an orange outline, and the items
+-- of the selected row a gold one. Plain textures on a frame that takes no clicks, so the bag works as usual
+-- underneath.
 
 local selecting = false
-local selectHandler, selectLabel = nil, nil -- set by the setup questions; nil = open the weight popup
+local selectHandler, selectHover = nil, nil -- set by Order (Pick from Bags); no handler = open the weight popup
 local highlighting, highlightFocus = false, nil
 local hookedFrames = {}
-local DEFAULT_COLOR = { 1, 0.55, 0.1 } -- weight number for items using the default (nothing set)
-local SET_COLOR = { 1, 1, 1 }
 
 -- Every bag window: the combined backpack, the numbered ones, and anything else in Blizzard's own list
 -- (the reagent bag's window among them), without duplicates.
@@ -531,11 +174,10 @@ local function Catcher(button)
 	c.glow = c:CreateTexture(nil, "OVERLAY")
 	c.glow:SetAllPoints()
 	c.glow:SetColorTexture(0.3, 0.7, 1, 0.16)
-	c.weight = c:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-	c.weight:SetPoint("TOPLEFT", 2, -2)
-	c:SetScript("OnClick", function(self)
+	c:SetScript("OnClick", function(self, button)
 		local b = self:GetParent()
-		if selectHandler then
+		-- Alt+right-click still opens the weight popup, as it does outside Select Mode.
+		if selectHandler and not (button == "RightButton" and IsAltKeyDown()) then
 			selectHandler(b:GetBagID(), b:GetID())
 		else
 			ns.Popup.Open(b:GetBagID(), b:GetID())
@@ -546,8 +188,16 @@ local function Catcher(button)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetBagItem(b:GetBagID(), b:GetID())
 		GameTooltip:Show()
+		if selectHover then
+			selectHover(b:GetBagID(), b:GetID()) -- Order: light up the row that sorts it
+		end
 	end)
-	c:SetScript("OnLeave", GameTooltip_Hide)
+	c:SetScript("OnLeave", function()
+		GameTooltip_Hide()
+		if selectHover then
+			selectHover(nil)
+		end
+	end)
 	button.SedimentSelect = c
 	return c
 end
@@ -607,18 +257,7 @@ function Settings.RefreshOverlays()
 				local item = b and (selecting or highlighting) and f:IsShown() and b.GetBagID
 					and ns.Bags.ReadSlot(b:GetBagID(), b:GetID())
 				if item and selecting then
-					c = Catcher(b)
-					local text, color
-					if selectLabel then
-						text, color = selectLabel(item)
-					end
-					if not text then
-						local levels, winner = ns.Weights.Explain(item)
-						text = FormatWeight(levels[winner].weight)
-						color = levels[winner].kind == "default" and DEFAULT_COLOR or SET_COLOR
-					end
-					c.weight:SetText(text)
-					c.weight:SetTextColor(color[1], color[2], color[3])
+					c = Catcher(b) -- no numbers on the slots (user, 2026-11-25: Order replaced them)
 					c:Show()
 				elseif c then
 					c:Hide()
@@ -657,9 +296,9 @@ function Settings.SetHighlight(on, focus)
 	Settings.RefreshOverlays()
 end
 
--- handler(bag, slot) and label(item) -> text, {r, g, b} (or nil for the weight) are for the setup
--- questions; without them a click opens the weight popup.
-function Settings.SetSelectMode(on, handler, label)
+-- handler(bag, slot): a click on a bag item (Order's Pick from Bags); without one a click opens the weight
+-- popup. hover(bag, slot) as the mouse enters an item, hover(nil) as it leaves.
+function Settings.SetSelectMode(on, handler, hover)
 	if on and InCombatLockdown() then
 		Print("not in combat.")
 		on = false
@@ -667,16 +306,13 @@ function Settings.SetSelectMode(on, handler, label)
 	local was = selecting
 	selecting = on and true or false
 	selectHandler = selecting and handler or nil
-	selectLabel = selecting and label or nil
+	selectHover = selecting and hover or nil
 	Settings.RefreshOverlays() -- hooks the bag windows first, so opening them below refreshes the overlays
 	-- Starting select mode opens the bags (no change if they're open). Ending it leaves them as they are
 	-- (user: turning select mode off shouldn't close the bags).
 	if selecting and not was then
 		OpenAllBags()
 		C_Timer.After(0, Settings.RefreshOverlays)
-	end
-	if Settings.selectButton then
-		Settings.selectButton:SetText(Settings.SelectLabel())
 	end
 end
 
@@ -687,7 +323,6 @@ function Settings.OnCombat()
 		frame:Hide()
 	end
 	ns.Popup.Close()
-	ns.Setup.Close() -- keeps its place, like "Finish later"
 end
 
 function Settings.Close()
@@ -735,57 +370,10 @@ local function HelpText(page, text)
 	return Text(page, "GameFontDisableSmall", text)
 end
 
-local function SelectLabel()
-	return L("PickMode") .. (selecting and ": on" or ": off")
-end
-Settings.SelectLabel = SelectLabel
-
-local function BuildWeightsPage(page)
+-- Order: the list (Order.lua), built into this page.
+local function BuildOrderPage(page)
 	page.refreshers = {}
-	local place = Flow(page)
-	-- How to use it, in plain steps: the step above the button, what happens below it (user, 2026-11-25:
-	-- "turn it on" described the feature, not how to start it).
-	place(Text(page, "GameFontHighlight", "Click below to enter " .. N("PickMode") .. "."), 0, 4, true)
-	local selectButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	selectButton:SetSize(170, 22)
-	place(selectButton, GAP_HELP, 2)
-	selectButton:SetScript("OnClick", function()
-		Settings.SetSelectMode(not selecting)
-	end)
-	Settings.selectButton = selectButton
-	place(Text(page, "GameFontHighlightSmall", "While " .. N("PickMode") .. " is on, click any item in your "
-		.. "bags to see or change its " .. N("SortValue") .. ". Orange numbers are not set yet. Click the button "
-		.. "again to stop."), GAP_HELP, 4, true)
-	page.refreshers[#page.refreshers + 1] = function()
-		selectButton:SetText(SelectLabel())
-	end
-	local ladderHint = place(HelpText(page, "Light at the top, heavy at the bottom. Edit a number and press "
-		.. "Enter; x removes a " .. N("SortValue") .. "."), GAP_GROUP, 4, true)
-
-	-- "N items in your bags have no Weight yet", bright orange. Its space is always kept (the text just goes
-	-- empty when nothing is unset), so the list below never shifts (user, 2026-11-25: a section that appeared
-	-- and vanished made the whole list jump).
-	local unsetLine = place(Text(page, "GameFontNormal"), GAP_GROUP, 4, true)
-	unsetLine:SetHeight(16)
-	unsetLine:SetTextColor(UNSET_COLOR[1], UNSET_COLOR[2], UNSET_COLOR[3])
-	Settings.unsetLine = unsetLine
-
-	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", unsetLine, "BOTTOMLEFT", -4, -GAP_HELP)
-	scroll:SetPoint("BOTTOMRIGHT", -26, 40)
-	ladderChild = CreateFrame("Frame", nil, scroll)
-	ladderChild:SetSize(LADDER_W, 100)
-	scroll:SetScrollChild(ladderChild)
-
-	-- Start Fresh: the one way to clear everything (it replaced Reset to default; History's Load replaced
-	-- Restore previous rules). It saves the rules, clears them and opens Setup.
-	local fresh = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	fresh:SetSize(130, 24)
-	fresh:SetPoint("BOTTOMLEFT", 2, 4)
-	fresh:SetText(L("ClearAllButton"))
-	fresh:SetScript("OnClick", function()
-		StaticPopup_Show("SEDIMENT_START_FRESH")
-	end)
+	ns.Order.Build(page, CONTENT_W)
 end
 
 local function LabeledBox(page, place, gap, label, help, get, set)
@@ -863,13 +451,12 @@ local function CheckRow(page, place, gap, label, get, set, help)
 end
 
 StaticPopupDialogs["SEDIMENT_START_FRESH"] = {
-	text = B("ClearAllButton") .. "? Your rules are saved to " .. N("SavedRules") .. ", then cleared (" .. N("SortValues")
-		.. " and " .. L("KeepOutRule") .. "), and " .. N("Onboarding") .. " opens.",
+	text = B("ClearAllButton") .. "? Your rules are saved to " .. N("SavedRules") .. ", then cleared, "
+		.. L("KeepOutRule") .. " rules too, and replaced by a common order to start from.",
 	button1 = YES,
 	button2 = NO,
 	OnAccept = function()
-		Settings.Close()
-		ns.Setup.Start(true)
+		ns.Order.StartFresh()
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -1067,8 +654,8 @@ local function BuildSpecialPage(page)
 		.. "still sorted there.")
 
 	place(Text(page, "GameFontNormal", L("KeepOutList")), GAP_GROUP, 4)
-	local hint = place(HelpText(page, "To add one, Alt+right-click an item (or click it in " .. N("PickMode")
-		.. ", in " .. N("SortValues") .. ") and tick a box under " .. L("KeepOutRule") .. "."), GAP_HELP, 4, true)
+	local hint = place(HelpText(page, "To add one, Alt+right-click an item and tick a box under " .. L("KeepOutRule")
+		.. "."), GAP_HELP, 4, true)
 
 	local scroll = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", -4, -GAP_HELP)
@@ -1230,7 +817,7 @@ local function BuildHistoryPage(page)
 	local place = Flow(page)
 	local help = place(HelpText(page, N("AddonName") .. " takes a " .. L("EntrySnapshot") .. " of your rules "
 		.. "when you log out and before " .. B("LoadSaveButton") .. " or " .. B("ClearAllButton") .. ", if they've "
-		.. "changed; finishing " .. N("Onboarding") .. " adds a " .. L("EntryCreated") .. " entry. "
+		.. "changed; " .. B("ClearAllButton") .. " also adds a " .. L("EntryCreated") .. " entry for the order it lays out. "
 		.. B("KeepSaveButton") .. " one to keep it at the top; of the rest, the newest 20 are kept. Hover an entry "
 		.. "to see its rules."), 0, 4, true)
 
@@ -1447,14 +1034,17 @@ local function BuildCommandsPage(page)
 	end
 end
 
+-- ? : the Order section's welcome.
 function Settings.ShowWelcome()
-	ns.Setup.ShowIntro()
+	Settings.Open("Order")
+	ns.Order.ShowWelcome()
 end
 
 function ShowTab(name)
 	if (name == "Testing" or name == "Commands" or name == "Files") and not SedimentDB.testingTools then
-		name = "Weights"
+		name = "Order"
 	end
+	local wasOrder = Settings.currentTab == "Order" and pages.Order:IsShown()
 	for key, page in pairs(pages) do
 		page:SetShown(key == name)
 	end
@@ -1469,6 +1059,11 @@ function ShowTab(name)
 	if name == "Special bags" and Settings.RefreshSpecialList then
 		Settings.RefreshSpecialList()
 	end
+	if name == "Order" then
+		ns.Order.OnShow() -- opens the bags: the outlines are the point
+	elseif wasOrder then
+		ns.Order.OnHide()
+	end
 	Settings.Refresh()
 end
 
@@ -1476,13 +1071,19 @@ local function Build()
 	frame = CreateFrame("Frame", "SedimentSettings", UIParent, "BackdropTemplate")
 	frame:SetSize(WIDTH, HEIGHT)
 	frame:SetPoint("CENTER")
-	frame:SetFrameStrata("DIALOG")
+	-- HIGH, one layer under the weight popup (DIALOG): with both on DIALOG their parts interleaved, the
+	-- window's buttons drawing through the popup's text (user, 2026-11-25). Start Fresh's confirmation is
+	-- DIALOG too, so it stays above.
+	frame:SetFrameStrata("HIGH")
 	frame:SetClampedToScreen(true)
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+	frame:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		SedimentDB.settingsPos = { x = self:GetLeft(), y = self:GetTop() } -- kept across sessions
+	end)
 	frame:SetBackdrop({
 		-- A solid texture: the tooltip background art is translucent itself, so the world showed through.
 		bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -1500,7 +1101,7 @@ local function Build()
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -2, -2)
 
-	-- ? brings back the setup questions' first page.
+	-- ? brings back the Order section's welcome.
 	local help = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	help:SetSize(22, 22)
 	help:SetPoint("LEFT", title, "RIGHT", 8, 0)
@@ -1511,7 +1112,7 @@ local function Build()
 	help:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "How Sediment works")
-		GameTooltip_AddNormalLine(GameTooltip, "What it does, and " .. N("Onboarding") .. ".")
+		GameTooltip_AddNormalLine(GameTooltip, "What it does, and how to start.")
 		GameTooltip:Show()
 	end)
 	help:SetScript("OnLeave", GameTooltip_Hide)
@@ -1572,7 +1173,7 @@ local function Build()
 		end
 	end
 	Settings.LayoutNav()
-	BuildWeightsPage(pages.Weights)
+	BuildOrderPage(pages.Order)
 	BuildSortingPage(pages.Sorting)
 	BuildTestingPage(pages.Testing)
 	BuildSpecialPage(pages["Special bags"])
@@ -1585,8 +1186,9 @@ local function Build()
 	frame:SetScript("OnHide", function()
 		Settings.SetSelectMode(false) -- select mode never outlives the window
 		ns.Weights.PurgeDeleted() -- History saves marked with x go for good now
+		ns.Order.OnHide() -- removed rows are final, no outlines
 	end)
-	ShowTab("Weights")
+	ShowTab("Order")
 end
 
 local function RunRefreshers(page)
@@ -1602,9 +1204,8 @@ function Settings.Refresh()
 	if not frame or not frame:IsShown() then
 		return
 	end
-	if pages.Weights:IsShown() then
-		Settings.RefreshLadder()
-		RunRefreshers(pages.Weights)
+	if pages.Order:IsShown() then
+		ns.Order.Refresh()
 	end
 	if pages.Sorting:IsShown() then
 		RunRefreshers(pages.Sorting)
@@ -1634,16 +1235,49 @@ function Settings.RefreshNames()
 	if not frame or not frame:IsShown() then
 		return
 	end
-	for _, row in ipairs(ladderRows) do
-		local entry = row.entry
-		if row:IsShown() and entry and entry.kind == "item" and not row.removed then
-			entry.label = ItemLabel(entry.key)
-			row.label:SetText(entry.label)
-		end
+	if pages.Order:IsShown() then
+		ns.Order.Refresh()
 	end
 end
 
--- tab: a section name; nil keeps the last one (Weights the first time).
+-- Where the window goes: where it was dragged (SedimentDB.settingsPos), else on the Order section beside the
+-- bags (the outlines in them are the point), else the middle of the screen.
+-- The bag window: the Combined Backpack, else the leftmost open bag window (the weight popup sits above it).
+local function BagWindow()
+	local bag = ContainerFrameCombinedBags
+	if bag and bag:IsShown() then
+		return bag
+	end
+	local best
+	for i = 1, NUM_CONTAINER_FRAMES or 13 do
+		local f = _G["ContainerFrame" .. i]
+		if f and f:IsShown() and f:GetLeft() and (not best or f:GetLeft() < best:GetLeft()) then
+			best = f
+		end
+	end
+	return best
+end
+Settings.BagWindow = BagWindow
+
+local function Place()
+	frame:ClearAllPoints()
+	local pos = SedimentDB.settingsPos
+	if pos then
+		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+		return
+	end
+	local bag = Settings.currentTab == "Order" and BagWindow()
+	if bag and bag:GetLeft() and bag:GetTop() then
+		local scale = bag:GetEffectiveScale() / UIParent:GetEffectiveScale()
+		local x = bag:GetLeft() * scale - 12 - WIDTH
+		local top = math.max(bag:GetTop() * scale, HEIGHT + 20)
+		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", math.max(0, x), top)
+	else
+		frame:SetPoint("CENTER")
+	end
+end
+
+-- tab: a section name; nil keeps the last one (Order the first time).
 function Settings.Open(tab)
 	if InCombatLockdown() then
 		Print("settings are closed during combat.")
@@ -1652,33 +1286,29 @@ function Settings.Open(tab)
 	if not frame then
 		Build()
 	end
+	local wasShown = frame:IsShown()
 	frame:Show()
-	ShowTab(tab or Settings.currentTab or "Weights")
+	ShowTab(tab or Settings.currentTab or "Order")
+	if not wasShown then
+		Place()
+		C_Timer.After(0, function()
+			if frame:IsShown() and not SedimentDB.settingsPos then
+				Place() -- again, once the bags have laid themselves out
+			end
+		end)
+	end
 end
 
--- The gear on the bag and /sed: the setup questions' first page while there are no rules or a run isn't
--- finished (unless "Don't show" is ticked), else the Weights section. (User, 2026-11-25: ideally nobody
--- needs the Sorting section; its defaults should just be right.)
+-- The gear on the bag and /sed: the settings at Order (user, 2026-11-25: one place to arrange; its welcome
+-- shows while there are no rules).
 function Settings.OpenDefault()
-	if InCombatLockdown() then
-		Print("settings are closed during combat.")
-		return
-	end
-	if ns.Setup.IsShown() then
-		ns.Setup.Raise()
-	elseif ns.Setup.Wanted() then
-		ns.Setup.ShowIntro()
-	else
-		Settings.Open("Weights")
-	end
+	Settings.Open("Order")
 end
 
--- /sed: close whichever is open, else open the default.
+-- /sed: close it if open, else open it.
 function Settings.Toggle()
 	if frame and frame:IsShown() then
 		frame:Hide()
-	elseif ns.Setup.IsShown() then
-		ns.Setup.Close()
 	else
 		Settings.OpenDefault()
 	end

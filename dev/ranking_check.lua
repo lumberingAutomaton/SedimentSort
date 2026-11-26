@@ -1,6 +1,7 @@
--- Checks the ranking the setup questions use (Weights.RankingList / PlaceRule / WriteRankingList /
--- SetLayout): answers land where they should, weights stay on the right side of the sink line in every
--- layout, ties stay tied, and items sort in the order the ranking shows.
+-- Checks the ranking that Setup's "Your order" list and the Weights page's Empty Space buttons use
+-- (Weights.RankingList / WriteRankingList / PinDefault / MoveEmptySpace / MoveRow / DefaultOrder): the Empty Space's
+-- position is the layout, unset items stay attached to it, old packed saves convert without changing order,
+-- ties stay tied, and items sort the way the list shows.
 -- Run: lua dev/ranking_check.lua (from the addon folder).
 Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
@@ -15,10 +16,10 @@ local function Fresh(weights)
 	W.Init()
 end
 
--- The order as a string: rule ids per rung, "|" for the divider.
+-- The order as a string: rule ids per rung, "|" for the Empty Space.
 local function Order()
 	local parts = {}
-	for _, e in ipairs(W.RankingList()) do
+	for _, e in ipairs(W.PinDefault(W.RankingList())) do
 		if e.divider then
 			parts[#parts + 1] = "|"
 		else
@@ -37,123 +38,76 @@ local function Expect(want, what)
 	assert(got == want, ("%s:\n  want %s\n  got  %s"):format(what, want, got))
 end
 
--- Every weight is on the side of the sink line its place says, in the current layout.
+-- After a write: weights above the Empty Space are under 50, below it 50 or more, the line is 50.
 local function CheckSides()
 	local w = SedimentDB.weights
-	local layout, past = W.Layout(), false
+	assert(w.sinkLine == 50, "sink line isn't 50: " .. tostring(w.sinkLine))
+	local past = false
 	for _, e in ipairs(W.RankingList()) do
 		if e.divider then
 			past = true
 		else
-			for _, r in ipairs(e.rules) do
-				local v = e.weight
-				assert(v > 0 and v < 100, "weight out of 0..100: " .. tostring(v))
-				if layout == "middle" then
-					assert((v >= w.sinkLine) == past, "rule on the wrong side of the sink line")
-				elseif layout == "bottom" then
-					assert(v < w.sinkLine, "packed-from-top layout has a sinker")
-				else
-					assert(v >= w.sinkLine, "packed-from-bottom layout has a floater")
-				end
-			end
+			assert(e.weight > 0 and e.weight < 100, "weight out of 0..100: " .. tostring(e.weight))
+			assert((e.weight >= 50) == past, "a rung on the wrong side of the Empty Space")
 		end
 	end
 end
 
--- A new install answering the questions in order.
-Fresh(nil)
-Expect("default |", "new install")
-W.SetLayout("middle")
-assert(SedimentDB.weights.sinkLine == 50)
-W.PlaceRule("item", HS, "first")
-Expect("item:6948 default |", "hearthstone first")
-W.PlaceRule("item", 4540, "after", "item", HS)
-W.PlaceRule("item", 117, "after", "item", 4540)
-Expect("item:6948 item:4540 item:117 default |", "neighbours in click order")
-W.PlaceRule("flag", "gray", "bottom", "item", HS)
-Expect("item:6948 item:4540 item:117 default | flag:gray", "gray at the bottom")
-W.PlaceRule("class", 7, "sink")
-Expect("item:6948 item:4540 item:117 default | class:7 flag:gray", "trade goods sink next to the gap")
-W.PlaceRule("class", 0, "float")
-Expect("item:6948 item:4540 item:117 class:0 default | class:7 flag:gray", "consumables float above the default")
-CheckSides()
-
--- Re-answering moves the rule (it isn't duplicated).
-W.PlaceRule("class", 7, "float")
-Expect("item:6948 item:4540 item:117 class:0 class:7 default | flag:gray", "trade goods re-answered")
-CheckSides()
-
--- Hearthstone last: gray goes above it; neighbours go before it, in click order.
-Fresh(nil)
-W.SetLayout("middle")
-W.PlaceRule("item", HS, "last")
-W.PlaceRule("item", 4540, "before", "item", HS)
-W.PlaceRule("item", 117, "before", "item", HS)
-W.PlaceRule("flag", "gray", "bottom", "item", HS)
-Expect("default | item:4540 item:117 flag:gray item:6948", "hearthstone last")
-CheckSides()
-
--- Packed layouts: everything floats (or sinks), order kept; what has no rule (the default) sits next to the
--- empty space: last when the space is at the bottom, first when it's at the top.
-local WANT = {
-	middle = "item:6948 class:0 default | class:7 flag:gray",
-	bottom = "item:6948 class:0 | class:7 flag:gray default",
-	top = "default item:6948 class:0 | class:7 flag:gray",
-}
-for _, layout in ipairs({ "bottom", "top" }) do
-	Fresh(nil)
-	W.SetLayout(layout)
-	W.PlaceRule("item", HS, "first")
-	W.PlaceRule("class", 7, "sink")
-	W.PlaceRule("class", 0, "float")
-	W.PlaceRule("flag", "gray", "bottom", "item", HS)
-	Expect(WANT[layout], "packed " .. layout)
-	CheckSides()
-	assert(W.Layout() == layout)
+-- One row per class, the Empty Space at the bottom (a normal bag sort).
+local function ClassRows(classIDs)
+	local list = {}
+	for _, c in ipairs(classIDs) do
+		list[#list + 1] = { rules = { { kind = "class", key = c } } }
+	end
+	list[#list + 1] = { divider = true }
+	W.WriteRankingList(list)
 end
-
--- Switching layout keeps the order; the default follows the empty space.
-for _, layout in ipairs({ "middle", "bottom", "top", "middle" }) do
-	W.SetLayout(layout)
-	Expect(WANT[layout], "switch to " .. layout)
-	CheckSides()
-end
-
--- Bottom layout, hearthstone last: gray stays above it, the default after both (next to the space).
 Fresh(nil)
-W.SetLayout("bottom")
-W.PlaceRule("item", HS, "last")
-W.PlaceRule("flag", "gray", "bottom", "item", HS)
-Expect("| flag:gray item:6948 default", "bottom layout, hearthstone last")
+ClassRows({ 0, 2, 4, 7 })
+Expect("class:0 class:2 class:4 class:7 default |", "fresh order")
+CheckSides()
 
--- An existing user's hand-set rules: ties stay tied, order kept, sink line 40 becomes 50.
+-- Moving the Empty Space: one row at a time; unset items stay attached on the side with items.
+assert(W.MoveEmptySpace(-1))
+Expect("class:0 class:2 class:4 default | class:7", "Empty Space up one")
+CheckSides()
+while W.MoveEmptySpace(-1) do end
+Expect("| default class:0 class:2 class:4 class:7", "Empty Space at the top")
+assert(not W.CanMoveEmptySpace(-1) and W.CanMoveEmptySpace(1), "can-move at the top")
+CheckSides()
+while W.MoveEmptySpace(1) do end
+Expect("class:0 class:2 class:4 class:7 default |", "Empty Space back at the bottom")
+assert(not W.CanMoveEmptySpace(1) and W.CanMoveEmptySpace(-1), "can-move at the bottom")
+
+-- Old saves from the packed layouts (sink line 100 / 0) keep their order; the first write makes it 50.
+Fresh({ sinkLine = 100, default = 20, items = { [HS] = 10 }, flags = {}, subclasses = {}, classes = { [7] = 60 } })
+Expect("item:6948 class:7 default |", "old packed-from-top save (unset items shown by the Empty Space)")
+W.WriteRankingList(W.RankingList())
+Expect("item:6948 class:7 default |", "converted")
+CheckSides()
+Fresh({ sinkLine = 0, default = 20, items = { [HS] = 10 }, flags = {}, subclasses = {}, classes = { [7] = 60 } })
+Expect("| default item:6948 class:7", "old packed-from-bottom save")
+W.WriteRankingList(W.RankingList())
+Expect("| default item:6948 class:7", "converted")
+CheckSides()
+
+-- Hand-set rules with ties and an odd sink line: ties stay tied, the line becomes 50, the order holds.
 Fresh({ sinkLine = 40, default = 39, items = { [HS] = 0, [5] = 45 }, flags = { gray = 90 },
 	subclasses = { ["0:1"] = 30, ["0:5"] = 30 }, classes = { [7] = 80, [2] = 45 } })
 Expect("item:6948 subclass:0:1+subclass:0:5 default | item:5+class:2 class:7 flag:gray", "existing rules")
 W.WriteRankingList(W.RankingList())
-assert(SedimentDB.weights.sinkLine == 50)
-Expect("item:6948 subclass:0:1+subclass:0:5 default | item:5+class:2 class:7 flag:gray", "existing rules tidied")
+Expect("item:6948 subclass:0:1+subclass:0:5 default | item:5+class:2 class:7 flag:gray", "tidied")
 assert(SedimentDB.weights.subclasses["0:1"] == SedimentDB.weights.subclasses["0:5"], "a tie was broken")
 CheckSides()
 
--- A hand-set default that sinks moves next to the gap (above it) at the first answer.
-Fresh({ sinkLine = 50, default = 60, items = {}, flags = {}, subclasses = {}, classes = { [2] = 10 } })
-W.PlaceRule("class", 0, "float")
-W.PlaceRule("class", 7, "sink")
-Expect("class:2 class:0 default | class:7", "a sinking default moves above the gap")
-CheckSides()
--- A rule tied with the default stays where it was; the default gets a rung of its own.
-Fresh({ sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {}, classes = { [2] = 20, [4] = 10 } })
-Expect("class:4 class:2+default |", "tie before")
-W.PlaceRule("class", 7, "sink")
-Expect("class:4 class:2 default | class:7", "tie split off the default")
-
 -- Many rungs: weights stay distinct and inside their half.
 Fresh(nil)
-W.SetLayout("middle")
+local many = {}
 for id = 1, 120 do
-	W.PlaceRule("item", id, id % 2 == 0 and "float" or "sink")
+	many[#many + 1] = { rules = { { kind = "item", key = id } } }
+	if id == 60 then many[#many + 1] = { divider = true } end
 end
+W.WriteRankingList(many)
 local seen = {}
 for _, e in ipairs(W.RankingList()) do
 	if e.rules then
@@ -164,28 +118,44 @@ for _, e in ipairs(W.RankingList()) do
 end
 CheckSides()
 
--- Items sort in the order the ranking shows (full order: lighter first).
+-- Items sort in the order the list shows.
 Fresh(nil)
-W.SetLayout("middle")
-W.PlaceRule("item", HS, "first")
-W.PlaceRule("class", 7, "sink")
-W.PlaceRule("flag", "gray", "bottom", "item", HS)
-local function Item(itemID, classID, quality)
-	return { itemID = itemID, classID = classID, subclassID = 0, subKey = classID .. ":0", quality = quality or 1,
+ClassRows({ 0, 7, 15 })
+assert(W.MoveEmptySpace(-1)) -- class 15 (Miscellaneous) below the Empty Space
+local function Item(itemID, classID)
+	return { itemID = itemID, classID = classID, subclassID = 0, subKey = classID .. ":0", quality = 1,
 		isBound = true, equipLoc = "" }
 end
-local hs, cloth, junk, other = Item(HS, 15), Item(2589, 7), Item(1000, 15, 0), Item(2000, 0)
-local w = function(item) return (W.Resolve(item)) end
-assert(w(hs) < w(other) and w(other) < w(cloth) and w(cloth) < w(junk), "items don't follow the order")
-assert(w(other) < SedimentDB.weights.sinkLine and w(cloth) >= SedimentDB.weights.sinkLine, "float/sink wrong")
-assert(W.HasOwnRule(hs) and not W.HasOwnRule(other), "HasOwnRule wrong")
-assert(W.RuleSide("item", HS) == "float" and W.RuleSide("class", 7) == "sink" and W.RuleSide("class", 9) == nil)
+local potion, cloth, misc = Item(1, 0), Item(2, 7), Item(3, 15)
+local function Wt(item) return (W.Resolve(item)) end
+assert(Wt(potion) < Wt(cloth) and Wt(cloth) < 50 and Wt(misc) >= 50, "items don't follow the order")
+assert(W.HasOwnRule(potion) and not W.HasOwnRule(Item(4, 9)), "HasOwnRule wrong")
 
--- Copy and restore (Back).
+-- Start Fresh's default order: the always-listed groups, other classes just above the Empty Space, the Quest
+-- Items row holding both quest rules.
+Fresh(nil)
+W.DefaultOrder({ 0, 1, 2, 9, 12 })
+Expect("item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest+class:12 flag:unboundGear class:1 class:9 default | "
+	.. "class:2 class:4 class:7 class:15 flag:gray", "default order")
+CheckSides()
+assert(SedimentDB.weights.flags.quest == SedimentDB.weights.classes[12], "the quest rules aren't on one row")
+
+-- MoveRow (drag and drop): positions among the shown rows (unset items not counted); the Empty Space too.
+-- Shown rows now: 1 Hearthstone ... 8 class:9, 9 Empty Space, 10 Weapon ... 14 Gray.
+assert(W.MoveRow(14, 1))
+Expect("flag:gray item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest+class:12 flag:unboundGear class:1 class:9 "
+	.. "default | class:2 class:4 class:7 class:15", "Gray dragged to the top")
+assert(W.MoveRow(10, 1)) -- the Empty Space to the top
+Expect("| default flag:gray item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest+class:12 flag:unboundGear class:1 "
+	.. "class:9 class:2 class:4 class:7 class:15", "Empty Space dragged to the top")
+assert(not W.MoveRow(3, 3) and not W.MoveRow(0, 2) and not W.MoveRow(2, 99), "bad moves accepted")
+CheckSides()
+
+-- Copy and restore.
 local copy = W.CopyWeights()
-W.PlaceRule("class", 0, "float")
+W.SetLevel("class", 99, 1)
 W.SetWeights(copy)
-assert(SedimentDB.weights.classes[0] == nil, "restoring a copy didn't undo")
+assert(SedimentDB.weights.classes[99] == nil, "restoring a copy didn't undo")
 SedimentDB.weights.classes[3] = 1
 assert(copy.classes[3] == nil, "the copy shares tables with the live weights")
 

@@ -5,7 +5,7 @@ local ns = {}
 assert(loadfile("Text.lua"))("Sediment", ns)
 
 local files = { "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Popup.lua", "Settings.lua",
-	"Setup.lua", "Sediment.lua" }
+	"Order.lua", "Sediment.lua" }
 local used, problems = {}, {}
 for _, file in ipairs(files) do
 	local f = assert(io.open(file))

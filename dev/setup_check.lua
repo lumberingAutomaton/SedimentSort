@@ -1,5 +1,6 @@
--- Clicks through the setup questions against mocked frames (no game needed): every question type, Back,
--- Skip, Split this up, Finish later and resume, the review's moves, Done; and the bag-slot highlights.
+-- Clicks through the settings against mocked frames (no game needed): the Order section (welcome, Start
+-- Fresh, rows, outlines, moving rows and the Empty Space, unset items, x with Undo, Pick from Bags and widen,
+-- drag and drop), History, Special bags, Debug > Files and the weight popup.
 -- It checks the logic and that nothing errors, not how anything looks.
 -- Run: lua dev/setup_check.lua (from the addon folder).
 
@@ -49,7 +50,19 @@ function Methods.GetEffectiveScale() return 1 end
 function Methods.GetFrameLevel() return 1 end
 function Methods.GetCenter() return 0, 0 end
 function Methods.SetTexture(o, t) o.texture = t end
+function Methods.GetHighlightTexture(o) o.glow = o.glow or NewObj() return o.glow end
+function Methods.SetAlpha(o, a) o.alpha = a end
 function Methods.SetColorTexture(o, r, g, b, a) o.color = { r, g, b, a } end
+function Methods.LockHighlight(o) o.locked = true end
+function Methods.SetFrameStrata(o, s) o.strata = s end
+function Methods.UnlockHighlight(o) o.locked = false end
+-- Rows are positioned with SetPoint("TOPLEFT", 0, -(k - 1) * ROW_HEIGHT): record y from it.
+function Methods.SetPoint(o, point, a, b, ...)
+	o.lastPoint = { point, a, b, ... }
+	if point == "TOPLEFT" and type(a) == "number" and type(b) == "number" then
+		o.y = -b
+	end
+end
 -- Text without colour codes (Sediment's nouns and button names are coloured).
 local function Plain(t) return (t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 local function Click(o) assert(o.enabled, "clicked a disabled button: " .. tostring(o.text)) o.scripts.OnClick(o, "LeftButton") end
@@ -69,7 +82,7 @@ for _, f in ipairs({ "GameTooltip_SetTitle", "GameTooltip_AddNormalLine", "GameT
 	"hooksecurefunc", "OpenAllBags", "PlaySound" }) do
 	_G[f] = function() end
 end
-tinsert, date = table.insert, os.date
+tinsert, date, unpack = table.insert, os.date, table.unpack
 strtrim = function(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 InCombatLockdown = function() return false end
 -- Blizzard's Combined Backpack setting: off at first, so Setup has to turn it on.
@@ -90,8 +103,9 @@ local function RunTimers()
 end
 Enum = { ItemQuality = { Poor = 0 }, ItemClass = { Tradegoods = 7, Container = 1 } }
 local CLASS = { [0] = "Consumable", [1] = "Container", [2] = "Weapon", [4] = "Armor", [7] = "Trade Goods",
-	[12] = "Quest", [15] = "Miscellaneous" }
-local SUB = { ["0:1"] = "Potion", ["0:5"] = "Food & Drink", ["0:7"] = "Bandage", ["7:5"] = "Cloth", ["7:7"] = "Metal & Stone" }
+	[9] = "Recipe", [12] = "Quest", [15] = "Miscellaneous" }
+local SUB = { ["0:1"] = "Potion", ["0:5"] = "Food & Drink", ["0:7"] = "Bandage", ["7:5"] = "Cloth", ["7:7"] = "Metal & Stone",
+	["12:0"] = "Quest" }
 C_Item = {
 	GetItemIconByID = function(id) return "icon" .. id end,
 	GetItemNameByID = function(id) return "item" .. id end,
@@ -146,7 +160,7 @@ ns.Popup = { Refresh = function() end, Open = function() ns.popupOpened = true e
 ns.AutoSort = { Resume = function() end, IsEnabled = function() return true end, Delay = function() return 1.1 end }
 ns.COMMANDS, ns.SHORTCUTS = {}, {}
 -- (Sediment.lua isn't loaded here: its file list, as it would be with one file missing.)
-ns.FILES = { "Text.lua", "Weights.lua", "Settings.lua", "Setup.lua", "Missing.lua" }
+ns.FILES = { "Text.lua", "Weights.lua", "Settings.lua", "Order.lua", "Missing.lua" }
 ns.ADDON = "SedimentSort"
 ns.MissingFiles = function()
 	local m = {}
@@ -167,7 +181,7 @@ ContainerFrameCombinedBags = NewObj()
 ContainerFrameCombinedBags.EnumerateValidItems = function() return ipairs(buttons) end
 ContainerFrameCombinedBags.UpdateItems = function() end
 
-for _, file in ipairs({ "Text.lua", "Weights.lua", "Settings.lua", "Setup.lua" }) do
+for _, file in ipairs({ "Text.lua", "Weights.lua", "Settings.lua", "Order.lua" }) do
 	assert(loadfile(file))("Sediment", ns)
 end
 SedimentDB = {}
@@ -175,352 +189,240 @@ ns.Weights.Init()
 local W, S = ns.Weights, ns.Settings
 local w = function() return SedimentDB.weights end
 local function Weight(it) return (W.Resolve(it)) end
-local setup = SedimentSetup -- built on first use
-local function Q() return SedimentSetup.question end
-local function Title() return SedimentSetup.title.text end
-local function Choice(i) Click(Q().choices[i].button) RunTimers() end
 
--- A new user clicks the gear: with no rules, the setup's first page opens instead of the settings.
+-- A new user clicks the gear: the settings open at Order, with the welcome over the list (no rules yet).
 S.OpenDefault()
-setup = SedimentSetup
-assert(setup and setup.shown and setup.intro.shown, "the gear didn't open the setup with no rules")
-assert(not (SedimentSettings and SedimentSettings.shown), "the settings opened too")
--- Its Settings button goes on to the Weights section; the gear again brings the setup back.
-Click(setup.intro.settings)
-assert(not setup.shown and SedimentSettings.shown and S.currentTab == "Weights", "Settings button didn't open Weights")
-SedimentSettings:Hide()
-S.OpenDefault()
-assert(setup.shown and setup.intro.shown, "the gear didn't bring the setup back")
-assert(setup.intro.fresh.shown and setup.intro.continue.shown, "the two buttons aren't both there")
-assert(not setup.intro.continue.enabled, "Continue enabled with nothing to continue")
-assert(Plain(setup.intro.status.text) == "Start Fresh to begin.", Plain(setup.intro.status.text))
-Click(setup.intro.fresh)
+local P = ns.Order.pane
+assert(SedimentSettings.shown and S.currentTab == "Order", "the gear didn't open Order")
+assert(P.welcome.shown and not P.welcome.close.shown, "no welcome (or a Close button) with no rules")
+assert(not S.IsSelecting(), "Pick from Bags is on under the welcome")
+
+-- Start Fresh from the welcome: the default order, a Created entry, Combined Backpack on, the bags sorted,
+-- and Pick from Bags on now that the list shows.
+local sortsBefore = sorts
+Click(P.welcome.fresh)
 RunTimers()
-assert(not SedimentSettings.shown, "settings stayed open")
-assert(Title() == "Your Empty Space", "first question: " .. Title())
-assert(Q().choices[1].desc.text:find("now"), "the current layout isn't marked")
-assert(setup.progress.text:match("^Question 1 of"), setup.progress.text)
--- Combined Backpack was off: Start Fresh turned it on and says so on the page and in chat.
+assert(not P.welcome.shown, "the welcome stayed after Start Fresh")
+assert(sorts > sortsBefore, "Start Fresh didn't sort")
+assert(W.History()[1] and W.History()[1].kind == "created", "Start Fresh didn't add a Created entry")
 assert(cvars.combinedBags == "1", "Start Fresh didn't turn on Combined Backpack")
-assert(Q().notice.shown and Plain(Q().notice.text):find("Combined Backpack"), "no notice on the page")
+assert(Plain(P.widenLabel.text):find("Combined Backpack"), "no notice on the page")
 assert(ns.lastPrint and Plain(ns.lastPrint):find("Combined Backpack"), "no notice in chat")
-
--- Highlights: unruled items outlined; empty slots and (later) ruled items not.
-assert(buttons[1].SedimentMark and buttons[1].SedimentMark.shown, "unruled hearthstone not highlighted")
-assert(not buttons[#buttons].SedimentMark, "an empty slot got a highlight")
-
-Choice(1) -- middle
-assert(not Q().notice.shown, "the notice stayed past its question")
-assert(w().sinkLine == 50)
-assert(Title() == "Your hearthstone", Title())
-Choice(1) -- first
-assert(w().items[HS], "no hearthstone rule")
-assert(not buttons[1].SedimentMark.shown or buttons[1].SedimentMark.color, "hearthstone mark state")
-
--- Neighbours: select mode with our handler; picks in click order; clicking the hearthstone does nothing.
-assert(Title() == "Next to your hearthstone", Title())
-assert(S.IsSelecting(), "select mode isn't on for the neighbours question")
-local function SlotClick(i) buttons[i].SedimentSelect.scripts.OnClick(buttons[i].SedimentSelect) end
-SlotClick(1)
-SlotClick(8)  -- 4540
-SlotClick(6)  -- 118
-SlotClick(10) -- 117
-SlotClick(10) -- off again
-assert(not ns.popupOpened, "a pick opened the weight popup")
-assert(buttons[8].SedimentSelect.weight.text == "1" and buttons[6].SedimentSelect.weight.text == "2", "pick numbers")
-Choice(1) -- OK
-assert(not S.IsSelecting(), "select mode stayed on after the neighbours question")
-assert(Weight(contents[1]) < Weight(contents[8]) and Weight(contents[8]) < Weight(contents[6]), "neighbour order")
-assert(Weight(contents[6]) < w().default, "neighbours not before the rest")
-assert(w().items[117] == nil, "an unpicked item got a rule")
-
-assert(Title() == "Gray junk", Title())
-Choice(2) -- sink: very bottom
-assert(Title() == "Trade goods", Title())
--- Back: returns to gray and undoes it.
-Click(Q().back)
-assert(Title() == "Gray junk" and w().flags.gray == nil, "Back didn't undo gray")
-Choice(2)
-Choice(2) -- trade goods sink
-assert(Weight(contents[2]) >= 50 and Weight(contents[12]) > Weight(contents[2]), "gray not below trade goods")
-
-assert(Title() == "Equipment sets", Title())
--- The "skinning knife" case: a BoE item that already has its own Weight isn't part of the BoE question.
-SedimentDB.weights.items[2005] = 95 -- heavy, so it doesn't sit above the hearthstone in later checks
-Choice(1)
-assert(Title() == "BoE gear", Title())
-local boeIcons = {}
-for _, b in ipairs(Q().icons) do
-	if b.shown and b.itemID then boeIcons[#boeIcons + 1] = b.itemID end
-end
-assert(#boeIcons == 1 and boeIcons[1] == 2000, "BoE question lists items it can't move: " .. table.concat(boeIcons, ","))
-assert(Plain(Q().help.text):find("^In your bags: 1 item"), "BoE count includes the placed item: " .. Q().help.text)
-local knifeSlot
-for i, it in ipairs(contents) do if it and it.itemID == 2005 then knifeSlot = i end end
-assert(not (buttons[knifeSlot].SedimentMark and buttons[knifeSlot].SedimentMark.shown
-	and buttons[knifeSlot].SedimentMark.tint.color[2] == 0.85), "the placed BoE item is outlined gold")
-Click(Q().skip)
-assert(w().flags.unboundGear == nil, "Skip set a rule")
-assert(Title() == "Spare bags", Title())
--- Finish later, then carry on from the same place.
-setup:Hide()
-assert(SedimentDB.setup.steps[SedimentDB.setup.index].key == 1, "place not kept")
-S.OpenDefault() -- a run isn't finished: the intro shows, with Continue
-assert(setup.shown and setup.intro.shown and setup.intro.continue.enabled, "Continue not offered mid-run")
-assert(Plain(setup.intro.status.text):match("^Continue to finish Setup %(question %d+ of %d+%)"), Plain(setup.intro.status.text))
-Click(setup.intro.continue)
-RunTimers()
-assert(Title() == "Spare bags", "resumed at " .. Title())
-Choice(1)
-assert(Title() == "Quest items", Title())
-Choice(2)
-
--- Generated questions: the class with the most items without a rule first.
-local first = Title()
-assert(first == "Consumable" or first == "Weapon" or first == "Armor", "first generated question: " .. first)
--- Walk the generated questions, splitting Consumable if it comes with more than one subclass.
-local guard, splitDone = 0, false
-while Title() ~= "Your order" do
-	guard = guard + 1
-	assert(guard < 20, "too many questions")
-	if Title() == "Consumable" then
-		assert(Q().choices[3].shown and Q().choices[3].button.text == "Split This Up", "no split offered")
-		Choice(3)
-		splitDone = true
-		assert(Title():match("^Food") or Title():match("^Bandage") or Title():match("^Potion"),
-			"split didn't ask a subclass: " .. Title())
-		-- Back returns to Consumable, un-split; splitting again asks the same subclasses.
-		local firstSub = Title()
-		Click(Q().back)
-		assert(Title() == "Consumable" and Q().choices[3].shown, "Back from a split didn't return to the class")
-		Choice(3)
-		assert(Title() == firstSub, "splitting again asked something else: " .. Title())
-	end
-	Choice(guard % 2 == 0 and 1 or 2)
-end
-assert(splitDone, "Consumable never came up to split")
-for _, it in ipairs(contents) do
-	if it then
-		assert(W.HasOwnRule(it), "after the questions, item " .. it.itemID .. " still has no rule")
-	end
-end
-assert(SedimentSetup.progress.text == "Last step", SedimentSetup.progress.text)
-
--- Review: rows top to bottom with the empty space between; select the hearthstone, move it down.
-local review = setup.review
-assert(review.shown and not setup.question.shown, "review pane not shown")
-assert(not review.up.enabled and not review.down.enabled, "moves enabled with nothing selected")
-local function Rows()
+assert(S.IsSelecting() and P.pick.text == "Stop Picking", "Pick from Bags isn't on once the list shows")
+local function OrderRows()
 	local list = {}
 	for _, f in ipairs(allFrames) do
-		if f.lines and f.shown then
-			list[#list + 1] = f
-		end
+		if f.lines and f.undo and f.shown and (f.id or f.ghost) then list[#list + 1] = f end
 	end
 	table.sort(list, function(a, b) return a.y < b.y end)
 	return list
 end
--- Rows are positioned with SetPoint("TOPLEFT", 0, -(k - 1) * ROW_HEIGHT): record y from it.
-function Methods.SetPoint(o, point, a, b, c, d)
-	if point == "TOPLEFT" and type(a) == "number" and type(b) == "number" then
-		o.y = -b
-	end
-end
-local function RowById(id)
-	for _, r in ipairs(Rows()) do
-		if r.id == id then
-			return r
-		end
-	end
-end
-local function Order()
+local function RowIds()
 	local ids = {}
-	for _, e in ipairs(W.RankingList()) do
-		if e.divider then
-			ids[#ids + 1] = "|"
-		else
-			local r = e.rules[1]
-			ids[#ids + 1] = r.kind == "default" and "default" or (r.kind .. ":" .. tostring(r.key))
-		end
-	end
+	for _, r in ipairs(OrderRows()) do ids[#ids + 1] = r.id or "ghost" end
 	return table.concat(ids, " ")
 end
--- Re-render so the rows pick up their positions under the new SetPoint.
-ns.Setup.OnBagUpdate()
-local gaps = 0
-for _, r in ipairs(Rows()) do
-	if not r.id then gaps = gaps + 1 end
+local function RowById(id)
+	for _, r in ipairs(OrderRows()) do if r.id == id then return r end end
 end
-assert(gaps == 1, "middle layout should show one empty-space row, got " .. gaps)
-assert(not RowById("default"), "the default has a row of its own in the review")
-local hsRow = RowById("item:" .. HS)
-assert(hsRow, "no hearthstone row")
-Click(hsRow)
--- The selected row's items are outlined gold in the bag: the hearthstone, and nothing it doesn't cover.
+local function Choices()
+	local labels = {}
+	for _, b in ipairs(P.widen) do if b.shown then labels[#labels + 1] = b.text end end
+	return table.concat(labels, "|")
+end
+local FRESH = "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 gap class:2 class:4 "
+	.. "class:7 class:15 flag:gray"
+assert(RowIds() == FRESH, "fresh rows: " .. RowIds())
+assert(SedimentDB.weights.sinkLine == 50, "sink line isn't 50")
+assert(P.unset.text == "" and P.unset.shown, "the not-set line should be empty but kept")
+
+-- Click Trade Goods: its items are outlined gold, nothing else; a group has nothing to widen to.
 local function Gold(i)
 	local m = buttons[i].SedimentMark
 	return m and m.shown and m.tint.color and m.tint.color[2] == 0.85
 end
-assert(Gold(1), "selecting the hearthstone row didn't outline the hearthstone")
-for i = 2, #contents do
-	if contents[i] and contents[i].itemID ~= HS then
-		assert(not Gold(i), "item " .. contents[i].itemID .. " outlined although the row doesn't cover it")
+local function Orange(i)
+	local m = buttons[i].SedimentMark
+	return m and m.shown and m.tint.color and m.tint.color[2] == 0.5
+end
+Wait(1)
+Click(RowById("class:7"))
+for i, it in ipairs(contents) do
+	if it then
+		assert((Gold(i) and true or false) == (it.classID == 7), "item " .. it.itemID .. " gold: " .. tostring(Gold(i)))
 	end
 end
-assert(not review.up.enabled and review.down.enabled, "first row: up should be off, down on")
-local sortsBefore, orderBefore = sorts, Order()
-Click(review.down)
-RunTimers()
-local orderAfter = Order()
-assert(orderAfter:match("^item:4540 item:6948 "), "hearthstone didn't move down one: " .. orderAfter)
-assert(sorts > sortsBefore, "a move didn't sort")
-assert(Weight(contents[8]) < Weight(contents[1]), "weights don't follow the move")
-assert(review.up.enabled, "after moving down, up should be on")
-Click(review.up)
-assert(Order() == orderBefore, "moving back up didn't restore the order")
+assert(Choices() == "" and P.widenLabel.text == "", "a group row offered choices, or the notice stayed")
 
--- Move the last float rung (just above the empty space and the default) down: it crosses to the sink side.
-local list = W.RankingList()
-local d
-for k, e in ipairs(list) do if e.divider then d = k end end
-assert(list[d - 1].rules[1].kind == "default", "the default isn't next to the empty space")
-local lastFloat = list[d - 2].rules[1]
-local id = lastFloat.kind == "default" and "default" or (lastFloat.kind .. ":" .. tostring(lastFloat.key))
-Click(RowById(id))
-Click(review.down)
-assert(W.RuleSide(lastFloat.kind, lastFloat.key) == "sink", "crossing the empty space didn't make it sink")
-Click(review.up)
-assert(W.RuleSide(lastFloat.kind, lastFloat.key) == "float", "crossing back didn't make it float")
-
--- Packed layout: no empty-space row in the middle, it's at the end; moves skip the hidden divider.
-SedimentDB.weights.sinkLine = 100
-ns.Setup.OnBagUpdate()
-local rows = Rows()
-assert(not rows[#rows].id, "packed-from-top layout: the empty space row isn't last")
-assert(not RowById("default"), "the default has a row in the packed review")
-Click(RowById(id))
-Click(review.down)
-local afterPacked = Order()
-assert(W.RuleSide(lastFloat.kind, lastFloat.key) == "sink", "packed move didn't cross the hidden divider")
--- And it really moved past one visible row (not just across the divider).
-local seq = afterPacked:gsub(" |", "")
-local before = orderBefore:gsub(" |", "")
-assert(seq ~= before, "packed move changed nothing visible")
-SedimentDB.weights.sinkLine = 50
-ns.Setup.OnBagUpdate()
-
--- Back from the review returns to the last question.
-Click(review.back)
-assert(setup.question.shown, "Back from the review didn't return to a question")
-Choice(1)
-assert(review.shown, "answering the last question again didn't come back to the review")
-
--- Done: the run ends, the intro stops opening by itself, the window and highlights go.
-Click(review.done)
-assert(SedimentDB.setup == nil, "Done didn't end the run")
-assert(not setup.shown, "window still open")
-assert(not buttons[2].SedimentMark.shown, "highlights stayed on")
-local h = W.History()
-assert(h[1] and h[1].kind == "created" and W.IsCurrent(h[1]), "Done didn't add a Created entry")
-assert(#h == 1, "the first run (started with no rules) should leave one entry, got " .. #h)
-
--- A second run: starting saves nothing new (the rules are the version Done saved); Start over saves the
--- run's answers, clears the weights, and asks everything again.
-SedimentSettings:Hide()
-S.OpenDefault()
-assert(not setup.shown and SedimentSettings.shown and S.currentTab == "Weights", "with rules set, the gear didn't open Weights")
--- "Don't show this" sends the gear to the settings even with no rules.
-SedimentDB.setupHidden = true
-assert(not ns.Setup.Wanted(), "setupHidden ignored")
-SedimentDB.setupHidden = nil
-ns.Setup.ShowIntro()
-assert(setup.intro.continue.enabled and Plain(setup.intro.status.text):match("^Continue to use your existing rules"),
-	"rules exist: " .. Plain(setup.intro.status.text))
-Click(setup.intro.continue) -- keep the rules
-RunTimers()
-assert(W.HasRules(), "Keep my rules cleared the rules")
-assert(#W.History() == 1, "starting saved the same rules twice")
-local doneVersion = W.History()[1]
-Choice(3) -- packed toward the bottom
-assert(w().sinkLine == 0, "layout top not set")
-setup:Hide()
-ns.Setup.ShowIntro()
-assert(setup.intro.fresh.shown, "no Start fresh while a run is in progress")
-Click(setup.intro.fresh)
-RunTimers()
-h = W.History()
-assert(h[1].kind == "snapshot" and h[1].weights.sinkLine == 0,
-	"Start Fresh mid-run didn't take a Snapshot of the run's answers")
-assert(h[2] == doneVersion, "Start over lost the earlier version")
-assert(not W.HasRules() or next(w().items) == nil, "Start over didn't clear the weights")
-assert(w().sinkLine == 50, "Start over didn't clear the layout")
-assert(Title() == "Your Empty Space" and Q().choices[1].desc.text:find("now")
-	and not Q().choices[3].desc.text:find("now"), "Start over didn't restart with the run's answers undone")
--- The generated questions are asked again too: walk to the end and count them.
-local again = 0
-while Title() ~= "Your order" do
-	again = again + 1
-	assert(again < 30, "too many questions after Start over")
-	Click(Q().skip)
-	RunTimers()
+-- Dragging. The list's top is at y = 600 in the mock, rows 20 apart; a drop at y = 600 - 20 * slot lands in
+-- that slot (0 = above the first row). A press on a row drags once the mouse moves; a press on the grip drags
+-- at once. The release ends it wherever the mouse is. The dragged row is dimmed and hover glow is off.
+local cursorY = 600
+GetCursorPosition = function() return 0, cursorY end
+local mouseDown = false
+IsMouseButtonDown = function() return mouseDown end
+local function Drag(id, slot, byGrip)
+	local row = RowById(id)
+	cursorY = 600 - row.y - 10 -- on the row
+	mouseDown = true
+	if byGrip then
+		row.grip.scripts.OnMouseDown(row.grip, "LeftButton")
+		assert(P.dropLine.shown, "the grip didn't start the drag on the press")
+	else
+		row.scripts.OnMouseDown(row, "LeftButton")
+		P.scripts.OnUpdate(P)
+		assert(not P.dropLine.shown, "a drag started before the mouse moved")
+	end
+	cursorY = 600 - 20 * slot
+	P.scripts.OnUpdate(P)
+	P.scripts.OnUpdate(P)
+	assert(P.dropLine.shown, "no drop line while dragging")
+	local dragged = RowById(id)
+	assert(dragged.alpha == 0.4 and dragged:GetHighlightTexture().alpha == 0, "the dragged row isn't dimmed, or hover glow is on")
+	mouseDown = false
+	P.scripts.OnUpdate(P)
+	assert(not P.dropLine.shown and not P.scripts.OnUpdate, "drag didn't clean up")
+	for _, r in ipairs(OrderRows()) do
+		assert((r.alpha or 1) == 1 and (r:GetHighlightTexture().alpha or 1) == 1, "a row stayed dimmed or without glow")
+	end
 end
-assert(again >= 9, "Start over skipped questions: " .. again)
-Click(setup.review.back)
-while Q().back.enabled and SedimentDB.setup.index > 1 do
-	Click(Q().back)
+-- Trade Goods above Armor (slot 9: between Weapon and Armor), by the row; the bags sort.
+Wait(1)
+sortsBefore = sorts
+Drag("class:7", 9)
+assert(RowIds() == "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 gap class:2 class:7 "
+	.. "class:4 class:15 flag:gray", "Trade Goods above Armor: " .. RowIds())
+assert(sorts > sortsBefore and RowById("class:7").selected.shown, "a drop didn't sort, or didn't select the row")
+assert(Weight(contents[2]) < Weight(contents[15]), "trade goods don't sort before armor")
+-- A click right after the drop is the release, not a click.
+Click(RowById("class:4"))
+assert(RowById("class:7").selected.shown, "the click ending a drag selected another row")
+
+-- The Empty Space drags like any row: below Weapon, weapons float; to the top (by its grip), everything sinks.
+Drag("gap", 9)
+assert(Weight(contents[16]) < 50 and Weight(contents[2]) >= 50, "weapons should float, trade goods sink")
+Drag("gap", 0, true)
+assert(RowIds():match("^gap "), "Empty Space didn't reach the top: " .. RowIds())
+for _, it in ipairs(contents) do
+	if it then assert(Weight(it) >= 50, "item " .. it.itemID .. " floats with the Empty Space at the top") end
 end
+local before = RowIds()
+Drag("gap", 1) -- just below itself: no move
+assert(RowIds() == before, "a drop next to the row itself moved it")
 
--- Combat closes it and keeps the place.
-Choice(1)
-S.OnCombat()
-assert(not setup.shown and SedimentDB.setup.index > 1, "combat didn't close it with the place kept")
+-- A new kind of item turns up: unset, outlined orange, attached to the Empty Space, counted in the top line;
+-- selecting the Empty Space outlines it gold.
+contents[#contents] = Item(9000, 9, 0) -- a Recipe in the last (empty) slot
+ns.Order.OnBagUpdate()
+Wait(1)
+Click(RowById("item:6948"))
+assert(Orange(#contents), "the unset item isn't outlined orange")
+assert(Plain(P.unset.text) == "1 item in your bags has no Weight yet.", "top line: " .. P.unset.text)
+Wait(1)
+Click(RowById("gap"))
+assert(Gold(#contents), "selecting the Empty Space doesn't outline the unset item")
+assert(Weight(contents[#contents]) >= 50 and Weight(contents[#contents]) < Weight(contents[2]),
+	"with the Empty Space at the top, unset items should sit just below it")
 
--- Hearthstone last: the first pick still ends up right beside it (order: second pick, first pick, hearthstone).
-ns.Setup.ShowIntro()
-Click(setup.intro.continue)
-RunTimers()
-assert(Title() == "Your hearthstone", "resumed at " .. Title())
-Choice(2) -- last
-SlotClick(8)  -- 4540: first pick, nearest
-SlotClick(6)  -- 118
-Choice(1)
-assert(Weight(contents[6]) < Weight(contents[8]) and Weight(contents[8]) < Weight(contents[1]),
-	"with the hearthstone last, the first pick isn't nearest to it")
-local list, n = W.RankingList(), 0
-for _, e in ipairs(list) do n = n + 1 end
-assert(list[n].rules[1].key == HS and list[n - 1].rules[1].key == 4540, "first pick not right before the hearthstone")
-print(("setup flow OK (%d generated questions, %d sorts)"):format(guard, sorts))
+-- x removes a row: it stays greyed in place with Undo; the rule is gone and the bags sort. Undo puts it back
+-- exactly where it was.
+local orderBefore = RowIds()
+Wait(1)
+sortsBefore = sorts
+Click(RowById("class:7").remove)
+assert(SedimentDB.weights.classes[7] == nil and sorts > sortsBefore, "x didn't remove the rule and sort")
+local ghostRow
+for _, r in ipairs(OrderRows()) do if r.ghost then ghostRow = r end end
+assert(ghostRow and ghostRow.undo.shown and not ghostRow.remove.shown and not ghostRow.grip.shown,
+	"no greyed row with Undo (and no grip)")
+assert(RowIds() == orderBefore:gsub("class:7", "ghost"), "the removed row didn't stay in place: " .. RowIds())
+Click(ghostRow.undo)
+assert(RowIds() == orderBefore and SedimentDB.weights.classes[7], "Undo didn't put it back in place")
 
--- Start Fresh (rules set, no run in progress): saves them, then clears everything, keep-out rules too.
-setup:Hide()
-SedimentDB.setup = nil
+-- Pick from Bags (on since the list showed): hovering a bag item lights up the row that sorts it; a click adds
+-- the item's row right above that row, selected, with its widen choices on the right; hovering a choice
+-- outlines what it would cover; choosing swaps the row in place.
+local function SlotEnter(i) buttons[i].SedimentSelect.scripts.OnEnter(buttons[i].SedimentSelect) end
+local function SlotLeave(i) buttons[i].SedimentSelect.scripts.OnLeave(buttons[i].SedimentSelect) end
+local function SlotClick(i, button) buttons[i].SedimentSelect.scripts.OnClick(buttons[i].SedimentSelect, button) end
+SlotEnter(2) -- 2589, Trade Goods/Cloth: Trade Goods sorts it
+assert(RowById("class:7").locked and not RowById("class:4").locked, "hover didn't light up the Trade Goods row")
+SlotLeave(2)
+assert(not RowById("class:7").locked, "the row stayed lit after the mouse left")
+SlotEnter(#contents) -- the unset Recipe: the Empty Space
+assert(RowById("gap").locked, "hovering an unset item didn't light up the Empty Space")
+SlotLeave(#contents)
+sortsBefore = sorts
+SlotClick(2)
+assert(not ns.popupOpened, "a pick opened the weight popup")
+assert(RowIds():find("item:2589 class:7", 1, true), "the pick isn't right above Trade Goods: " .. RowIds())
+assert(RowById("item:2589").selected.shown and sorts > sortsBefore, "the new row isn't selected, or no sort")
+assert(Choices() == "Trade Goods/Cloth|Trade Goods", "widen choices: " .. Choices())
+assert(Plain(P.widenLabel.text) == "Sort item2589 as:", "widen heading: " .. P.widenLabel.text)
+P.widen[1].scripts.OnEnter(P.widen[1])
+for i, it in ipairs(contents) do
+	if it then
+		assert((Gold(i) and true or false) == (it.subKey == "7:5"), "hover outline wrong for item " .. it.itemID)
+	end
+end
+P.widen[1].scripts.OnLeave(P.widen[1])
+Click(P.widen[1])
+assert(SedimentDB.weights.items[2589] == nil and SedimentDB.weights.subclasses["7:5"], "widening didn't swap the rule")
+assert(RowIds():find("subclass:7:5 class:7", 1, true), "the Cloth row didn't take the item's place: " .. RowIds())
+assert(Choices() == "Trade Goods", "a group/part row should offer its group: " .. Choices())
+SlotClick(14) -- 2000, BoE chest: a flag choice too
+assert(Choices():find("BoE Gear", 1, true), "flag choice missing: " .. Choices())
+-- Any item row can widen, not just the last pick: the Hearthstone's row.
+Wait(1)
+Click(RowById("item:6948"))
+assert(Choices() == "Miscellaneous/sub15:0|Miscellaneous", "Hearthstone row choices: " .. Choices())
+-- Alt+right-click still opens the weight popup.
+IsAltKeyDown = function() return true end
+before = RowIds()
+SlotClick(3, "RightButton")
+assert(ns.popupOpened and RowIds() == before, "Alt+right-click picked instead of opening the popup")
+IsAltKeyDown, ns.popupOpened = function() return false end, nil
+-- The button turns picking off and on.
+Click(P.pick)
+assert(not S.IsSelecting() and P.pick.text == "Pick from Bags", "the button didn't turn picking off")
+Click(P.pick)
+assert(S.IsSelecting() and P.pick.text == "Stop Picking", "the button didn't turn picking back on")
+
+-- ? shows the welcome over the list, with Close now that there are rules; no picking under it.
+S.ShowWelcome()
+assert(P.welcome.shown and P.welcome.close.shown, "? didn't show the welcome with Close")
+assert(not S.IsSelecting(), "Pick from Bags stayed on under the welcome")
+Click(P.welcome.close)
+assert(not P.welcome.shown and S.IsSelecting(), "Close didn't hide the welcome and pick again")
+
+-- Start Fresh with rules (the bottom button asks first): saves them, keep-out included, clears, lays out again.
+SedimentDB.weights.items[2002] = 5
 SedimentDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
-assert(next(w().items), "test needs item rules here")
-ns.Setup.ShowIntro()
-assert(setup.intro.continue.enabled, "rules set but Continue greyed")
 local nBefore = #W.History()
 ns.lastPrint = nil
-Click(setup.intro.fresh)
-RunTimers()
-assert(next(w().items) == nil and next(w().classes) == nil and next(w().flags) == nil, "Start Fresh didn't clear")
-assert(SedimentDB.keepOut == nil, "Start Fresh kept keep-out rules")
-assert(#W.History() == nBefore + 1 and W.History()[1].kind == "snapshot"
-	and W.History()[1].keepOut.subclasses["7:5"], "Start Fresh didn't save the rules (with keep-out) first")
-assert(Title() == "Your Empty Space", "Start Fresh didn't start at the first question")
-assert(not Q().notice.shown and not (ns.lastPrint and Plain(ns.lastPrint):find("Combined")),
-	"a notice although Combined Backpack was already on")
--- With no rules, Continue is greyed.
-setup:Hide()
-SedimentDB.setup = nil
-ns.Setup.ShowIntro()
-assert(not setup.intro.continue.enabled and Plain(setup.intro.status.text) == "Start Fresh to begin.",
-	"no-rules first page wrong")
--- Start Fresh on the Weights page: asks, then opens Setup (after saving and clearing).
-SedimentDB.weights.classes[4] = 30
 StaticPopupDialogs.SEDIMENT_START_FRESH.OnAccept()
 RunTimers()
-assert(setup.shown and Title() == "Your Empty Space" and next(w().classes) == nil, "Weights' Start Fresh didn't open Setup fresh")
-setup:Hide()
+assert(SedimentDB.weights.items[2002] == nil and SedimentDB.keepOut == nil, "Start Fresh didn't clear")
+local h = W.History()
+assert(#h == nBefore + 2 and h[1].kind == "created" and h[2].kind == "snapshot" and h[2].keepOut.subclasses["7:5"],
+	"Start Fresh didn't save the rules first and add a Created entry")
+assert(RowIds() == "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 class:9 gap class:2 "
+	.. "class:4 class:7 class:15 flag:gray", "fresh again: " .. RowIds())
+assert(not (ns.lastPrint and Plain(ns.lastPrint):find("Combined")), "a notice although Combined Backpack was already on")
+
+-- Leaving the section: no outlines, picking ends; coming back turns it on again, even if it was turned off.
+Click(P.pick)
+S.Open("Sorting")
+assert(not buttons[2].SedimentMark.shown and not S.IsSelecting(), "outlines or picking stayed after leaving Order")
+S.Open("Order")
+assert(S.IsSelecting(), "Pick from Bags isn't on again on returning to Order")
+Wait(1)
+Click(RowById("class:7"))
+assert(Gold(2), "outlines didn't come back on returning to Order")
+S.OnCombat()
+assert(not SedimentSettings.shown and not S.IsSelecting(), "combat didn't close the settings and end picking")
+contents[#contents] = false
+print(("order section OK (%d sorts)"):format(sorts))
 
 -- The History section: a row per entry, the pinned one first; Pin / Unpin, Load, x with Undo.
 SedimentDB.setup = nil
@@ -613,45 +515,6 @@ S.Refresh()
 assert(fill.checked, "the box shows unticked after turning filling on")
 print("special bags switch OK")
 
--- Weights: one list; unset groups are orange rows right after the default's row; the top line counts them,
--- and goes empty (not away) when nothing is unset.
-SedimentDB.weights.classes = {}
-SedimentDB.weights.subclasses = {}
-SedimentDB.weights.items = {}
-SedimentDB.weights.flags = {}
-S.Open("Weights")
-local function LadderRows()
-	local list = {}
-	for _, f in ipairs(allFrames) do
-		if f.stripe and f.box and f.shown and f.entry then list[#list + 1] = f end
-	end
-	table.sort(list, function(a, b) return a.y < b.y end)
-	return list
-end
-local rows = LadderRows()
-local defaultAt
-for k, r in ipairs(rows) do
-	if r.entry.kind == "default" then defaultAt = k end
-end
-assert(defaultAt and rows[defaultAt + 1] and rows[defaultAt + 1].entry.missing, "no orange rows after the default's row")
-local sawClass, sawSub = false, false
-for k = defaultAt + 1, #rows do
-	if rows[k].entry.missing then
-		sawClass = sawClass or rows[k].entry.kind == "class"
-		sawSub = sawSub or rows[k].entry.kind == "subclass"
-	end
-end
-assert(sawClass and sawSub, "both the broad and the narrow groups should be listed")
-assert(Plain(S.unsetLine.text):match("^%d+ items in your bags have no Weight yet%.$"), "top line: " .. S.unsetLine.text)
--- Everything set: no orange rows, and the line is empty but still there.
-for _, it in ipairs(contents) do
-	if it then SedimentDB.weights.items[it.itemID] = 10 end
-end
-S.Refresh()
-for _, r in ipairs(LadderRows()) do assert(not r.entry.missing, "an orange row with everything set") end
-assert(S.unsetLine.text == "" and S.unsetLine.shown, "the top line should be empty but kept")
-print("weights list OK")
-
 -- Debug > Files: the version, a summary, and each expected file loaded or missing (Missing.lua here).
 SedimentDB.testingTools = true
 S.Open("Files")
@@ -665,6 +528,77 @@ local function Has(pattern)
 end
 assert(Has("^Sediment 0%.17%.1 %(the version in the %.toc%)$"), "no version line")
 assert(Has("^1 of 5 files missing%.$"), "no missing summary")
-assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Setup%.lua   loaded$"), "file lines wrong")
+assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Order%.lua   loaded$"), "file lines wrong")
 SedimentDB.testingTools = nil
 print("files section OK")
+
+-- The weight popup: the levels that apply, most specific first; the winner marked; Add only above it.
+ns.Bags.SpecialBagItem = function() return false end
+ns.Bags.KeepOutRule = function() return false end
+C_Container = { GetContainerItemInfo = function(_, slot) return contents[slot] and { itemID = contents[slot].itemID } end }
+C_Item.GetItemInfoInstant = function(id) return id, nil, nil, nil, "icon" .. id end
+assert(loadfile("Popup.lua"))("Sediment", ns)
+local Popup = ns.Popup
+StaticPopupDialogs.SEDIMENT_START_FRESH.OnAccept() -- the default order again
+RunTimers()
+local function PopupRows()
+	local list = {}
+	for _, f in ipairs(allFrames) do
+		if f.parent == SedimentWeightPopup and f.add and f.shown then list[#list + 1] = f end
+	end
+	table.sort(list, function(a, b) return a.y < b.y end)
+	local out = {}
+	for _, r in ipairs(list) do
+		out[#out + 1] = Plain(r.label.text) .. (r.add.shown and " [Add]" or "") .. (r.mark.text ~= "" and " <wins" or "")
+	end
+	return table.concat(out, " | "), list
+end
+-- A gray cloth armor piece, like the Calico Bracers: Gray Quality wins; the item above it can be added;
+-- its group/part and group (Armor has a row) are below it, with nothing to add.
+Popup.Open(0, 13)
+local at = SedimentWeightPopup.lastPoint
+assert(at[1] == "BOTTOMLEFT" and at[2] == ContainerFrameCombinedBags and at[3] == "TOPLEFT", "the popup isn't above the bag")
+assert(SedimentWeightPopup.strata == "DIALOG" and SedimentSettings.strata == "HIGH", "the popup isn't a layer above the settings")
+assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Gray Quality.",
+	"summary: " .. SedimentWeightPopup.summary.text)
+local got, list = PopupRows()
+assert(got == "item3301 [Add] | Gray Quality <wins | Armor/sub4:1 | Armor", "gray armor rows: " .. got)
+sortsBefore = sorts
+Click(list[1].add)
+assert(SedimentDB.weights.items[3301] and sorts > sortsBefore, "Add didn't give the item a row and sort")
+assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as item3301.",
+	"summary after Add: " .. SedimentWeightPopup.summary.text)
+got = PopupRows()
+assert(got == "item3301 <wins | Gray Quality | Armor/sub4:1 | Armor", "after Add: " .. got)
+-- Nothing set: every level can be added, "Not set" wins; adding the group puts its row by the Empty Space.
+contents[#contents] = Item(9100, 9, 3)
+Popup.Open(0, #contents)
+assert(Plain(SedimentWeightPopup.summary.text) == "Nothing set: it stays next to the Empty Space.",
+	"unset summary: " .. SedimentWeightPopup.summary.text)
+got, list = PopupRows()
+assert(got == "item9100 [Add] | Recipe/sub9:3 [Add] | Recipe [Add] | Not set <wins", "unset rows: " .. got)
+Click(list[3].add)
+S.Open("Order")
+assert(RowIds():find("class:1 class:9 gap", 1, true), "the new group row isn't just above the Empty Space: " .. RowIds())
+got = PopupRows()
+assert(got == "item9100 [Add] | Recipe/sub9:3 [Add] | Recipe <wins", "after adding the group: " .. got)
+-- Settings: Order, with the deciding row selected.
+Click(SedimentWeightPopup.settingsButton)
+assert(S.currentTab == "Order" and RowById("class:9").selected.shown, "Settings didn't select the deciding row")
+-- Quest items (user's screenshots): named as the Order row they sort with ("Quest Items" holds the quest flag
+-- and the Quest group), and no "Quest/Quest" line.
+local questSlot
+for i, it in ipairs(contents) do if it and it.itemID == 5000 then questSlot = i end end
+Popup.Open(0, questSlot) -- 5000, a quest item
+assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Quest Items.", "quest summary: " .. SedimentWeightPopup.summary.text)
+got = PopupRows()
+assert(got == "item5000 [Add] | Quest Items <wins | Quest", "quest item rows: " .. got)
+contents[#contents] = Item(5001, 12, 0) -- like the Okra: the Quest group, no quest flag
+Popup.Open(0, #contents)
+assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Quest Items.", "okra summary: " .. SedimentWeightPopup.summary.text)
+got = PopupRows()
+assert(got == "item5001 [Add] | Quest <wins", "okra rows: " .. got)
+Click(SedimentWeightPopup.settingsButton)
+assert(RowById("flag:quest").selected.shown, "Settings didn't select the Quest Items row for the Quest group")
+contents[#contents] = false
+print("weight popup OK")

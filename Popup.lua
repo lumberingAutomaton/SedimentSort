@@ -1,14 +1,17 @@
--- Popup: Alt+right-click a bag item to see and edit its weight cascade.
+-- Popup: Alt+right-click a bag item: what decides where it goes, and a way to give it a row of its own.
 --
--- Each level that applies to the item gets a box. Type a number and press Enter (or click away)
--- to set it; clear the box to make that level inherit. The winning level is marked.
+-- The levels that apply to the item, most specific first: the item, its flags (Equipment Set, Quest Items,
+-- Gray Quality, BoE Gear), its group/part, its group, and "Not set" if nothing has a row. The winner (the
+-- most specific level with a row in Order) is marked; levels above it, which could override it, get Add,
+-- which puts that level's row right above the deciding row in Order; levels below it are dimmed (adding them
+-- couldn't change this item). No numbers (user, 2026-11-25: Order replaced them).
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
 ns.loadedFiles["Popup.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
 local Popup = {}
 ns.Popup = Popup
-local N, L = ns.Noun, ns.L -- nouns in sentences, plain words (see Text.lua)
+local N, B, L = ns.Noun, ns.Btn, ns.L -- nouns, button names in sentences, plain words (see Text.lua)
 
 local ROW_HEIGHT = 24
 local WIDTH = 300
@@ -20,34 +23,22 @@ local frame
 local rows = {}
 local current -- { bag, slot }
 
-local function FormatWeight(w)
-	if w == nil then
-		return ""
-	end
-	return tostring(w)
-end
 
 local function Build()
 	frame = CreateFrame("Frame", "SedimentWeightPopup", UIParent, "BackdropTemplate")
 	frame:SetSize(WIDTH, 100)
-	frame:SetFrameStrata("DIALOG")
+	frame:SetFrameStrata("DIALOG") -- above the settings window (HIGH), so the two never interleave
 	frame:SetClampedToScreen(true)
-	frame:SetMovable(true)
 	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		-- Remember where the user put it (top-left corner, relative to the screen), for next time.
-		SedimentDB.popupPos = { x = self:GetLeft(), y = self:GetTop() }
-	end)
+	-- Not draggable: it always opens above the bag (see Place).
 	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		-- A solid texture, like the settings window: the tooltip art is translucent, so text showed through.
+		bgFile = "Interface\\Buttons\\WHITE8X8",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
 		tile = true, tileSize = 16, edgeSize = 16,
 		insets = { left = 4, right = 4, top = 4, bottom = 4 },
 	})
-	frame:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+	frame:SetBackdropColor(0.05, 0.05, 0.05, 1)
 	frame:Hide()
 	tinsert(UISpecialFrames, "SedimentWeightPopup") -- Escape closes it
 
@@ -69,15 +60,8 @@ local function Build()
 	frame.summary:SetJustifyH("LEFT")
 
 	frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	frame.hint:SetText("Enter a number to set a level. Clear it to inherit.")
+	frame.hint:SetText(B("AddLevelButton") .. " gives it a row; arrange rows in " .. N("OrderSection") .. ".")
 	frame.hint:SetJustifyH("LEFT")
-
-	frame.sortButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	frame.sortButton:SetSize(90, 22)
-	frame.sortButton:SetText(L("SortNowButton"))
-	frame.sortButton:SetScript("OnClick", function()
-		ns.Sort.Start()
-	end)
 
 	frame.keepOutHeading = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	frame.keepOutHeading:SetText(L("KeepOutRule") .. ":")
@@ -121,27 +105,16 @@ local function Build()
 	frame.settingsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	frame.settingsButton:SetSize(80, 22)
 	frame.settingsButton:SetText(L("OpenSettingsButton"))
-	frame.settingsButton:SetPoint("RIGHT", frame.sortButton, "LEFT", -6, 0)
 	frame.settingsButton:SetScript("OnClick", function()
-		ns.Settings.Open("Weights")
+		ns.Settings.Open("Order")
+		if frame.winner then
+			ns.Order.Select(frame.winner.kind, frame.winner.key) -- the deciding row, selected and in view
+		end
 	end)
 
 	frame:SetScript("OnHide", function()
 		current = nil
 	end)
-end
-
--- Turn the text in a box into a value. Returns ok, value (value nil = clear).
-local function ParseBox(text)
-	text = strtrim(text or "")
-	if text == "" then
-		return true, nil
-	end
-	local n = tonumber(text)
-	if n then
-		return true, n
-	end
-	return false
 end
 
 local function GetRow(i)
@@ -151,55 +124,37 @@ local function GetRow(i)
 	end
 	row = CreateFrame("Frame", nil, frame)
 	row:SetSize(WIDTH - 24, ROW_HEIGHT)
-
 	row.label = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	row.label:SetPoint("LEFT")
+	row.label:SetPoint("RIGHT", -70, 0)
 	row.label:SetJustifyH("LEFT")
-
-	row.box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-	row.box:SetSize(60, 20)
-	row.box:SetPoint("RIGHT", -40, 0)
-	row.box:SetAutoFocus(false)
-	row.box:SetMaxLetters(10)
-
+	row.label:SetWordWrap(false)
 	row.mark = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	row.mark:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
-
-	-- Same safety as the settings ladder: a box only saves if it's still on the rule it was focused
-	-- on and the text changed. The popup follows its item when a sort moves it, so rows can change
-	-- hands. Escape cancels.
-	local function LevelId(level)
-		return level and (level.kind .. ":" .. tostring(level.key)) or nil
-	end
-	row.box:SetScript("OnEditFocusGained", function(box)
-		row.editId, row.editStart = LevelId(row.level), box:GetText()
-	end)
-	local function Commit(box)
-		local level, editId, editStart = row.level, row.editId, row.editStart
-		row.editId, row.editStart = nil, nil
-		if not level or editId ~= LevelId(level) or box:GetText() == editStart then
-			Popup.Refresh()
-			return
-		end
-		local ok, value = ParseBox(box:GetText())
-		if ok and (value ~= nil or (level.kind ~= "default" and level.kind ~= "sinkLine")) then
-			ns.Weights.SetLevel(level.kind, level.key, value)
+	row.mark:SetPoint("RIGHT", -4, 0)
+	row.add = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+	row.add:SetSize(60, 20)
+	row.add:SetPoint("RIGHT", 0, 0)
+	row.add:SetText(L("AddLevelButton"))
+	row.add:SetScript("OnClick", function()
+		local level, item = row.level, row.item
+		if level and item and ns.Weights.AddRuleAbove(level.kind, level.key, item) then
+			ns.Settings.Refresh() -- the Order list, if open, and the outlines
 			ns.Sort.StartSoon() -- show the outcome now, bags open or not
 		end
 		Popup.Refresh()
-		ns.Settings.Refresh()
-	end
-	row.box:SetScript("OnEnterPressed", function(box)
-		box:ClearFocus() -- saves through OnEditFocusLost
 	end)
-	row.box:SetScript("OnEscapePressed", function(box)
-		box:SetText(row.editStart or box:GetText()) -- cancel: unchanged text saves nothing
-		box:ClearFocus()
-	end)
-	row.box:SetScript("OnEditFocusLost", Commit)
-
 	rows[i] = row
 	return row
+end
+
+-- A level's name in the popup: the item, a flag, "Armor/Cloth", "Armor", or "Not set".
+local function LevelLabel(level)
+	if level.kind == "default" then
+		return "Not set"
+	elseif level.kind == "item" then
+		return level.label
+	end
+	return ns.Settings.RuleLabel(level.kind, level.key)
 end
 
 function Popup.Refresh()
@@ -228,48 +183,44 @@ function Popup.Refresh()
 	frame.title:SetText(item.link)
 
 	local levels, winner = ns.Weights.Explain(item)
-	local weight = levels[winner].weight
-	local sinkLine = ns.Weights.SinkLine()
-	frame.summary:SetText(("%s %s from %s: %s"):format(N("SortValue"), FormatWeight(weight), levels[winner].label,
-		weight < sinkLine and "floats" or "sinks"))
+	local win = levels[winner]
+	frame.winner = win
+	if win.kind == "default" then
+		frame.summary:SetText("Nothing set: it stays next to the " .. N("LootGap") .. ".")
+	else
+		-- The row's name as Order shows it (user, 2026-11-25): the Quest group sorts as "Quest Items".
+		frame.summary:SetText("Sorted as " .. ns.Order.RowLabel(win.kind, win.key) .. ".")
+	end
 
-	-- Rows: every level that applies to this item, then the sink line.
+	-- Rows: every level that applies, most specific first; "Not set" only when it's the winner; a part named
+	-- like its group ("Quest/Quest") only if it has a rule (else it's the group line again).
 	local shown = {}
 	for i, level in ipairs(levels) do
-		if level.applies then
-			shown[#shown + 1] = { level = level, wins = i == winner }
+		local echo = level.kind == "subclass" and level.weight == nil and ns.Settings.PartSameAsGroup(level.key)
+		if level.applies and (level.kind ~= "default" or i == winner) and not echo then
+			shown[#shown + 1] = { level = level, wins = i == winner, above = i < winner }
 		end
 	end
-	shown[#shown + 1] = { level = { kind = "sinkLine", label = L("LootGap"), weight = sinkLine } }
 
-	local y = -76
+	-- Rows start below the summary, however many lines it wrapped to (a long group name can take two).
+	local y = -(48 + math.max(14, frame.summary:GetStringHeight()) + 14)
 	for i, entry in ipairs(shown) do
 		local row = GetRow(i)
 		local level = entry.level
-		row.level = level
+		row.level, row.item = level, item
 		row:ClearAllPoints()
 		row:SetPoint("TOPLEFT", 12, y)
 		row:Show()
-		local label = level.label
-		if level.kind == "subclass" or level.kind == "class" then
-			label = label .. (level.kind == "subclass" and " |cff999999(subclass)|r" or " |cff999999(class)|r")
-		end
-		row.label:SetText(label)
-		local color = entry.wins and WIN_COLOR or (level.kind == "sinkLine" and DIM_COLOR or NORMAL_COLOR)
+		row.label:SetText(LevelLabel(level))
+		local color = entry.wins and WIN_COLOR or entry.above and NORMAL_COLOR or DIM_COLOR
 		row.label:SetTextColor(unpack(color))
 		row.mark:SetText(entry.wins and "|cff66ff66< wins|r" or "")
-		if not row.box:HasFocus() then
-			row.box:SetText(FormatWeight(level.weight))
-			row.box:SetCursorPosition(0)
-		end
+		row.add:SetShown(entry.above) -- only levels that could override the winner
 		y = y - ROW_HEIGHT
-		if level.kind == "default" then
-			y = y - 6 -- a little space before the sink line
-		end
 	end
 	for i = #shown + 1, #rows do
 		rows[i]:Hide()
-		rows[i].level = nil
+		rows[i].level, rows[i].item = nil, nil
 	end
 
 	-- "Keep out of special bags:" a heading, then two short checkboxes on one line: the whole subclass
@@ -314,8 +265,8 @@ function Popup.Refresh()
 	frame.hint:ClearAllPoints()
 	frame.hint:SetPoint("TOPLEFT", 12, y - 6)
 	frame.hint:SetWidth(WIDTH - 24)
-	frame.sortButton:ClearAllPoints()
-	frame.sortButton:SetPoint("TOPRIGHT", -12, y - 24)
+	frame.settingsButton:ClearAllPoints()
+	frame.settingsButton:SetPoint("TOPRIGHT", -12, y - 24)
 	frame:SetHeight(-y + 56)
 end
 
@@ -328,18 +279,17 @@ function Popup.Open(bag, slot)
 		return
 	end
 	current = { bag = bag, slot = slot, itemID = info.itemID }
-	if not frame:IsShown() then
-		frame:ClearAllPoints()
-		local pos = SedimentDB.popupPos
-		if pos then
-			-- Where the user last dragged it (kept across sessions; it's clamped to the screen).
-			frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
-		else
-			-- Until it's been moved: next to the cursor.
-			local x, y = GetCursorPosition()
-			local scale = UIParent:GetEffectiveScale()
-			frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x / scale - 16, y / scale + 16)
-		end
+	-- Always just above the bag window, left edges lined up (user, 2026-11-25), growing upward as rows are
+	-- added. Clamped to the screen, so with the bag near the top it sits on the bag instead. No bag window
+	-- (not expected: it opens from a bag click): next to the cursor.
+	frame:ClearAllPoints()
+	local bagWindow = ns.Settings.BagWindow()
+	if bagWindow then
+		frame:SetPoint("BOTTOMLEFT", bagWindow, "TOPLEFT", 0, 4)
+	else
+		local x, y = GetCursorPosition()
+		local scale = UIParent:GetEffectiveScale()
+		frame:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x / scale - 16, y / scale + 16)
 	end
 	frame:Show()
 	Popup.Refresh()
@@ -593,13 +543,12 @@ function Popup.CreateBagButton()
 	b.icon:SetTexture(ICON)
 	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	b:SetScript("OnClick", function()
-		ns.Settings.OpenDefault() -- the setup questions while there are no rules, else Weights
+		ns.Settings.OpenDefault() -- the settings at Order
 	end)
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "Sediment settings")
-		GameTooltip_AddNormalLine(GameTooltip, "Your " .. N("SortValues") .. " and other settings; " .. N("Onboarding")
-			.. " while you have no rules.")
+		GameTooltip_AddNormalLine(GameTooltip, "Your " .. N("OrderSection") .. " and other settings.")
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)

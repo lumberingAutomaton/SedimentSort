@@ -49,7 +49,8 @@ User-facing overview: README.md. This section is the developer's view; history i
   switch, keep-out rules), Sorting (auto-sort options, Debug mode), History, and in debug mode Testing
   (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
   /sed help). Alt+right-click popup (Popup.lua). Every Sediment window closes and Select mode ends in combat.
-- **Setup questions** (Setup.lua, 0.17.0; replaced the welcome screen): their own window, opened with the
+- **Order** (Order.lua, 0.19.0: the settings' Order section, which replaced the Weights page and the Setup
+  window; see the version log. The Setup notes below are history): their own window, opened with the
   settings until dismissed or done; ? brings the first page back. Steps: layout, hearthstone, neighbours
   (Select mode with Setup's click handler), gray, trade goods, then equipment sets / BoE / bags / quest
   items if present, then generated class questions (most unruled items first; Split = per subclass),
@@ -113,7 +114,7 @@ Ideas / parked (decided not now):
   the items its answer would decide, so not items a more specific rule already places (an item's own
   Weight, an earlier flag). A special question (sets, BoE, bags, quest items) with nothing left to decide is
   skipped.
-- Setup redesign, agreed in discussion 2026-11-25, NOT built yet (user still thinking):
+- Setup redesign: BUILT in 0.18.0 (2026-11-25) as described below, except the last point:
   - Setup becomes just "Your order": the kinds of items in your bags in plain by-type order (no opinions),
     plus the Empty Space row; Move Up / Move Down; click a row to outline its items; the bag sorts on each
     move. The per-category questions (layout, hearthstone, neighbours, gray, trade goods, specials,
@@ -125,7 +126,9 @@ Ideas / parked (decided not now):
   - Unset items stay attached to the Empty Space (user: agreed), on the side that has items: just below it
     when it's at the very top, just above it otherwise. Not a movable row (a movable "Everything else" was
     tried and rejected the day before); add a movable "Not set" row only if someone asks.
-  - The same movable Empty Space row on the Weights page, so both work alike.
+  - NOT the user's request (Claude suggested it and recorded it here as agreed by mistake): Empty Space
+    Move Up / Move Down buttons on the Weights page. Built, then removed the same day: the user didn't ask
+    for them, and the Empty Space already moves there by its number.
   - Root cause noted by the user: the tester mostly wanted simple, and the old rules weren't consistent
     (the hammer and pick had Weights, the skinning knife didn't). Idea, not decided: a "Profession tools"
     flag from a fixed item-ID list, since WoW files tools under unrelated categories.
@@ -259,6 +262,68 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.19.0 (2026-11-25, user's calls): one place to arrange. The settings window's Weights page (rules as
+  numbers) and the separate Setup window are merged into the **Order** section (Setup.lua -> Order.lua, the
+  list built into the settings page): the same list everywhere, no numbers shown. Section order: Order,
+  Special bags, Sorting, History. The gear and /sed always open Order; on Order the window opens the bags and
+  sits beside them unless dragged (SedimentDB.settingsPos). A welcome covers the list while there are no
+  rules, or after ?. Start Fresh (welcome button, or the bottom button, which asks first): ClearAll + the
+  default order + a Created History entry + Combined Backpack. x on a row removes its rules; the row stays
+  greyed in place with Undo until the list next changes or the section closes. Rows are drag and drop, Move
+  Up / Move Down, click to outline, Pick from Bags with widen. Gone: Continue, Done, "Don't show this", the
+  Select Mode button (Pick from Bags replaces it; Alt+right-click still opens the popup), the ladder.
+  Weights.AddKindRows removed. Old Setup saved state (setup, setupHidden, setupPos) cleared on load.
+  Weight popup (user's sketch): no numbers. The levels that apply, most specific first (item, flags,
+  group/part, group; "Not set" only when nothing applies); the winner marked "< wins"; Add only on levels
+  above the winner (only those can change this item: a flag beats any group, so e.g. Armor/Cloth can't
+  override Gray Quality); levels below the winner dimmed with nothing beside them (user: no "has a row"
+  text). Add = Weights.AddRuleAbove (same as Pick from Bags). Settings opens Order with the deciding row
+  selected (Order.Select). Hint: "Add gives it a row; arrange rows in Order."
+  Trade-off accepted (user): rearranging on the run needs Order open; the idea is to dial it in and forget it.
+  Then, from the user's in-game review (2026-11-25):
+  - Popup: "Sorted as <the Order row's name>" (the Quest group sorts as "Quest Items", the row that holds
+    it; Order.RowLabel); no floats/sinks; a part named like its group ("Quest/Quest") isn't listed unless it
+    has a rule; Sort Now removed (Add sorts, auto-sort runs, the bag has its own button).
+  - Order: rows were hard to pick up even when nothing was updating. Pickup no longer uses WoW's
+    RegisterForDrag/OnDragStart: a grip at each row's left starts the drag on the press; a press anywhere
+    else drags after 5 px of movement; the release is caught wherever the mouse is (IsMouseButtonDown polled
+    in OnUpdate). If it's still hard to grab, next step is a debug trace of what the row receives.
+  - Move Up / Move Down removed. The right column: Pick from Bags, then the selected row's widen choices
+    (any item row, not just the last pick; a group/part row offers its group). The strip under the list is
+    gone; the list runs down to Start Fresh; the window is 680 tall (was 600).
+  - Pick from Bags is on whenever the list shows (not under the welcome); the button turns it off until
+    Order next opens. Hovering a bag item lights up the row that sorts it (LockHighlight; scrolled into view
+    if needed); click still adds a row (user chose this over "click selects, Add adds").
+  - Select Mode: no weight numbers on the slots; Alt+right-click opens the popup even while picking.
+  Then (user, 2026-11-25): dragging confirmed good and easy. Widen heading is "Sort X as:" and the choices
+  are named exactly like rows, no "all" (user: drop it for now; if it confuses, revisit; hover outlines
+  show what a choice covers). The popup always opens just above the bag window (Settings.BagWindow),
+  left edges lined up, grows upward, isn't draggable, and SedimentDB.popupPos is cleared. Overlap fix: the
+  settings window is HIGH strata, the popup DIALOG (both were DIALOG and their parts interleaved: the
+  window's buttons drew through the popup's text); the popup's background is solid (WHITE8X8, alpha 1).
+- 0.18.0 (2026-11-25): Setup is the first page plus "Your order" only; the per-category questions (layout,
+  hearthstone and neighbours, gray, trade goods, specials, generated classes, Split, Back/Skip, progress) are
+  gone. Start Fresh lists a class rule per item class in the bags, in class order, with the Empty Space at the
+  bottom; Continue adds rows for classes with unset items next to the Empty Space. The Empty Space row is
+  selectable and movable, and its position is the layout (Weights.MoveEmptySpace); one layout underneath:
+  the sink line is always 50 after a write, old 100 / 0 saves read with the divider at the end / start.
+  Unset items are pinned on the Empty Space's side with items (PinDefault). Removed from Weights.lua: PlaceRule, SetLayout,
+  RuleSide, RankSplit. Text.lua: unused question buttons removed; PrevQuestionButton -> BackButton.
+  dev/ranking_check.lua and the Setup part of dev/setup_check.lua rewritten.
+  Also (user, same day): Pick from Bags in "Your order" (Select Mode with Setup's click handler). A click adds
+  the item's row right above the row deciding it today (Weights.AddRuleAbove), selected; a strip ("Widen
+  <item> to:") offers its subclass, class and any applicable flags; hovering outlines what the choice would
+  cover; choosing swaps the rule in the same row (Weights.ReplaceRule). One click for the item, one more to
+  widen; double-click was rejected (it delays every single click and only reaches two levels), Shift/Ctrl+click
+  shortcuts not added. No remove on rows yet (open question).
+  Then (user, same day): Setup window 420x640 and the selected row scrolls into view after a pick or move;
+  drag and drop in "Your order" (any row or the Empty Space; a gold drop line; the list scrolls near its
+  edges; Weights.MoveRow); names as Group/Part paths ("Armor/Cloth", widen "all Armor/Cloth", "all Armor",
+  "all BoE Gear"; Settings.SubclassLabel, so the Weights list and History read the same) and Title Case flags
+  (Equipment Set, Quest Items, Gray Quality, BoE Gear). Start Fresh's default order (Weights.DefaultOrder),
+  from the user's own rules: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable, Quest Items
+  (one row: the quest flag and the Quest class), BoE Gear, other classes in the bags, Empty Space, Weapon,
+  Armor, Trade Goods, Miscellaneous, Gray Quality. Equipment Set left out (set pieces still group by set).
 - 0.17.1 also (2026-11-25, user's calls): ns.TEXT names table (nouns + button labels); "Kept" -> "Pinned", with
   a Pin / Unpin button (left, far from x) that asks for an optional name, pinned saves first by pin time; x in
   History greys the row with Undo and deletes on window close (no dialog); "Restore previous rules" removed
