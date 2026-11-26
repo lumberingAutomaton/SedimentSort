@@ -1,5 +1,5 @@
 -- Clicks through the settings against mocked frames (no game needed): the Order section (welcome, Start
--- Fresh, rows, outlines, moving rows and the Empty Space, unset items, x with Undo, Pick from Bags and widen,
+-- Fresh, rows, outlines, moving rows and the Empty Space, unset items, x with Undo, Select Mode and widen,
 -- drag and drop), History, Special bags, Debug > Files and the weight popup.
 -- It checks the logic and that nothing errors, not how anything looks.
 -- Run: lua dev/setup_check.lua (from the addon folder).
@@ -195,10 +195,10 @@ S.OpenDefault()
 local P = ns.Order.pane
 assert(SedimentSettings.shown and S.currentTab == "Order", "the gear didn't open Order")
 assert(P.welcome.shown and not P.welcome.close.shown, "no welcome (or a Close button) with no rules")
-assert(not S.IsSelecting(), "Pick from Bags is on under the welcome")
+assert(not S.IsSelecting(), "Select Mode is on under the welcome")
 
 -- Start Fresh from the welcome: the default order, a Created entry, Combined Backpack on, the bags sorted,
--- and Pick from Bags on now that the list shows.
+-- and Select Mode on now that the list shows.
 local sortsBefore = sorts
 Click(P.welcome.fresh)
 RunTimers()
@@ -208,7 +208,7 @@ assert(W.History()[1] and W.History()[1].kind == "created", "Start Fresh didn't 
 assert(cvars.combinedBags == "1", "Start Fresh didn't turn on Combined Backpack")
 assert(Plain(P.widenLabel.text):find("Combined Backpack"), "no notice on the page")
 assert(ns.lastPrint and Plain(ns.lastPrint):find("Combined Backpack"), "no notice in chat")
-assert(S.IsSelecting() and P.pick.text == "Stop Picking", "Pick from Bags isn't on once the list shows")
+assert(S.IsSelecting() and P.pick.text == "Select Mode: On", "Select Mode isn't on once the list shows")
 local function OrderRows()
 	local list = {}
 	for _, f in ipairs(allFrames) do
@@ -255,24 +255,19 @@ end
 assert(Choices() == "" and P.widenLabel.text == "", "a group row offered choices, or the notice stayed")
 
 -- Dragging. The list's top is at y = 600 in the mock, rows 20 apart; a drop at y = 600 - 20 * slot lands in
--- that slot (0 = above the first row). A press on a row drags once the mouse moves; a press on the grip drags
--- at once. The release ends it wherever the mouse is. The dragged row is dimmed and hover glow is off.
+-- that slot (0 = above the first row). A press on a row drags once the mouse moves; the release ends it
+-- wherever the mouse is. The dragged row is dimmed and hover glow is off.
 local cursorY = 600
 GetCursorPosition = function() return 0, cursorY end
 local mouseDown = false
 IsMouseButtonDown = function() return mouseDown end
-local function Drag(id, slot, byGrip)
+local function Drag(id, slot)
 	local row = RowById(id)
 	cursorY = 600 - row.y - 10 -- on the row
 	mouseDown = true
-	if byGrip then
-		row.grip.scripts.OnMouseDown(row.grip, "LeftButton")
-		assert(P.dropLine.shown, "the grip didn't start the drag on the press")
-	else
-		row.scripts.OnMouseDown(row, "LeftButton")
-		P.scripts.OnUpdate(P)
-		assert(not P.dropLine.shown, "a drag started before the mouse moved")
-	end
+	row.scripts.OnMouseDown(row, "LeftButton")
+	P.scripts.OnUpdate(P)
+	assert(not P.dropLine.shown, "a drag started before the mouse moved")
 	cursorY = 600 - 20 * slot
 	P.scripts.OnUpdate(P)
 	P.scripts.OnUpdate(P)
@@ -298,10 +293,10 @@ assert(Weight(contents[2]) < Weight(contents[15]), "trade goods don't sort befor
 Click(RowById("class:4"))
 assert(RowById("class:7").selected.shown, "the click ending a drag selected another row")
 
--- The Empty Space drags like any row: below Weapon, weapons float; to the top (by its grip), everything sinks.
+-- The Empty Space drags like any row: below Weapon, weapons float; to the top, everything sinks.
 Drag("gap", 9)
 assert(Weight(contents[16]) < 50 and Weight(contents[2]) >= 50, "weapons should float, trade goods sink")
-Drag("gap", 0, true)
+Drag("gap", 0)
 assert(RowIds():match("^gap "), "Empty Space didn't reach the top: " .. RowIds())
 for _, it in ipairs(contents) do
 	if it then assert(Weight(it) >= 50, "item " .. it.itemID .. " floats with the Empty Space at the top") end
@@ -333,13 +328,12 @@ Click(RowById("class:7").remove)
 assert(SedimentDB.weights.classes[7] == nil and sorts > sortsBefore, "x didn't remove the rule and sort")
 local ghostRow
 for _, r in ipairs(OrderRows()) do if r.ghost then ghostRow = r end end
-assert(ghostRow and ghostRow.undo.shown and not ghostRow.remove.shown and not ghostRow.grip.shown,
-	"no greyed row with Undo (and no grip)")
+assert(ghostRow and ghostRow.undo.shown and not ghostRow.remove.shown, "no greyed row with Undo")
 assert(RowIds() == orderBefore:gsub("class:7", "ghost"), "the removed row didn't stay in place: " .. RowIds())
 Click(ghostRow.undo)
 assert(RowIds() == orderBefore and SedimentDB.weights.classes[7], "Undo didn't put it back in place")
 
--- Pick from Bags (on since the list showed): hovering a bag item lights up the row that sorts it; a click adds
+-- Select Mode (on since the list showed): hovering a bag item lights up the row that sorts it; a click adds
 -- the item's row right above that row, selected, with its widen choices on the right; hovering a choice
 -- outlines what it would cover; choosing swaps the row in place.
 local function SlotEnter(i) buttons[i].SedimentSelect.scripts.OnEnter(buttons[i].SedimentSelect) end
@@ -384,14 +378,14 @@ assert(ns.popupOpened and RowIds() == before, "Alt+right-click picked instead of
 IsAltKeyDown, ns.popupOpened = function() return false end, nil
 -- The button turns picking off and on.
 Click(P.pick)
-assert(not S.IsSelecting() and P.pick.text == "Pick from Bags", "the button didn't turn picking off")
+assert(not S.IsSelecting() and P.pick.text == "Select Mode: Off", "the button didn't turn Select Mode off")
 Click(P.pick)
-assert(S.IsSelecting() and P.pick.text == "Stop Picking", "the button didn't turn picking back on")
+assert(S.IsSelecting() and P.pick.text == "Select Mode: On", "the button didn't turn Select Mode back on")
 
 -- ? shows the welcome over the list, with Close now that there are rules; no picking under it.
 S.ShowWelcome()
 assert(P.welcome.shown and P.welcome.close.shown, "? didn't show the welcome with Close")
-assert(not S.IsSelecting(), "Pick from Bags stayed on under the welcome")
+assert(not S.IsSelecting(), "Select Mode stayed on under the welcome")
 Click(P.welcome.close)
 assert(not P.welcome.shown and S.IsSelecting(), "Close didn't hide the welcome and pick again")
 
@@ -415,7 +409,7 @@ Click(P.pick)
 S.Open("Sorting")
 assert(not buttons[2].SedimentMark.shown and not S.IsSelecting(), "outlines or picking stayed after leaving Order")
 S.Open("Order")
-assert(S.IsSelecting(), "Pick from Bags isn't on again on returning to Order")
+assert(S.IsSelecting(), "Select Mode isn't on again on returning to Order")
 Wait(1)
 Click(RowById("class:7"))
 assert(Gold(2), "outlines didn't come back on returning to Order")

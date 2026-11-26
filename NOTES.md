@@ -110,6 +110,24 @@ Ideas / parked (decided not now):
   list's order while the History page is open (a new entry right under the row you clicked, pin changes in
   place, re-sort on reopening). Dropped for now: it only matters with unsaved changes plus a Load while on
   the page, and Load ignores clicks right after a redraw.
+- Guided tour (user, 2026-11-26, parked): the Order help paragraph is small and dense, and nobody reads it.
+  Idea: a short "wizard-like" tour of callouts pointing at one thing at a time, each with an Okay button.
+  Discussed (2026-11-25):
+  - Forever has Blizzard's HelpTip (Blizzard_SharedXML/HelpTip.lua: arrow callout, Okay / Next / Got It
+    buttons, acknowledge callbacks), but it shows nothing when the player has turned tutorials off (CVar
+    hideHelptips). Claude's lean: our own small callout styled like it, which always shows and is testable.
+  - Suggested steps (at most 5-6): the bag's gear ("Set up how your bags sort"; advances on the click), Start
+    Fresh on the welcome (advances on the click), the Empty Space row (rows above pack at the top; new loot
+    lands there), the first row below it (sinks to the bottom), any row (drag to reorder; bags re-sort as
+    you go), the Select Mode button (hover to find a row, click to add one).
+  - A step that asks for a click advances on that click; only explanation steps get Okay. Point at rows and
+    buttons, not bag slots (Start Fresh sorts the bags just as the tour starts). An x on every callout ends
+    the tour; ? replays it. It doesn't auto-start for players who already have rules.
+  - The paragraph then shrinks to one line in a normal-size font, or goes. (The bigger font alone is a quick
+    win either way.) Cost: each step is tied to a button or row, so UI changes need the tour updated.
+  - Undecided: own callout or HelpTip; advance on the action or Okay on every step; start at the bag's gear
+    the first time the bags open or only once settings open; keep the welcome in front (tour after Start
+    Fresh) or let the tour replace it.
 - Setup questions (user, 2026-11-25, the "skinning knife" case): a question lists, outlines and counts only
   the items its answer would decide, so not items a more specific rule already places (an item's own
   Weight, an earlier flag). A special question (sets, BoE, bags, quest items) with nothing left to decide is
@@ -301,6 +319,9 @@ parked for the same reason (per-swap cost isn't noticeable).
   left edges lined up, grows upward, isn't draggable, and SedimentDB.popupPos is cleared. Overlap fix: the
   settings window is HIGH strata, the popup DIALOG (both were DIALOG and their parts interleaved: the
   window's buttons drew through the popup's text); the popup's background is solid (WHITE8X8, alpha 1).
+  Then (user): "Pick from Bags" / "Stop Picking" read badly once it was on by default: the button shows the
+  state, "Select Mode: On" / "Select Mode: Off" (Select Mode is a noun again). The drag grip went: press
+  anywhere on a row and move works well (user: "the new drag and drop code is really good").
 - 0.18.0 (2026-11-25): Setup is the first page plus "Your order" only; the per-category questions (layout,
   hearthstone and neighbours, gray, trade goods, specials, generated classes, Split, Back/Skip, progress) are
   gone. Start Fresh lists a class rule per item class in the bags, in class order, with the Empty Space at the

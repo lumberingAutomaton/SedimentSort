@@ -2,15 +2,15 @@
 -- both the Weights page, where rules were numbers, and the separate Setup window).
 --
 -- The list shows every rule as a row, top to bottom the way the bags sort, with the Empty Space among them.
--- Drag a row to move it: by its grip (the drag starts on the press) or anywhere on it (once the mouse moves a
--- little); Sediment watches the press itself rather than WoW's drag start, which was hard to trigger (user,
--- 2026-11-25). Clicking a row outlines its items in the bags (gold) and lists ways to widen it in the right
+-- Drag a row to move it: press anywhere on it and move the mouse a little; Sediment watches the press itself
+-- rather than WoW's drag start, which was hard to trigger (user, 2026-11-25; a grip at each row's left went
+-- too, unneeded once this worked). Clicking a row outlines its items in the bags (gold) and lists ways to widen it in the right
 -- column ("all Armor/Cloth", "all Armor", "all BoE Gear"; hovering a choice outlines what it would cover).
 -- Items with nothing set are outlined orange and stay attached to the Empty Space (Weights.PinDefault);
 -- selecting the Empty Space outlines them. The bags sort on every change. x removes a row: it stays greyed in
 -- place with Undo until the list next changes or the section closes.
 --
--- Pick from Bags (Select Mode) is on whenever the list shows, until its button turns it off: hovering a bag
+-- Select Mode is on whenever the list shows, until its button ("Select Mode: On") turns it off: hovering a bag
 -- item lights up the row that sorts it; clicking one adds a row for it right above that row, selected.
 --
 -- With no rules, or after ?, a welcome panel covers the list (it sits over it, so nothing shifts) with Start
@@ -26,8 +26,7 @@ ns.Order = Order
 local N, B, L = ns.Noun, ns.Btn, ns.L -- nouns, button names in sentences, plain words (see Text.lua)
 
 local ROW_HEIGHT = 20
-local SIDE_W = 206 -- the column right of the list: Pick from Bags and the selected row's widen choices
-local GRIP_W = 16 -- the drag grip at each row's left
+local SIDE_W = 206 -- the column right of the list: the Select Mode button and the selected row's widen choices
 local DRAG_START = 5 -- pixels the mouse moves, pressed on a row, before it drags
 local GAP_ID = "gap" -- the Empty Space row's id
 local UNSET_COLOR = { 1, 0.5, 0.1 } -- orange, like the outlines in the bags
@@ -39,7 +38,7 @@ local selected        -- the selected row: a rule id, or GAP_ID
 local orderList       -- the ranking list as last drawn
 local rows, child = {}, nil
 local ghosts = {}     -- rows removed with x, shown greyed with Undo: { position, label, icon, rules = { { kind, key, weight } } }
-local picking = false -- Pick from Bags: Select Mode with our click and hover handlers
+local picking = false -- Select Mode, with our click and hover handlers
 local pickWanted = true -- on whenever the list shows, unless its button turned it off (until the section reopens)
 local hoverRule       -- a widen choice under the mouse: outline what it would cover
 local bagHover        -- the row lit up for the bag item under the mouse
@@ -295,18 +294,13 @@ local function PressUpdate()
 	end
 end
 
--- now: the grip, which drags on the press.
-local function Press(row, now)
+local function Press(row)
 	if not row.id or dragging then
 		return
 	end
 	local x, y = GetCursorPosition()
 	press = { row = row, x = x, y = y }
 	pane:SetScript("OnUpdate", PressUpdate)
-	if now then
-		StartDrag(row)
-		DragUpdate()
-	end
 end
 
 -- Removing (x) and Undo --------------------------------------------------------------------------------
@@ -348,7 +342,7 @@ local function Undo(ghost)
 	Order.Refresh()
 end
 
--- Pick from Bags ---------------------------------------------------------------------------------------
+-- Select Mode ------------------------------------------------------------------------------------------
 
 local function OnPick(bag, slot)
 	local item = ns.Bags.ReadSlot(bag, slot)
@@ -414,7 +408,7 @@ local function StopPicking()
 	bagHover = nil
 end
 
--- Pick from Bags is on while the list shows (not under the welcome), unless its button turned it off.
+-- Select Mode is on while the list shows (not under the welcome), unless its button turned it off.
 local function SyncPicking(showWelcome)
 	local want = pickWanted and not showWelcome and Shown() and not InCombatLockdown()
 	if want and not picking then
@@ -545,26 +539,9 @@ local function Row(i)
 	row.selected = row:CreateTexture(nil, "BACKGROUND")
 	row.selected:SetAllPoints()
 	row.selected:SetColorTexture(1, 0.82, 0, 0.25)
-	-- The grip: three short lines at the left; pressing it starts the drag at once.
-	row.grip = CreateFrame("Frame", nil, row)
-	row.grip:SetSize(GRIP_W, ROW_HEIGHT)
-	row.grip:SetPoint("LEFT", 0, 0)
-	row.grip:EnableMouse(true)
-	for k = 1, 3 do
-		local t = row.grip:CreateTexture(nil, "ARTWORK")
-		t:SetSize(10, 2)
-		t:SetPoint("CENTER", 0, (2 - k) * 4)
-		t:SetColorTexture(0.65, 0.65, 0.65, 0.9)
-	end
-	row.grip:SetScript("OnMouseDown", function(_, button)
-		if button == "LeftButton" then
-			Press(row, true)
-		end
-	end)
-	row.grip:SetScript("OnMouseUp", DragStop)
 	row.icon = row:CreateTexture(nil, "ARTWORK")
 	row.icon:SetSize(16, 16)
-	row.icon:SetPoint("LEFT", GRIP_W + 2, 0)
+	row.icon:SetPoint("LEFT", 4, 0)
 	row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	row.label:SetJustifyH("LEFT")
 	row.label:SetWordWrap(false)
@@ -576,7 +553,7 @@ local function Row(i)
 		t:SetColorTexture(0.9, 0.6, 0.2, 0.9)
 		row.lines[k] = t
 	end
-	row.lines[1]:SetPoint("LEFT", GRIP_W + 2, 0)
+	row.lines[1]:SetPoint("LEFT", 4, 0)
 	row.lines[1]:SetPoint("RIGHT", row.label, "LEFT", -6, 0)
 	row.lines[2]:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
 	row.lines[2]:SetPoint("RIGHT", -26, 0)
@@ -605,7 +582,7 @@ local function Row(i)
 	-- place is a click.
 	row:SetScript("OnMouseDown", function(self, button)
 		if button == "LeftButton" then
-			Press(self, false)
+			Press(self)
 		end
 	end)
 	row:SetScript("OnMouseUp", function()
@@ -630,7 +607,7 @@ function Order.Build(page, width)
 	pane.help:SetJustifyH("LEFT")
 	pane.help:SetText("Top to bottom, the way your bags sort. Drag a row to move it; click one to outline its items "
 		.. "in your bags. Put the " .. N("LootGap") .. " where new loot should land; whatever isn't set yet stays next "
-		.. "to it, outlined orange. While " .. B("PickStartButton") .. " is on, hover an item in your bags to find its "
+		.. "to it, outlined orange. While " .. N("SelectMode") .. " is on, hover an item in your bags to find its "
 		.. "row, or click it to give it a row of its own.")
 
 	-- "N items in your bags have no Weight yet", orange; its space is always kept, so nothing below shifts.
@@ -653,10 +630,10 @@ function Order.Build(page, width)
 	pane.dropLine:SetColorTexture(1, 0.9, 0.3, 1)
 	pane.dropLine:Hide()
 
-	-- Right of the list: Pick from Bags, then the selected row's widen choices ("Sort Mageweave Cloth as:"
+	-- Right of the list: the Select Mode button, then the selected row's widen choices ("Sort Mageweave Cloth as:"
 	-- and a button for each), or a one-off notice.
 	local colW = SIDE_W - 16
-	pane.pick = Button(pane, L("PickStartButton"), colW)
+	pane.pick = Button(pane, "", colW)
 	pane.pick:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 30, 0)
 	pane.pick:SetScript("OnClick", TogglePicking)
 	pane.widenLabel = pane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -778,8 +755,7 @@ function Order.Refresh()
 			if s.ghost.icon then
 				row.icon:SetTexture(s.ghost.icon)
 			end
-			row.grip:Hide()
-			row.label:SetPoint("LEFT", GRIP_W + 22, 0)
+			row.label:SetPoint("LEFT", 24, 0)
 			row.label:SetPoint("RIGHT", -66, 0)
 			row.label:SetText(s.ghost.label)
 			row.label:SetTextColor(0.45, 0.45, 0.45)
@@ -790,7 +766,6 @@ function Order.Refresh()
 			position = position + 1
 			row.id, row.position = RowId(e), position
 			row.selected:SetShown(row.id == selected)
-			row.grip:Show()
 			row.undo:Hide()
 			if e.divider then
 				past = true
@@ -809,7 +784,7 @@ function Order.Refresh()
 				if icon then
 					row.icon:SetTexture(icon)
 				end
-				row.label:SetPoint("LEFT", GRIP_W + 22, 0)
+				row.label:SetPoint("LEFT", 24, 0)
 				row.label:SetPoint("RIGHT", -26, 0)
 				row.label:SetText(label)
 				if past then
@@ -835,7 +810,9 @@ function Order.Refresh()
 	DragLook(dragging ~= nil) -- a redraw mid-drag keeps the dragged row dimmed
 	ShowBagHover()
 	SyncPicking(showWelcome)
-	pane.pick:SetText(picking and L("PickStopButton") or L("PickStartButton"))
+	-- The state, not the action (user, 2026-11-25: "Pick from Bags" / "Stop Picking" read badly once it was
+	-- on by default).
+	pane.pick:SetText(L("SelectMode") .. (picking and ": On" or ": Off"))
 
 	local rule = SelectedRule()
 	local choices = rule and WidenChoices(rule) or {}
@@ -863,7 +840,7 @@ function Order.OnShow()
 	if not InCombatLockdown() then
 		OpenAllBags()
 	end
-	pickWanted = true -- Pick from Bags is on each time the section opens
+	pickWanted = true -- Select Mode is on each time the section opens
 	Order.Refresh()
 	ns.Settings.SetHighlight(true, Focus)
 end

@@ -5,7 +5,7 @@ your bags, heavy items sink to the bottom, and the **Empty Space** stays in the 
 While your bags are closed, **Sediment** keeps them in order quietly in the background.
 
 Writing convention, here and in the game: **Sediment**'s own nouns
-(**Sediment**, **Weight**, **Order**, **History**, **Pinned**, **Empty Space**) are bold here and
+(**Sediment**, **Weight**, **Order**, **Select Mode**, **History**, **Pinned**, **Empty Space**) are bold here and
 sand-coloured in the game; button names are `in code style` here and gold in the game. "Rules" always means
 your whole set: all your **Weights** plus what you keep out of special bags.
 
@@ -20,8 +20,7 @@ special bags too), adds a Created entry for the new layout, and turns on Blizzar
 it's off (**Sediment** sorts in that window's order). The ? next to the settings title brings the welcome back.
 
 **Order** lists your rules, top to bottom the way your bags sort, with the **Empty Space** among them. Drag a
-row to move it: by the grip at its left, which picks it up as soon as you press, or anywhere on it once
-the mouse moves a little. Clicking a row outlines its items in your bags, and your bags sort on every
+row to move it: press anywhere on it and move the mouse. Clicking a row outlines its items in your bags, and your bags sort on every
 change. The **Empty Space** moves the same way, and where you put it decides the layout:
 - at the top: everything packs toward the bottom of your bags;
 - at the bottom: everything packs from the top, like a normal bag sort;
@@ -32,8 +31,8 @@ Anything not set yet stays next to the **Empty Space** and is outlined orange (t
 how many); select the **Empty Space** to see those items in gold. x removes a row; it stays greyed with
 `Undo` until the list changes again or you leave the section.
 
-`Pick from Bags` is on whenever **Order** shows its list; its button turns it off until you next open
-**Order**. While it's on, hovering an item in your bags lights up the row that sorts it, and clicking an
+**Select Mode** is on whenever **Order** shows its list; its button, `Select Mode: On`, turns it off until
+you next open **Order**. While it's on, hovering an item in your bags lights up the row that sorts it, and clicking an
 item gives it its own row, right above the row that sorts it now, ready to move. Alt+right-click still opens
 the **Weight** popup.
 
@@ -190,5 +189,5 @@ the game:
 - `dev/ranking_check.lua`: the order behind the **Order** list: the default layout, moving rows and the
   **Empty Space**, unset items attached to it, old saves converting, ties kept.
 - `dev/setup_check.lua`: clicks through the settings against mocked frames: the **Order** section (welcome,
-  `Start Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, `Pick from Bags` and widen,
+  `Start Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, **Select Mode** and widen,
   drag and drop), **History**, Special bags and Debug > Files.

@@ -124,7 +124,7 @@ local function NewBox(parent, width)
 end
 
 -- Select mode ---------------------------------------------------------------------------------
--- Order's Pick from Bags: while it's on, every bag slot gets a light highlight; clicking an item adds its
+-- Order turns it on while its list shows: every bag slot gets a light highlight; clicking an item adds its
 -- row (Order's handler), hovering one lights up the row that sorts it. Alt+right-click still opens the weight
 -- popup. The clicks land on Sediment's own catcher frames laid over the slots (children of the item buttons,
 -- so they move and hide with them); Blizzard's item buttons are never changed, so nothing is tainted. While
@@ -136,7 +136,7 @@ end
 -- underneath.
 
 local selecting = false
-local selectHandler, selectHover = nil, nil -- set by Order (Pick from Bags); no handler = open the weight popup
+local selectHandler, selectHover = nil, nil -- set by Order; no handler = open the weight popup
 local highlighting, highlightFocus = false, nil
 local hookedFrames = {}
 
@@ -296,7 +296,7 @@ function Settings.SetHighlight(on, focus)
 	Settings.RefreshOverlays()
 end
 
--- handler(bag, slot): a click on a bag item (Order's Pick from Bags); without one a click opens the weight
+-- handler(bag, slot): a click on a bag item (Order adds its row); without one a click opens the weight
 -- popup. hover(bag, slot) as the mouse enters an item, hover(nil) as it leaves.
 function Settings.SetSelectMode(on, handler, hover)
 	if on and InCombatLockdown() then
