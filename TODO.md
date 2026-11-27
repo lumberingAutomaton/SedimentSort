@@ -36,7 +36,8 @@ and dropped ideas live in NOTES.md. Reviewed with the user 2026-11-26.
   matched by name, e.g. name contains "Waylaid" for the Waylaid Crates the game files under
   Consumable/Other. Open: how a pattern rule is made and named in Order, and where it sits in the cascade
   (with the flags?).
-- **Rename the addon to "Disorder - Item Manager"** (decided by the user, 2026-11-26). "Sediment" came from
+- **Rename the addon to "Disorder - Item Manager"** (user, 2026-11-27: Disorder as a brand the other addons
+  may share). Part of the restructure in PLAN.md. "Sediment" came from
   the float/sink model, which the UI no longer shows. No players yet, so a full rename costs nothing. Still to
   settle: the slash command (/sed today; /disorder?), the folder and .toc name (Disorder?), the saved
   settings name (SedimentDB: copy the user's WTF file across, or keep the internal name), the debug addon's
