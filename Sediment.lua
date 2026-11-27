@@ -1,11 +1,11 @@
--- Sediment core: saved data, the bag sort button, slash commands.
--- The slash commands are listed once, in ns.COMMANDS below: /sed help and the settings window's Commands
--- tab (debug mode) both read that list, so they can't drift apart.
+-- Sediment core: saved data, the bag sort button, the /sed command.
+-- /sed is the only command: it opens the settings (user, 2026-11-26: "/sed is all we need"). The developer
+-- tools that used to be commands are buttons in the Debug group's Tools section (needs the debug addon).
 
 local ADDON, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
 ns.loadedFiles["Sediment.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
-local N = ns.Noun -- Sediment's nouns in its colour (see Text.lua)
+local N, L = ns.Noun, ns.L -- nouns in its colour, plain words (see Text.lua)
 
 function ns.Print(msg)
 	print("|cffc8a96eSediment:|r " .. msg)
@@ -29,99 +29,40 @@ function ns.MissingFiles()
 	return missing
 end
 
--- Every /sed command, in the order they're listed. usage = what to type; text = what it does.
-ns.COMMANDS = {
-	{ usage = "/sed", text = "Open the settings at your " .. N("OrderSection") .. " (also /sed config, /sed settings)." },
-	{ usage = "/sed sort", text = "Sort the bags now, the same as clicking the sort button." },
-	{ usage = "/sed cancel", text = "Stop a sort that's running." },
-	{ usage = "/sed auto", text = "Turn auto-sort on or off (or right-click the sort button)." },
-	{ usage = "/sed status", text = "What auto-sort is waiting for, and what the last sort cost (also /sed auto?)." },
-	{ usage = "/sed delay [seconds]", text = "Show or set how long auto-sort waits after the bags change." },
-	{ usage = "/sed budget [ms]", text = "Show or set auto-sort's smoothness: time per frame it may spend moving items." },
-	{ usage = "/sed why", text = "Hover a bag item, then run this: its " .. N("SortValue") .. " rules in chat." },
-	{ usage = "/sed bench", text = "Open the Testing section (needs debug mode)." },
-	{ usage = "/sed scan", text = "List every item's class, subclass, quality and flags in chat." },
-	{ usage = "/sed mutetest", text = "Mute the item pick-up/put-down sounds for 15 seconds, to check muting works." },
-	{ usage = "/sed help", text = "List these commands in chat." },
-}
-
--- Mouse shortcuts, listed with the commands.
-ns.SHORTCUTS = {
-	{ usage = "Sort button", text = "Left-click: sort now. Right-click: turn auto-sort on or off." },
-	{ usage = "Gear button", text = "Next to the sort button: the settings at your " .. N("OrderSection") .. "." },
-	{ usage = "Alt+right-click", text = "On any bag item: its " .. N("SortValue") .. " popup." },
-}
-
-local function PrintHelp()
-	Print("commands:")
-	for _, c in ipairs(ns.COMMANDS) do
-		print(("  |cffffd100%s|r  %s"):format(c.usage, c.text))
-	end
-end
-
 -- Sort button ---------------------------------------------------------------------------------
 -- We replace the click and tooltip of Blizzard's bag sort button. We never touch
 -- C_Container.SortBags itself: replacing a Blizzard API function taints everything that calls it.
 
 local function ShowButtonTooltip(button)
 	GameTooltip:SetOwner(button)
-	GameTooltip_SetTitle(GameTooltip, "Sediment: sort by Weight", HIGHLIGHT_FONT_COLOR)
-	if ns.Sort.IsRunning() and ns.Sort.IsQuiet() then
-		GameTooltip_AddNormalLine(GameTooltip, "Auto-sort waiting for the bags to close. Click to finish it now.")
-	elseif ns.Sort.IsRunning() then
+	GameTooltip_SetTitle(GameTooltip, L("AddonName"), HIGHLIGHT_FONT_COLOR)
+	if ns.Sort.IsRunning() and not ns.Sort.IsQuiet() then
 		GameTooltip_AddNormalLine(GameTooltip, "Sorting... click to cancel.")
+	elseif ns.Sort.IsRunning() then
+		GameTooltip_AddNormalLine(GameTooltip, "Sorting.")
 	else
-		GameTooltip_AddNormalLine(GameTooltip, "Light items float to the top, heavy items sink to the bottom.")
+		GameTooltip_AddNormalLine(GameTooltip, "Your bags sort themselves whenever they're closed. Click to sort now.")
 	end
-	GameTooltip_AddBlankLineToTooltip(GameTooltip)
-	GameTooltip_AddInstructionLine(GameTooltip, "Left-click: sort now")
-	local state = ns.AutoSort.IsEnabled() and "|cff66ff66ON|r" or "|cffff6666OFF|r"
-	GameTooltip_AddInstructionLine(GameTooltip, "Right-click: auto-sort on loot (" .. state .. ")")
 	GameTooltip:Show()
-end
-
--- Dim the button while auto-sort is off, so the mode is visible at a glance.
-local function UpdateButtonLook()
-	local button = BagItemAutoSortButton
-	if not button then
-		return
-	end
-	local on = ns.AutoSort.IsEnabled()
-	local normal = button:GetNormalTexture()
-	if normal then
-		normal:SetDesaturated(not on)
-	end
-	button:SetAlpha(on and 1 or 0.6)
 end
 
 local function TakeOverSortButton()
 	local button = BagItemAutoSortButton
 	if not button then
-		Print("bag sort button not found; use /sed sort.")
+		Print("bag sort button not found; your bags still sort themselves while they're closed.")
 		return
 	end
-	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	button:SetScript("OnClick", function(self, mouseButton)
-		if mouseButton == "RightButton" then
-			ns.AutoSort.Toggle()
-		elseif ns.Sort.IsRunning() and not ns.Sort.IsQuiet() then
+	button:RegisterForClicks("LeftButtonUp")
+	button:SetScript("OnClick", function()
+		if ns.Sort.IsRunning() and not ns.Sort.IsQuiet() then
 			ns.Sort.Cancel() -- a second click on a button sort cancels it
 		else
-			-- Starts a sort, or takes over an auto-sort (paused while the bags are open) at full speed.
+			-- Starts a sort, or takes over a running auto-sort at full speed.
 			PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
 			ns.Sort.Start()
 		end
 	end)
 	button:SetScript("OnEnter", ShowButtonTooltip)
-	UpdateButtonLook()
-end
-
-function ns.OnAutoSortChanged()
-	UpdateButtonLook()
-	local button = BagItemAutoSortButton
-	if button and GameTooltip:IsOwned(button) then
-		ShowButtonTooltip(button)
-	end
 end
 
 -- Progress sweep -----------------------------------------------------------------------------
@@ -131,7 +72,7 @@ end
 -- glides toward the next swap's mark at the pace swaps have been arriving in this sort, and waits
 -- at that mark if the next swap is late. If it falls behind the work done, it catches up quickly.
 -- So it's never more than one swap ahead of the sort, never goes backwards, holds short of full
--- until the sort really ends, then finishes with the cooldown "bling". A pause keeps its position.
+-- until the sort really ends, then finishes with the cooldown "bling".
 -- (Time estimates made it finish early then start again, or crawl; plain steps looked broken.)
 -- Sorts that move nothing never show it.
 
@@ -206,14 +147,6 @@ function ns.OnSortProgress(done, total)
 	glider:Show()
 end
 
--- A paused auto-sort: hide the sweep but keep its position, so it carries on from there.
-function ns.OnSortPaused()
-	glider:Hide()
-	for _, cd in ipairs(Sweeps()) do
-		cd:Clear()
-	end
-end
-
 -- A sort's smoothness numbers are final a second after it ends (see Sort.lua); show them.
 function ns.OnBenchRun()
 	ns.Popup.BenchRefresh()
@@ -245,50 +178,15 @@ function ns.OnSortStateChanged()
 	end
 end
 
--- Slash commands ------------------------------------------------------------------------------
-
-local function HoveredBagSlot()
-	local focus
-	if GetMouseFoci then
-		focus = GetMouseFoci()[1]
-	elseif GetMouseFocus then
-		focus = GetMouseFocus()
-	end
-	if focus and focus.GetBagID and focus.GetID then
-		local bag, slot = focus:GetBagID(), focus:GetID()
-		if bag and slot then
-			return bag, slot
-		end
-	end
-end
+-- Scan and /sed --------------------------------------------------------------------------------
 
 local function FormatWeight(w)
 	return w == nil and "—" or tostring(w)
 end
 
-local function Why()
-	local bag, slot = HoveredBagSlot()
-	if not bag then
-		Print("hover an item in your bags, then run /sed why (bind it to a macro to make that easy).")
-		return
-	end
-	local item = ns.Bags.ReadSlot(bag, slot)
-	if not item then
-		Print("that slot is empty.")
-		return
-	end
-	local levels, winner = ns.Weights.Explain(item)
-	local weight = levels[winner].weight
-	Print(("%s: %s %s from %s (%s at %s, so it %s)."):format(item.link, N("SortValue"), FormatWeight(weight),
-		levels[winner].label, N("LootGap"), ns.Weights.SinkLine(), weight < ns.Weights.SinkLine() and "floats" or "sinks"))
-	for i, level in ipairs(levels) do
-		local mark = i == winner and "  <- wins" or ""
-		local note = level.applies and "" or " (doesn't apply)"
-		print(("   %s: %s%s%s"):format(level.label, FormatWeight(level.weight), note, mark))
-	end
-end
-
-local function Scan()
+-- Every item in the bags with its class, subclass, quality, flags and weight, in chat; also saved to
+-- SedimentDB.lastScan for dev/sim.lua. The Debug group's Tools section has a button for it.
+function ns.Scan()
 	local rows = {}
 	local slots = ns.Bags.Read()
 	for _, s in ipairs(slots) do
@@ -309,48 +207,8 @@ end
 
 SLASH_SEDIMENT1 = "/sediment"
 SLASH_SEDIMENT2 = "/sed"
-SlashCmdList.SEDIMENT = function(msg)
-	local cmd, arg = strtrim(msg or ""):lower():match("^(%S*)%s*(.-)$")
-	if cmd == "" or cmd == "config" or cmd == "settings" then
-		ns.Settings.Toggle()
-	elseif cmd == "help" then
-		PrintHelp()
-	elseif cmd == "budget" then
-		if arg ~= "" and not tonumber(arg) then
-			Print("/sed budget <ms>, e.g. /sed budget 0.5")
-		else
-			ns.Sort.SetBudget(tonumber(arg))
-		end
-	elseif cmd == "delay" then
-		if arg ~= "" and not tonumber(arg) then
-			Print("/sed delay <seconds>, e.g. /sed delay 1.5")
-		else
-			ns.AutoSort.SetDelay(tonumber(arg))
-		end
-	elseif cmd == "sort" then
-		ns.Sort.Start()
-	elseif cmd == "cancel" then
-		ns.Sort.Cancel()
-	elseif cmd == "auto" then
-		ns.AutoSort.Toggle()
-	elseif cmd == "auto?" or cmd == "status" then
-		ns.AutoSort.Status()
-	elseif cmd == "bench" then
-		if not SedimentDB.testingTools then
-			Print("turn on \"Debug mode\" in the Sorting section first.")
-			ns.Settings.Open("Sorting")
-		else
-			ns.Settings.Open("Testing")
-		end
-	elseif cmd == "mutetest" then
-		ns.Sound.Test()
-	elseif cmd == "why" then
-		Why()
-	elseif cmd == "scan" then
-		Scan()
-	else
-		Print(("unknown command \"%s\". /sed help lists them."):format(cmd))
-	end
+SlashCmdList.SEDIMENT = function()
+	ns.Settings.Toggle()
 end
 
 -- Events --------------------------------------------------------------------------------------

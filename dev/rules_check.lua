@@ -1,4 +1,4 @@
--- Checks the rule set's lifecycle: a new install starts empty with the Full order, older saves migrate
+-- Checks the rule set's lifecycle: a new install starts empty, older saves migrate
 -- once, and backup / reset to default / restore behave. Run: lua dev/rules_check.lua (from the addon folder).
 Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
@@ -15,17 +15,18 @@ local W = Load()
 W.Init()
 assert(next(SedimentDB.weights.items) == nil and next(SedimentDB.weights.classes) == nil, "new install isn't empty")
 assert(next(SedimentDB.weights.flags) == nil, "new install has flags")
-assert(SedimentDB.autoOrder == "full", "new install isn't on the Full order")
 assert(not W.HasRules(), "empty rules report as having rules")
 W.Init() -- a second load changes nothing
 assert(next(SedimentDB.weights.flags) == nil, "a reload added a flag")
 
--- An old save (version 1, no Equipment set flag) migrates once; its order setting is left alone.
-SedimentDB = { weights = { sinkLine = 40, default = 39, items = { [6948] = 0 }, flags = {}, subclasses = {}, classes = { [7] = 80 } } }
+-- An old save (version 1, no Equipment set flag) migrates once; settings fixed since 0.20 are cleared.
+SedimentDB = { weights = { sinkLine = 40, default = 39, items = { [6948] = 0 }, flags = {}, subclasses = {}, classes = { [7] = 80 } },
+	autoSort = false, autoOrder = "partial", openBags = "pause", testingTools = true }
 W = Load()
 W.Init()
 assert(SedimentDB.weights.flags.equipmentSet == 35, "old save didn't get the Equipment set flag")
-assert(SedimentDB.autoOrder == nil, "an existing user's order setting was changed")
+assert(SedimentDB.autoSort == nil and SedimentDB.autoOrder == nil and SedimentDB.openBags == nil
+	and SedimentDB.testingTools == nil, "a retired setting was kept")
 SedimentDB.weights.flags.equipmentSet = nil
 W.Init()
 assert(SedimentDB.weights.flags.equipmentSet == nil, "a cleared flag came back")

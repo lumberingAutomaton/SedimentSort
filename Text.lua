@@ -16,11 +16,9 @@ ns.loadedFiles["Text.lua"] = true -- see ns.FILES (Sediment.lua) and the Files s
 ns.TEXT = {
 	-- Nouns: Sediment's own things.
 	AddonName = "Sediment",
-	SortValue = "Weight",          -- an item's or group's number: lighter floats, heavier sinks
-	SortValues = "Weights",        -- plural
 	SavedRules = "History",        -- the list of saves, and its section
 	KeptSave = "Pinned",           -- a save that stays at the top and is never dropped
-	OrderSection = "Order",        -- the settings section where rules are arranged (it replaced Weights and Setup)
+	OrderSection = "Ordering",     -- the settings section where rules are arranged (it replaced Weights and Setup)
 	LootGap = "Empty Space",       -- the gap where new loot lands; its number is the old "sink line" (user, 2026-11-25)
 	SaveInUse = "Active",          -- the save holding the rules in use
 	SaveBefore = "Previous",       -- the newest save that isn't the rules in use: what you'd roll back to
@@ -37,10 +35,6 @@ ns.TEXT = {
 	UnkeepSaveButton = "Unpin",
 	UndoButton = "Undo",
 	CloseButton = "Close",
-	OpenBagsFinish = "Finish Now", -- if the bags open mid auto-sort
-	OpenBagsPause = "Pause",
-	OrderExact = "Full",           -- auto-sort order choices
-	OrderMinimal = "Partial",
 
 	-- The rule that keeps items out of reagent and profession bags.
 	KeepOutRule = "Keep out of special bags",

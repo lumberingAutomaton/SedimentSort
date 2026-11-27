@@ -58,14 +58,9 @@ end
 
 function Weights.Init()
 	if not SedimentDB.weights then
-		-- A new install: the default (empty) rules, the Full auto-sort order (with no rules everything ties,
-		-- and Partial keeps tied items where they are, so a messy bag would never get organized), and
-		-- already up to date, so no migration below adds anything.
+		-- A new install: the default (empty) rules, already up to date, so no migration below adds anything.
 		SedimentDB.weights = DeepCopy(DEFAULTS)
 		SedimentDB.weightsVersion = WEIGHTS_VERSION
-		if SedimentDB.autoOrder == nil then
-			SedimentDB.autoOrder = "full"
-		end
 	end
 	local w = SedimentDB.weights
 	-- Fill any level a newer version added, without touching the user's values.
@@ -112,6 +107,9 @@ function Weights.Init()
 	-- The Setup window (0.17-0.18) became the settings' Order section: its saved state goes.
 	SedimentDB.setup, SedimentDB.setupHidden, SedimentDB.setupPos = nil, nil, nil
 	SedimentDB.popupPos = nil -- the weight popup always opens above the bag now (0.19)
+	-- Settings that are fixed since 0.20 (user, 2026-11-26): auto-sort always on, the full order always,
+	-- bags opening mid-sort always finish; debug tools come with the debug addon, not a switch.
+	SedimentDB.autoSort, SedimentDB.autoOrder, SedimentDB.openBags, SedimentDB.testingTools = nil, nil, nil, nil
 end
 
 
@@ -371,7 +369,8 @@ function Weights.LoadVersion(entry)
 	Weights.NoteActive()
 end
 
--- How an entry reads in a list: "23 Weights, sink line 40, 1 kept out".
+-- How an entry reads in a list: "23 ordered, 1 kept out" (no "Weight" and no number for the Empty Space,
+-- which is always 50 since 0.18: user, 2026-11-26; hovering the entry lists the order).
 function Weights.VersionSummary(entry)
 	local w, n = entry.weights, 0
 	for _, t in ipairs({ w.items, w.flags, w.subclasses, w.classes }) do
@@ -385,8 +384,7 @@ function Weights.VersionSummary(entry)
 			k = k + 1
 		end
 	end
-	local text = ("%d %s, %s at %s"):format(n, n == 1 and ns.L("SortValue") or ns.L("SortValues"), ns.L("LootGap"),
-		tostring(w.sinkLine))
+	local text = ("%d ordered"):format(n)
 	if k > 0 then
 		text = text .. (", %d kept out"):format(k) -- short: the row has little room; hover lists them
 	end

@@ -610,7 +610,7 @@ function Order.Build(page, width)
 		.. "to it, outlined orange. While " .. N("SelectMode") .. " is on, hover an item in your bags to find its "
 		.. "row, or click it to give it a row of its own.")
 
-	-- "N items in your bags have no Weight yet", orange; its space is always kept, so nothing below shifts.
+	-- "N items in your bags aren't ordered yet", orange; its space is always kept, so nothing below shifts.
 	pane.unset = pane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	pane.unset:SetPoint("TOPLEFT", pane.help, "BOTTOMLEFT", 0, -10)
 	pane.unset:SetPoint("RIGHT", -8, 0)
@@ -684,7 +684,7 @@ function Order.Build(page, width)
 	wbody:SetText(N("AddonName") .. " keeps your bags sorted all the time, quietly, while they're closed. You "
 		.. "decide the order, and where the " .. N("LootGap") .. " goes: new loot lands there, so you always see "
 		.. "what's new.\n\n"
-		.. "Nothing moves while your bags are open unless you ask, and nothing ever moves in combat.\n\n"
+		.. "Nothing ever moves in combat.\n\n"
 		.. B("ClearAllButton") .. " lays out a common order to start from. Then drag the rows until your bags look "
 		.. "right; they sort as you go. Alt+right-click any bag item to see what decides where it goes.")
 	welcome.fresh = Button(welcome, L("ClearAllButton"), 140)
@@ -714,8 +714,8 @@ function Order.Refresh()
 		return
 	end
 	local n = UnsetCount()
-	pane.unset:SetText(n > 0 and ("%d item%s in your bags %s no %s yet."):format(n, n == 1 and "" or "s",
-		n == 1 and "has" or "have", L("SortValue")) or "")
+	pane.unset:SetText(n > 0 and ("%d item%s in your bags %s ordered yet."):format(n, n == 1 and "" or "s",
+		n == 1 and "isn't" or "aren't") or "")
 
 	local showWelcome = welcomeForced or not HasWeightRules()
 	pane.welcome:SetShown(showWelcome)

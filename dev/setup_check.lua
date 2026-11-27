@@ -152,13 +152,15 @@ ns.Bags = {
 	SpecialBags = function() return {} end, KeepOutRules = function() return {} end, FillSpecialBags = function() return true end,
 }
 local sorts = 0
-ns.Sort = { AutoOrder = function() return "full" end, Start = function() sorts = sorts + 1 end,
+ns.Sort = { Start = function() sorts = sorts + 1 end, Cancel = function() ns.cancelled = true end,
 	StartSoon = function() sorts = sorts + 1 end, IsRunning = function() return false end,
-	IsQuiet = function() return false end, BudgetMs = function() return 0.3 end, OpenBagsMode = function() return "pause" end }
+	IsQuiet = function() return false end, BudgetMs = function() return 0.3 end }
 ns.Popup = { Refresh = function() end, Open = function() ns.popupOpened = true end, Close = function() end,
 	BenchRefresh = function() end, BENCH_MODES = { "Drift" } }
-ns.AutoSort = { Resume = function() end, IsEnabled = function() return true end, Delay = function() return 1.1 end }
-ns.COMMANDS, ns.SHORTCUTS = {}, {}
+ns.AutoSort = { Resume = function() end, Delay = function() return 1.1 end, Status = function() ns.statusShown = true end }
+-- The debug addon (SedimentSort_Debug): absent until the Debug section of this test installs it.
+local debugAddon = false
+C_AddOns = { IsAddOnLoaded = function(name) return debugAddon and name == "SedimentSort_Debug" end }
 -- (Sediment.lua isn't loaded here: its file list, as it would be with one file missing.)
 ns.FILES = { "Text.lua", "Weights.lua", "Settings.lua", "Order.lua", "Missing.lua" }
 ns.ADDON = "SedimentSort"
@@ -167,7 +169,7 @@ ns.MissingFiles = function()
 	for _, f in ipairs(ns.FILES) do if not ns.loadedFiles[f] then m[#m + 1] = f end end
 	return m
 end
-C_AddOns = { GetAddOnMetadata = function() return "0.17.1" end }
+C_AddOns.GetAddOnMetadata = function() return "0.17.1" end
 
 -- The combined bag window, with one item button per slot.
 local buttons = {}
@@ -312,7 +314,7 @@ ns.Order.OnBagUpdate()
 Wait(1)
 Click(RowById("item:6948"))
 assert(Orange(#contents), "the unset item isn't outlined orange")
-assert(Plain(P.unset.text) == "1 item in your bags has no Weight yet.", "top line: " .. P.unset.text)
+assert(Plain(P.unset.text) == "1 item in your bags isn't ordered yet.", "top line: " .. P.unset.text)
 Wait(1)
 Click(RowById("gap"))
 assert(Gold(#contents), "selecting the Empty Space doesn't outline the unset item")
@@ -435,7 +437,7 @@ local function HistoryRows()
 end
 local hrows = HistoryRows()
 assert(#hrows == #W.History() and #hrows >= 2, "History rows: " .. #hrows .. " for " .. #W.History() .. " saves")
-assert(Plain(hrows[1].info.text):find("Empty Space at"), "row summary missing: " .. hrows[1].info.text)
+assert(Plain(hrows[1].info.text):find("%d+ ordered"), "row summary missing: " .. hrows[1].info.text)
 -- Load a save that isn't in use; the rules in use (changed since the last save) are saved first.
 SedimentDB.weights.classes[4] = 32
 S.Refresh()
@@ -509,10 +511,24 @@ S.Refresh()
 assert(fill.checked, "the box shows unticked after turning filling on")
 print("special bags switch OK")
 
--- Debug > Files: the version, a summary, and each expected file loaded or missing (Missing.lua here).
-SedimentDB.testingTools = true
+-- The Debug group exists only with the debug addon: without it, its sections fall back to Ordering.
 S.Open("Files")
-assert(S.currentTab == "Files", "Files section didn't open in debug mode")
+assert(S.currentTab == "Order", "a Debug section opened without the debug addon")
+debugAddon = true
+
+-- Debug > Tools: the old /sed commands as buttons.
+S.Open("Tools")
+assert(S.currentTab == "Tools", "Tools didn't open with the debug addon")
+for _, f in ipairs(allFrames) do
+	if f.text == "Auto-sort status" then Click(f) end
+	if f.text == "Cancel sort" then Click(f) end
+end
+assert(ns.statusShown and ns.cancelled, "the Tools buttons didn't run status and cancel")
+print("tools section OK")
+
+-- Debug > Files: the version, a summary, and each expected file loaded or missing (Missing.lua here).
+S.Open("Files")
+assert(S.currentTab == "Files", "Files section didn't open with the debug addon")
 local seen = {}
 for _, t in ipairs(allTexts) do
 	if type(t.text) == "string" then seen[#seen + 1] = Plain(t.text) end
@@ -523,7 +539,7 @@ end
 assert(Has("^Sediment 0%.17%.1 %(the version in the %.toc%)$"), "no version line")
 assert(Has("^1 of 5 files missing%.$"), "no missing summary")
 assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Order%.lua   loaded$"), "file lines wrong")
-SedimentDB.testingTools = nil
+debugAddon = false
 print("files section OK")
 
 -- The weight popup: the levels that apply, most specific first; the winner marked; Add only above it.

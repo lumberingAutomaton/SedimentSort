@@ -27,10 +27,8 @@ local cpuMs = 0 -- our own Lua time during the current sort
 local movesByKind = {} -- this sort's moves per phase (merge, transfer, place, restack), for tests
 local sendMs, maxSwapMs = 0, 0 -- of which: making the swaps (including handlers the game runs inside them)
 local movesDone = 0 -- swaps sent so far in this sort, for the progress sweep
-local ReportProgress -- defined further down; declared here so Unpause (above it) can use it
 local sending  -- { batch, keys, i }: a round being streamed out over several frames
-local paused   -- an auto-sort waiting for the bags to close, plan and progress kept
-local hurry    -- an auto-sort finishing at full speed because the bags opened ("Finish now" setting)
+local hurry    -- an auto-sort finishing at full speed because the bags opened
 local mode = "sort" -- or "scramble": a test-bench scramble aimed at scrambleTargets
 local scrambleTargets, scrambleCount, scramblePlanned
 
@@ -120,112 +118,9 @@ local function MergeMoves(slots)
 	return batch
 end
 
--- The target signature for every position: floaters from the top, sinkers at the bottom.
--- Auto-sort's partial order (button sorts always use the full order, Compare above). Equal weight
--- means "don't care", so inside a weight band auto-sort keeps what's there instead of imposing an
--- order: identical items stay together, and groups keep their current order (a group's position is
--- its first member's slot). New loot lands at the top of the gap, so light bands grow at their end
--- and heavy bands at their start, both toward the gap.
-local function CompareStable(a, b)
-	if a.weight ~= b.weight then
-		return a.weight < b.weight
-	end
-	if a.groupFirst ~= b.groupFirst then
-		return a.groupFirst < b.groupFirst
-	end
-	if a.count ~= b.count then
-		return a.count > b.count
-	end
-	return a.index < b.index
-end
-
--- When an earlier band grows or shrinks by N, every later band's slots shift by N. Rather than slide
--- a whole band along, move whole groups of identical items adding up to N from one end of the band
--- to the other (the user's idea): a band then costs about N moves, not one per item. For each band,
--- try the current order, moving any one group to the front or back, and every rotation at group
--- boundaries; keep whichever leaves the fewest slots holding the wrong thing. Identical stacks are
--- never split. Benchmarked in dev/sim.lua as "stableFill2": 50-80% fewer moves on everyday events.
-local function BestBands(list, start, slots)
-	local out, i = {}, 1
-	while i <= #list do
-		local j = i
-		while j + 1 <= #list and list[j + 1].weight == list[i].weight do
-			j = j + 1
-		end
-		local groups, g = {}, nil
-		for k = i, j do
-			local item = list[k]
-			if not g or g.sig ~= item.sig then
-				g = { sig = item.sig, items = {} }
-				groups[#groups + 1] = g
-			end
-			g.items[#g.items + 1] = item
-		end
-		local bandStart = start + (i - 1)
-		local function Cost(order)
-			local pos, cost = bandStart, 0
-			for _, grp in ipairs(order) do
-				for _ = 1, #grp.items do
-					local sl = slots[pos]
-					if not (sl.item and sl.item.sig == grp.sig) then
-						cost = cost + 1
-					end
-					pos = pos + 1
-				end
-			end
-			return cost
-		end
-		local best, bestCost = groups, Cost(groups)
-		local function Try(order)
-			local cost = Cost(order)
-			if cost < bestCost then
-				best, bestCost = order, cost
-			end
-		end
-		for a = 1, #groups do
-			local front, back = { groups[a] }, {}
-			for c = 1, #groups do
-				if c ~= a then
-					front[#front + 1] = groups[c]
-					back[#back + 1] = groups[c]
-				end
-			end
-			back[#back + 1] = groups[a]
-			Try(front)
-			Try(back)
-		end
-		for k = 1, #groups - 1 do
-			local order = {}
-			for c = k + 1, #groups do
-				order[#order + 1] = groups[c]
-			end
-			for c = 1, k do
-				order[#order + 1] = groups[c]
-			end
-			Try(order)
-		end
-		for _, grp in ipairs(best) do
-			for _, item in ipairs(grp.items) do
-				out[#out + 1] = item
-			end
-		end
-		i = j + 1
-	end
-	return out
-end
-
--- Partial order for this sort? Auto-sorts, unless switched to the full order in the test bench
--- (SedimentDB.autoOrder = "full") for comparisons.
--- Auto-sort's order (SedimentDB.autoOrder): "full" unless "partial" was picked. Full is the default for
--- everyone since 0.17.0 (user, 2026-11-25: the defaults should be right without visiting Sorting); before,
--- a save that never picked one got Partial.
-function Sort.AutoOrder()
-	return SedimentDB.autoOrder == "partial" and "partial" or "full"
-end
-
-local function UsePartialOrder()
-	return quiet and Sort.AutoOrder() == "partial"
-end
+-- Every sort, button or auto, uses the one full order (Compare above): every item always has the same spot.
+-- (A partial order for auto-sorts, keeping equal-weight items where they were for fewer moves, was removed
+-- in 0.20: user, 2026-11-26, "no partial sort".)
 
 -- The target signature for every position: floaters from the top, sinkers at the bottom.
 local function PlanTargets(slots)
@@ -238,21 +133,7 @@ local function PlanTargets(slots)
 			items[#items + 1] = item
 		end
 	end
-	local partial = UsePartialOrder()
-	if partial then
-		local groupFirst = {}
-		for _, item in ipairs(items) do
-			if not groupFirst[item.sig] or item.index < groupFirst[item.sig] then
-				groupFirst[item.sig] = item.index
-			end
-		end
-		for _, item in ipairs(items) do
-			item.groupFirst = groupFirst[item.sig]
-		end
-		table.sort(items, CompareStable)
-	else
-		table.sort(items, Compare)
-	end
+	table.sort(items, Compare)
 
 	local sinkLine = ns.Weights.SinkLine()
 	local floaters, sinkers = {}, {}
@@ -262,10 +143,6 @@ local function PlanTargets(slots)
 		else
 			sinkers[#sinkers + 1] = item
 		end
-	end
-	if partial then
-		floaters = BestBands(floaters, 1, slots)
-		sinkers = BestBands(sinkers, #slots - #sinkers + 1, slots)
 	end
 
 	local targets = {}
@@ -516,7 +393,6 @@ local function Stop(msg, success)
 	waitingForUpdate = false
 	plan = nil
 	sending = nil
-	paused = false
 	hurry = false
 	if Sort.sender then
 		Sort.sender:Hide()
@@ -537,7 +413,6 @@ local function Stop(msg, success)
 		local beforeFps = perfBase and 1 / perfBase or 0
 		local run = {
 			kind = wasScramble and "scramble" or (quiet and "auto" or "button"),
-			order = quiet and Sort.AutoOrder() or "full",
 			moves = moves, rounds = rounds, seconds = seconds, ourMs = cpuMs,
 			worstMs = perfWorst * 1000,
 			normalMs = perfBase and perfBase * 1000 or 0,
@@ -580,84 +455,13 @@ local function CombatStop()
 	end
 end
 
--- The rule: bags closed, auto-sort moves things; bags open, only the sort button does. An auto-sort
--- that finds the bags open pauses where it is (every swap leaves a valid state) and keeps its plan,
--- including how far through the current round it got. When the bags close and the bags have been
--- quiet for the auto-sort delay, it checks nothing changed and carries on from the next swap; if
--- something did change (the user moved or looted something), it re-plans. So opening and closing
--- the bags mid-sort costs nothing. Throwing the plan away instead made a long chain crawl one slot
--- per interruption (seen in game: a swapped-in cloak stepping down one slot at a time).
-local function Pause()
-	if paused then
-		return
-	end
-	paused = true
-	Sort.sender:Hide() -- keeps `sending`, so the round can continue later
-	ns.Sound.UnmuteItemSounds() -- the user is handling items now; their clicks should sound normal
-	ns.OnSortPaused()
-end
-
-local function SlotKey(bag, slot)
-	return bag * 1000 + slot
-end
-
--- Does every swap still to send in the streamed round find what it expects? Compares item and
--- count at both ends against the snapshot taken when the round was planned.
-local function StillValid(batch, from, slots)
-	local now = {}
-	for _, s in ipairs(slots) do
-		now[SlotKey(s.bag, s.slot)] = s.item
-	end
-	local function Same(planned)
-		local item = now[SlotKey(planned.bag, planned.slot)]
-		local was = planned.item
-		if not was or not item then
-			return not was and not item
-		end
-		return item.sig == was.sig and item.count == was.count
-	end
-	for i = from, #batch do
-		if not Same(batch[i].src) or not Same(batch[i].dst) then
-			return false
-		end
-	end
-	return true
-end
-
--- Leave a pause: carry on with the streamed round if nothing changed, else drop it and re-plan.
--- (Between rounds there's nothing to check here: TakePlanned checks every round before it goes.)
-local function Unpause()
-	paused = false
-	ns.Sound.MuteItemSounds()
-	if sending then
-		if StillValid(sending.batch, sending.i, ns.Bags.Read()) then
-			ReportProgress(#sending.batch - sending.i + 1)
-			Sort.sender:Show()
-		else
-			sending, plan = nil, nil
-		end
-	end
-end
-
--- What an auto-sort does when the bags open (SedimentDB.openBags): "pause" (the default: wait,
--- keeping the plan, and finish once they close) or "finish" (send everything left at once, keeping
--- auto-sort's own order; the bag settles within a round or two of opening).
-function Sort.OpenBagsMode()
-	return SedimentDB.openBags == "pause" and "pause" or "finish"
-end
-
--- The bags are open during an auto-sort: pause it, or hurry it to the end.
-local function OnBagsOpenDuringAutoSort()
-	if Sort.OpenBagsMode() == "finish" then
+-- An auto-sort that finds the bags open finishes at full speed: everything left goes out at once, in the
+-- same order, so the bags settle within a round or two of opening (user, 2026-11-26: always "finish"; the
+-- old "pause" mode, which waited with the plan kept until the bags closed, was removed in 0.20).
+local function HurryIfBagsOpen()
+	if quiet and not hurry and ns.AutoSort.BagsOpen() then
 		hurry = true
-		return false -- carry on, unpaced
 	end
-	Pause()
-	return true
-end
-
-function Sort.IsPaused()
-	return paused
 end
 
 function Sort.IsQuiet()
@@ -701,7 +505,7 @@ end
 -- Progress for the sweep: swaps done out of swaps known (done + left in this round + planned rounds).
 -- Work, not a time estimate: estimates made the sweep finish early (then start a second one) or
 -- crawl long after the sort was done.
-function ReportProgress(leftInRound)
+local function ReportProgress(leftInRound)
 	local planned = 0
 	if plan then
 		for r = plan.round, #plan.rounds do
@@ -763,21 +567,10 @@ local function Step()
 end
 
 function StepWork()
-	if paused then
-		if ns.AutoSort.BagsOpen() or not ns.AutoSort.QuietLongEnough() then
-			return
-		end
-		Unpause()
-		if sending then
-			return -- the streamed round carries on
-		end
-	end
 	if sending then
 		return -- a round is still streaming out
 	end
-	if quiet and not hurry and ns.AutoSort.BagsOpen() and OnBagsOpenDuringAutoSort() then
-		return
-	end
+	HurryIfBagsOpen()
 	if InCombatLockdown() then
 		CombatStop()
 		return
@@ -911,16 +704,6 @@ function Sort.BudgetMs()
 	return SedimentDB.streamBudgetMs or DEFAULT_BUDGET_MS
 end
 
-function Sort.SetBudget(ms)
-	if ms == nil then
-		Print(("auto-sort spends on average up to %sms per frame on swaps (default %sms). /sed budget <ms> to change.")
-			:format(Sort.BudgetMs(), DEFAULT_BUDGET_MS))
-		return
-	end
-	SedimentDB.streamBudgetMs = math.max(0.1, math.min(50, ms))
-	Print(("auto-sort now spends on average up to %sms per frame on swaps."):format(SedimentDB.streamBudgetMs))
-end
-
 local allowance = 0
 
 Sort.sender = CreateFrame("Frame")
@@ -934,11 +717,9 @@ Sort.sender:SetScript("OnUpdate", function(self)
 		return
 	end
 	Sort.lastFrames = (Sort.lastFrames or 0) + 1
-	if quiet and not hurry and ns.AutoSort.BagsOpen() and OnBagsOpenDuringAutoSort() then
-		return -- bags opened mid-stream: paused (the default); in "finish" mode it carries on unpaced
-	end
-	-- Paced only for an auto-sort that isn't hurrying. A button sort, or one that took over a paused
-	-- auto-sort (Sort.Start), sends the rest at once.
+	HurryIfBagsOpen() -- bags opened mid-stream: the rest goes out unpaced
+	-- Paced only for an auto-sort that isn't hurrying. A button sort, or one that took over an auto-sort
+	-- (Sort.Start), sends the rest at once.
 	local paced = quiet and not hurry
 	local budget = paced and Sort.BudgetMs() or math.huge
 	allowance = math.min(allowance + budget, MAX_SAVED_MS)
@@ -984,13 +765,9 @@ end
 -- isQuiet: don't announce a normal finish (used by auto-sort).
 function Sort.Start(isQuiet)
 	if ticker then
-		-- A button sort during an auto-sort (paused, since the bags are open) takes it over: same
-		-- plan, but full speed. The rest of a streamed round goes out at once.
+		-- A button sort during an auto-sort takes it over: same plan, full speed.
 		if quiet and not isQuiet then
 			quiet = false
-			if paused then
-				Unpause()
-			end
 		end
 		return
 	end
@@ -1008,7 +785,7 @@ function Sort.Start(isQuiet)
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
-	waitingForUpdate, cursorSince, plan, paused, hurry = false, nil, nil, false, false
+	waitingForUpdate, cursorSince, plan, hurry = false, nil, nil, false
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end
@@ -1016,7 +793,7 @@ end
 -- A sort right now at button speed, to show the result of a change the player just made: a Setup answer, a
 -- Weight typed or removed in the settings or the weight popup, a History save loaded (user, 2026-11-25: show
 -- the outcome as soon as a Weight changes, bags open or not). A sort already running planned with the old
--- rules, so wait for it to end (taking over a paused auto-sort so it ends quickly), then sort again.
+-- rules, so wait for it to end (taking over a running auto-sort so it ends quickly), then sort again.
 local sortWaiting = false
 
 function Sort.StartSoon()
@@ -1028,7 +805,7 @@ function Sort.StartSoon()
 		return
 	end
 	if quiet then
-		Sort.Start() -- a paused auto-sort: finish it at full speed
+		Sort.Start() -- a running auto-sort: finish it at full speed
 	end
 	sortWaiting = true
 	local function Try()

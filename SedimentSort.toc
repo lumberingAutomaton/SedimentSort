@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Sediment
-## Notes: Bag sort by item weight: light items float to the top, heavy items sink to the bottom.
-## Version: 0.19.0
+## Notes: Keeps your bags sorted in your own order, by itself.
+## Version: 0.20.0
 ## SavedVariables: SedimentDB
 
 Text.lua

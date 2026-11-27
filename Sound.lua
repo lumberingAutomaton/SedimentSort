@@ -52,7 +52,7 @@ local ITEM_SOUNDS = {
 	567577, -- putdownsmallchain.ogg
 }
 
--- Mutes are counted: a sort and /sed mutetest can overlap, and the sounds only come back once
+-- Mutes are counted: a sort and the Tools section's Mute test can overlap, and the sounds only come back once
 -- nobody wants them muted.
 local holds = 0
 
@@ -105,7 +105,7 @@ function Sound.UnmuteItemSounds()
 	C_Timer.After(UNMUTE_DELAY, Release)
 end
 
--- /sed mutetest: mute the item sounds for 15 seconds so the user can move items by hand and hear
+-- Tools > Mute test (debug addon): mute the item sounds for 15 seconds so the user can move items by hand and hear
 -- whether the mute takes. Separates "no MuteSoundFile" from "Forever uses other sound files".
 function Sound.Test()
 	if not MuteSoundFile then

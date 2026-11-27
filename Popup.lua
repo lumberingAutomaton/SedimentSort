@@ -334,7 +334,7 @@ end
 --   Full:    shuffle every normal-bag slot.
 --   Maximal: reverse the whole order, then a few top/bottom swaps (worst case for a full sort).
 -- Only the normal bags are scrambled. A one-line status text under the bag's search box shows what the
--- last sort cost (debug mode on + "Status text"); the last 20 runs are kept in SedimentDB.benchHistory.
+-- last sort cost (the debug addon loaded + "Status text"); the last 20 runs are kept in SedimentDB.benchHistory.
 
 local BENCH_MODES = { "Drift", "Minimal", "Full", "Maximal" }
 Popup.BENCH_MODES = BENCH_MODES
@@ -409,10 +409,7 @@ local function ScrambleTargets(modeName, seed)
 end
 
 local function RunLabel(run)
-	if run.kind == "auto" then
-		return (run.order or "partial") == "full" and L("OrderExact") or L("OrderMinimal")
-	end
-	return run.kind == "button" and "Button" or "Scramble"
+	return run.kind == "auto" and "Auto" or run.kind == "button" and "Button" or "Scramble"
 end
 
 -- One short line for the bag: what ran, moves, time, worst-second drop, worst frame.
@@ -442,7 +439,7 @@ local function BenchRunTooltip(run)
 end
 
 -- The status text: one line in the strip between the bag's search box and its first row.
--- Shown with the bag while debug mode is on (Settings > Sorting) and the Testing tab's "Status text"
+-- Shown with the bag while the debug addon is loaded and the Testing tab's "Status text"
 -- checkbox is on (SedimentDB.benchStatusText, on by default). Display only, just text.
 local readout
 
@@ -485,7 +482,7 @@ end
 function Popup.BenchRefresh()
 	local r = Readout()
 	if r then
-		if SedimentDB.testingTools and SedimentDB.benchStatusText ~= false then
+		if ns.Settings.DebugOn() and SedimentDB.benchStatusText ~= false then
 			r.text:SetText(BenchRunText(ns.Sort.lastRun or (SedimentDB.benchHistory or {})[1]))
 			r:Show()
 		else
@@ -548,7 +545,7 @@ function Popup.CreateBagButton()
 	b:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip_SetTitle(GameTooltip, "Sediment settings")
-		GameTooltip_AddNormalLine(GameTooltip, "Your " .. N("OrderSection") .. " and other settings.")
+		GameTooltip_AddNormalLine(GameTooltip, N("OrderSection") .. " and the other settings.")
 		GameTooltip:Show()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)

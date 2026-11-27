@@ -1,8 +1,7 @@
 -- Offline simulation of the Sediment sort. Not loaded by the game.
 -- Usage: lua dev/sim.lua <path to WTF SavedVariables/SedimentSort.lua> [seed] [show|bench]
--- SEDIMENT_AUTO=full (environment) makes auto-sorts use the full order instead of the default partial
--- one, for comparison. "bench"
--- runs realistic events from a sorted bag and reports the average moves each costs.
+-- "bench" runs realistic events from a sorted bag and reports the average moves each costs. (Every sort
+-- uses the full order since 0.20; the partial order and its SEDIMENT_AUTO switch are gone.)
 -- Loads the bag scan saved by /sed scan, shuffles it into simulated bags, runs the real sort code
 -- against mocked game APIs, and checks the result.
 
@@ -202,15 +201,10 @@ simBagsOpen = false
 local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateChanged = function() end,
 	OnSortFinished = function() end, OnSortProgress = function() end,
 	OnBenchRun = function() end,
-	OnSortPaused = function() simPauses = (simPauses or 0) + 1 end,
-	AutoSort = { BagsOpen = function() return simBagsOpen end, QuietLongEnough = function() return true end,
-		Resume = function() end } }
+	AutoSort = { BagsOpen = function() return simBagsOpen end, Resume = function() end } }
 
 MuteSoundFile, UnmuteSoundFile = function() end, function() end
 C_Timer.After = function(_, fn) fn() end
--- SEDIMENT_AUTO=full makes auto-sorts use the full order (as the test bench's toggle does), to
--- compare against the default partial order.
-local ORDER = os.getenv("SEDIMENT_AUTO") or "partial"
 -- SEDIMENT_MEASURE=1: after every placement plan, compare Sediment's swap count with the proven
 -- minimum for the same target (dev/min_swaps.lua). Results in Measured, printed by bench mode.
 local MEASURE = os.getenv("SEDIMENT_MEASURE") == "1"
@@ -229,7 +223,7 @@ for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 end
 if MEASURE then
 	-- Target-choice bracket (bench events only, tagged with SimEvent): for each placement plan,
-	-- "ours" = proven minimum swaps to the partial order's chosen layout; "found" = best layout a
+	-- "ours" = proven minimum swaps to the chosen layout; "found" = best layout a
 	-- local search finds (move whole groups of identical items within each weight band, keep any
 	-- change that lowers the proven count); "floor" = contents outside the region that may hold them
 	-- must move, and one swap moves at most two, so no valid layout needs fewer.
@@ -322,8 +316,6 @@ SedimentDB.weights = {
 	subclasses = { ["0:1"] = 8, ["0:5"] = 9 },
 	classes = { [0] = 10, [2] = 40, [4] = 40, [7] = 30, [12] = 51, [15] = 15 },
 }
-SedimentDB.autoOrder = ORDER
-SedimentDB.openBags = "pause" -- the pause test needs it; the addon's default is "finish" since 0.17.0
 
 local function Total()
 	local n = {}
@@ -578,8 +570,8 @@ do
 	print("keep-out and fill-off tests passed")
 end
 
--- Pause test: the same messy start sorted twice by auto-sort, once uninterrupted and once with the
--- bags opened and closed on alternate ticks. Keeping the plan across pauses means the same moves.
+-- Bags-open test: the same messy start sorted twice by auto-sort, once uninterrupted and once with the
+-- bags opened and closed on alternate ticks. Finishing at full speed keeps the same plan, so the same moves.
 do
 	local function Snapshot()
 		local copy = {}
@@ -605,22 +597,11 @@ do
 	Run(true, true)
 	local interrupted = ns.Sort.lastMovesByKind.place or 0
 	Check(false)
-	-- Placement is what a pause could break (the old crawl). Which of two same-item stacks ends where
-	-- can differ, so the restack phase may differ by a move; Check above verifies both end states.
-	print(("pause test: placement moves uninterrupted %d, interrupted every other tick %d (%d pauses)"):format(plain, interrupted, simPauses or 0))
-	assert(interrupted == plain, "interruptions changed the number of placement moves")
-	-- "Finish now" mode: opening the bags mid-sort sends the rest at once, in auto-sort's own order,
-	-- so the placement moves match the uninterrupted run and it never pauses.
-	Restore(start)
-	SedimentDB.openBags = "finish"
-	local pausesBefore = simPauses or 0
-	Run(true, true)
-	local finished = ns.Sort.lastMovesByKind.place or 0
-	Check(false)
-	SedimentDB.openBags = "pause"
-	print(("finish-now test: placement moves %d (uninterrupted %d), pauses %d"):format(finished, plain, (simPauses or 0) - pausesBefore))
-	assert(finished == plain, "finish-now changed the number of placement moves")
-	assert((simPauses or 0) == pausesBefore, "finish-now paused")
+	-- Bags opened mid-sort: the rest goes out at once, in the same order, so the placement moves match the
+	-- uninterrupted run. Which of two same-item stacks ends where can differ, so the restack phase may
+	-- differ by a move; Check above verifies both end states.
+	print(("bags-open test: placement moves uninterrupted %d, bags opened every other tick %d"):format(plain, interrupted))
+	assert(interrupted == plain, "opening the bags changed the number of placement moves")
 	SedimentDB.weights.items[last.itemID] = nil
 	Run(true)
 end
@@ -722,7 +703,7 @@ if arg[3] == "bench" then
 	end
 	for _, name in ipairs({ "loot + use", "set swap", "weight edit", "loot 3", "use 3" }) do
 		local r = results[name]
-		print(("BENCH %s %-12s %.2f moves/event over %d events"):format(ORDER, name, r.total / r.n, r.n))
+		print(("BENCH %-12s %.2f moves/event over %d events"):format(name, r.total / r.n, r.n))
 	end
 	os.exit(0)
 end

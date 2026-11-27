@@ -1,137 +1,115 @@
 # Sediment working notes
 
-Design and open questions. This file is not part of the addon.
+Findings, design records, research and test results. The parking lot (what to build next, ideas waiting
+for a decision) is TODO.md. Neither file is part of the addon.
 
-## How it works now (0.17.0)
+## How it works now (0.20.0)
 User-facing overview: README.md. This section is the developer's view; history is in the version log below.
 
 - **Weights** (Weights.lua): most specific rule with a weight wins: item > flags (Equipment set > Quest > Gray >
   BoE gear, stored as unboundGear: equippable and not soulbound) > subclass > class > default. Gray quality is
   trash (not Miscellaneous > Junk: classic data files normal items there). Account-wide, in
   SedimentDB.weights; the default (DEFAULTS in Weights.lua) is no rules, so ties fall back to the full order and
-  it starts out as a by-type sort. Resolve is a table-free version of Explain.
-- **History** (Weights.lua + the History section, 0.17.0): versions of the rules (weights incl. sink line and
-  default, keep-out; not settings) in SedimentDB.history, newest first. Saved before Reset to default, the
-  setup questions starting / starting over, and loading a version; at setup Done; at login if changed
-  ("<character> login", at PLAYER_LOGIN since rules are account-wide); and
-  by "Save a copy" (optional name). No two in a row alike (compared by a sorted serialization), no empty
-  sets unless asked; newest 20 unnamed kept, named kept until deleted. "Restore previous rules" = load the
-  newest version that differs from the rules in use. Replaced the single backup slot (rulesBackup, which
-  converts to the oldest version).
-- **Ranking** (Weights.lua, used by the setup questions): the rules as an order: rungs of equal weight
-  (the default is a rung too) with a divider at the sink line, or at 50 in the packed layouts (sink line
-  >= 100 or <= 0). PlaceRule puts a rule at a named place (first, last, float = end of the start half,
-  sink = start of the end half, bottom, after/before another rule), then WriteRankingList pins the default
-  next to the empty space (PinDefault: middle = just above the gap, space at the bottom = last, at the top
-  = first) and renumbers everything by position: start half 0-50, end half 50-100, steps of 10 while they
-  fit; a sink line between 0 and 100 becomes 50. Ties stay tied, except with the default.
-  dev/ranking_check.lua.
+  it starts out as a by-type sort. Resolve is a table-free version of Explain. The numbers are stored but
+  never shown: the Order list is the editor.
+- **Ranking** (Weights.lua): the rules as an order. RankingList: rungs of rules sharing a weight, plus one
+  divider, the Empty Space; rungs above it float, below it sink, so its position is the layout. The unset
+  items' rung (the default) stays attached to the divider (PinDefault: just after it when it's first, else
+  just before). WriteRankingList renumbers by position: above 0-50, below 50-100, sinkLine always 50; old
+  packed saves (sinkLine 100 / 0) read with the divider at the end / start. Edits: MoveRow (drag and drop),
+  MoveEmptySpace, AddRuleAbove (a new rule just above the row that decides the item today: Select Mode
+  clicks, the popup's Add), ReplaceRule ("Sort X as:"; joins the target's row if it already has one),
+  DefaultOrder (Start Fresh). dev/ranking_check.lua.
+- **History** (Weights.lua + the History section): saves of the rules (weights incl. Empty Space and default,
+  keep-out; not settings) in SedimentDB.history, newest first. Two kinds: Created (Start Fresh) and Snapshot
+  (logout via PLAYER_LOGOUT, before Load and Start Fresh, and a login safety net), only if no save already
+  holds the rules in use. Titles "<character> — <kind> — Nov 25, 10:32". One pin (kept at the top); Active /
+  Previous tags tracked by save id (activeSaveId / previousSaveId); Load without a confirmation (clicks right
+  after a redraw are ignored); x greys a save with Undo, and closing the window deletes it; the newest 20
+  unpinned are kept. dev/rules_check.lua.
 - **Layout**: below the sink line packs from the top, at or above it from the bottom, gap in the middle.
-  Full order (button): weight, equipment set names, class, subclass, item ID, bigger stack first. Partial
-  order (auto-sort default): weight, then groups of identical items in their current order, with whole
-  groups rotated between band ends when a band shifts (BestBands). Identical stacks stay together; the
-  partial stack goes last. An item's identity (sig) = link + bound + equipment sets.
+  One full order for every sort, button or auto: weight, equipment set names, class, subclass, item ID,
+  bigger stack first. Identical stacks stay together; the partial stack goes last. An item's identity (sig)
+  = link + bound + equipment sets. (The partial auto-sort order, BestBands, was removed in 0.20.)
 - **Zones** (Bags.lua): normal bags in on-screen order (backpack slot 1 top-left), then each special bag,
   identified by the bag item (container subclass 11 = reagent) or its family. Profession bags fill before the
   reagent bag. Blizzard's per-bag "Ignore cleanup" flag is ignored.
 - **Sort engine** (Sort.lua): phases merge -> evict kept-out items -> transfer into special bags -> placement (per zone; every chain in
   two rounds by double reversal) -> restack. Every round re-reads the bags and checks them against the plan.
   Combat is checked before every swap and stops a sort at once. Button sorts send a round in one frame;
-  auto-sorts stream it at an average budget per frame (default 0.3ms). Takes over BagItemAutoSortButton's
-  click; never replaces C_Container.SortBags (taint).
-- **Auto-sort** (AutoSort.lua): any bag change or quest-log update makes a sort pending. It waits for: bags
-  closed, no combat, empty cursor, no vendor/bank/mail/trade/auction/guild bank window, 1.1s of bag quiet,
-  2s after login. Bags opening mid-sort: pause (default; the plan is kept) or finish now (SedimentDB.openBags).
-  Quiet in chat; item sounds muted during sorts (Sound.lua); the gliding sweep shows progress.
-- **UI**: sort button (left: sort, right: toggle auto-sort); a gear next to it (or /sed) opens the setup
-  questions while there are no rules or a run is unfinished, else Settings (Settings.lua) at Weights:
-  a section list like WoW's Options window: Weights (Select mode, ladder, reset), Special bags (bags, fill
-  switch, keep-out rules), Sorting (auto-sort options, Debug mode), History, and in debug mode Testing
-  (seeded scrambles, status text, recent sorts) and Commands (ns.COMMANDS / ns.SHORTCUTS in Sediment.lua, also
-  /sed help). Alt+right-click popup (Popup.lua). Every Sediment window closes and Select mode ends in combat.
-- **Order** (Order.lua, 0.19.0: the settings' Order section, which replaced the Weights page and the Setup
-  window; see the version log. The Setup notes below are history): their own window, opened with the
-  settings until dismissed or done; ? brings the first page back. Steps: layout, hearthstone, neighbours
-  (Select mode with Setup's click handler), gray, trade goods, then equipment sets / BoE / bags / quest
-  items if present, then generated class questions (most unruled items first; Split = per subclass),
-  then the review (select a rung, Move up/down). Every answer is a PlaceRule plus a button-speed sort
-  (SortSoon waits out a running sort). State in SedimentDB.setup: the steps, the index, and per step a
-  copy of the weights from when it was shown (Back restores it). Highlights (Settings.SetHighlight):
-  orange outline = no rule of its own, gold = what the question is about; frames that take no clicks.
+  auto-sorts stream it at an average budget per frame (default 0.3ms); an auto-sort that finds the bags
+  open finishes unpaced (HurryIfBagsOpen). Takes over BagItemAutoSortButton's left click (a second click
+  cancels a button sort); never replaces C_Container.SortBags (taint).
+- **Auto-sort** (AutoSort.lua): always on (0.20). Any bag change or quest-log update makes a sort pending.
+  It waits for: bags closed, no combat, empty cursor, no vendor/bank/mail/trade/auction/guild bank window,
+  1.1s of bag quiet (Timing), 2s after login. Quiet in chat; item sounds muted during sorts (Sound.lua); the
+  gliding sweep shows progress.
+- **Settings window** (Settings.lua): opened by the gear next to the bag's sort button, /sed (the only
+  command since 0.20; it toggles the window), or the popup's Settings button, always at Order unless another
+  section is picked. 760x680, solid, HIGH strata; where it's dragged is kept (SedimentDB.settingsPos), else on
+  Order it sits beside the bags. Sections: Order (shown as "Ordering"), Special bags (the bags you have, the
+  fill switch, the keep-out list with x / Undo), Timing (wait after changes, smoothness), History. The Debug
+  group (Testing: seeded scrambles, recent sorts, status text; Tools: auto-sort status, scan, mute test,
+  cancel; Files) shows only while the debug addon SedimentSort_Debug is loaded (Settings.DebugOn); its code
+  still lives in the main addon. Every Sediment window closes and Select Mode ends in combat.
+- **Order** (Order.lua, built into the settings page): every rule as a row, top to bottom the way the bags
+  sort, with the Empty Space row among them. Drag: a press on a row plus 5 px of movement (Sediment polls
+  IsMouseButtonDown in OnUpdate instead of WoW's drag start), release anywhere; a gold line shows the drop.
+  Click: select (gold outlines on its items) and "Sort X as:" choices on the right (an item: its group/part,
+  group, flags; a group/part: its group). x: removed, greyed in place with Undo. The top line counts items
+  with nothing set (orange outlines). A welcome covers the list with no rules, or after ?; Start Fresh =
+  save to History, clear (keep-out too), DefaultOrder, a Created save, Combined Backpack on.
   dev/setup_check.lua clicks through it against mocked frames.
+- **Select Mode** (Settings.lua catchers, Order's handlers): on whenever Order shows its list (not under the
+  welcome); the button shows the state ("Select Mode: On" / "Off") and turning it off lasts until Order next
+  opens. Catcher frames over the bag slots (children of the item buttons; Blizzard's buttons never touched):
+  hover lights up the row that sorts the item (LockHighlight; the Empty Space for unset items), click adds
+  a row for it (AddRuleAbove), Alt+right-click still opens the popup. No numbers on the slots. The outlines
+  (Settings.SetHighlight: orange = nothing set, gold = the selected row's items) are separate frames that
+  take no clicks.
+- **Ordering popup** (Popup.lua, Alt+right-click a bag item; was "weight popup"): "Sorted as <the Order
+  row's name>" (Order.RowLabel), then the levels that apply, most specific first; the winner marked "< wins"; Add on the levels above it
+  (only those can change the item); a part named like its group isn't listed. Keep out of special bags
+  checkboxes for items a special bag would take. Settings opens Order with the deciding row selected. Always
+  just above the bag window (Settings.BagWindow), DIALOG strata over the settings window, solid, not
+  draggable.
+- **Words** (Text.lua): see Writing style below.
 
 ## Writing style (user, 2026-11-25)
 - Every word for one of Sediment's own things, and every button label, lives in Text.lua (ns.TEXT), under
   keys named for a role, never the word (SaveInUse = "Active", ClearAllButton = "Start Fresh"): a word change
   is one edit in that one file, and keys are never renamed with it (user, 2026-11-25, after a rename touched
   two files). dev/text_check.lua fails on a key used but not defined (it would show as the key in game) or
-  defined but unused. Section ids "Weights" and "History" are internal; their shown names come from Text.lua. L(key) plain (titles, button labels),
+  defined but unused. Section ids "Order" and "History" are internal; their shown names come from Text.lua. L(key) plain (titles, button labels),
   N(key) a noun in a sentence (sand `c8a96e`, the chat prefix's colour), B(key) a button name in a sentence
   (gold `ffd100`, like button text). README: nouns **bold**, button names `code style`. No quotation marks.
-- The nouns, and only these: **Sediment**, **Weight(s)**, **Select Mode**, **Setup** (the questions),
-  **History**, **Pinned** (a save kept at the top; was "Kept"), **Empty Space** (the gap where new loot
+- The nouns, and only these: **Sediment**, **Weight(s)**, **Order** (the settings section; it replaced
+  **Setup** in 0.19), **Select Mode**, **History**, **Pinned** (a save kept at the top; was "Kept"), **Empty Space** (the gap where new loot
   lands; also the name for the number that used to be shown as "sink line": user, 2026-11-25). Code still
-  calls it sinkLine. Buttons in Title Case (Start Fresh, Save Rules).
-- "Rules" means the whole set (all Weights plus keep-out), never one entry: "x removes a Weight", "Save
-  Rules", "Start Fresh clears your rules". A History entry is "a save".
+  calls it sinkLine. Buttons in Title Case (Start Fresh, Select Mode: On).
+- "Rules" means the whole set (all Weights plus keep-out), never one entry: "x removes a Weight", "Start
+  Fresh clears your rules". A History entry is "a save".
 - The keep-out rule is "Keep out of special bags" (list heading "Kept out of special bags"). "Not set" is a
-  plain phrase, lowercase in sentences. No "kind" / "category": "all Cloth", "Silk Cloth", the game's own
-  class names. "Empty Space", not "gap" or "sink line". Not reformatted: these notes' history sections.
+  plain phrase, lowercase in sentences. No "kind" / "category": the game's own names, a part with its
+  group ("Trade Goods/Cloth"), "Silk Cloth". No "row" in player-facing text (open; see TODO.md). "Empty Space", not "gap" or "sink line". Not reformatted: these notes' history sections.
 
-## To do (updated 2026-11-25)
-In-game tests left (0.17.1, uncommitted; /reload is enough):
-- Layout: the 760x600 window, opaque now (solid WHITE8X8 background: the tooltip art is translucent itself),
-  Weights rows 430 wide and striped so each x sits by its item, and the new spacing on every section (Sorting's boxes no longer on their help
-  text); History rows (Pin / Unpin left, Load and x right; long reasons and summaries fit).
-- History: Pin asks for an optional name and moves the save to the top (no "(Pinned)" text: the Unpin button
-  says it; "Active" (was "in use"; "Current" read as "newest") leads the summary line, which cut it off at the end); Unpin; x greys the row
-  with Undo, and closing the window removes it; your "original rules" shows as Pinned (converted from Kept).
-- Start Fresh: on the first page and in Weights (asks first, then Setup); clears Weights and keep-out rules
-  (both are in the save); Combined Backpack: switch it to separate bags, then Start Fresh / Continue turns it
-  back on and the question page and chat say so (the CVar call is what Blizzard's bag menu does; untested).
-- The gear and /sed: Setup with no rules or an unfinished run, else Weights; first-page Settings button.
-- Earlier, still open: a clean full Setup run; does the generated-question order make sense on real bags.
+## Verified in game
+Settings rework, select mode incl. the reagent bag, windows closing in combat (2026-11-24;
+the combat close had been cut short by the same select-mode error); editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the
+set flag is read per slot from the game and is part of an item's identity, so it can't land on the wrong copy); herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
+checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
+pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
 
-Code left:
-- Onboarding (see "Planned: onboarding questionnaire" below), agreed 2026-11-24, in this order:
-  1. Done (0.16.0): "Reset to default"; empty default rules; Full order for new installs.
-  2. Done (0.16.0): automatic backup before rules are replaced, if there are any; "Restore previous rules".
-  3. Done (0.17.0, not yet tried in game): the questionnaire (Setup.lua), whose first page replaced the
-     welcome screen, with the "no rule yet" highlight on bag slots while it runs.
-- Settings window extras: Options > AddOns entry; drag items onto the ladder to add them; a full category
-  browser (today "Not set" only lists categories in the bags).
+2026-11-25 / 26 (0.18-0.19, user's screenshots and reports): the Order section and its list; dragging rows by
+pressing anywhere (user: "the new drag and drop code is really good"); the weight popup's "Sorted as" with
+Add only above the winner (Okra and Dusty Letter screenshots); the popup above the bag window, solid, over the
+settings window (Waylaid Crate screenshot). Not seen in game yet: the Select Mode: On / Off button; Start
+Fresh turning on the Combined Backpack when it's off.
 
-Ideas / parked (decided not now):
-- Profiles (user, 2026-11-25, parked): several named setups (Herbing, Raiding) to switch between, as their own
-  small section like other addons' profile lists, if anyone needs it. Came out of a History design with
-  named mains and snapshot lineage that grew too complicated for a bag sort (main/snapshot, Save on the main,
-  Make Main for rollback or fork, unique names, legacy users choosing a Main). History stays a safety net.
-- History order while on the page (user, 2026-11-25, parked; "moving under the mouse is gross"): hold the
-  list's order while the History page is open (a new entry right under the row you clicked, pin changes in
-  place, re-sort on reopening). Dropped for now: it only matters with unsaved changes plus a Load while on
-  the page, and Load ignores clicks right after a redraw.
-- Guided tour (user, 2026-11-26, parked): the Order help paragraph is small and dense, and nobody reads it.
-  Idea: a short "wizard-like" tour of callouts pointing at one thing at a time, each with an Okay button.
-  Discussed (2026-11-25):
-  - Forever has Blizzard's HelpTip (Blizzard_SharedXML/HelpTip.lua: arrow callout, Okay / Next / Got It
-    buttons, acknowledge callbacks), but it shows nothing when the player has turned tutorials off (CVar
-    hideHelptips). Claude's lean: our own small callout styled like it, which always shows and is testable.
-  - Suggested steps (at most 5-6): the bag's gear ("Set up how your bags sort"; advances on the click), Start
-    Fresh on the welcome (advances on the click), the Empty Space row (rows above pack at the top; new loot
-    lands there), the first row below it (sinks to the bottom), any row (drag to reorder; bags re-sort as
-    you go), the Select Mode button (hover to find a row, click to add one).
-  - A step that asks for a click advances on that click; only explanation steps get Okay. Point at rows and
-    buttons, not bag slots (Start Fresh sorts the bags just as the tour starts). An x on every callout ends
-    the tour; ? replays it. It doesn't auto-start for players who already have rules.
-  - The paragraph then shrinks to one line in a normal-size font, or goes. (The bigger font alone is a quick
-    win either way.) Cost: each step is tied to a button or row, so UI changes need the tour updated.
-  - Undecided: own callout or HelpTip; advance on the action or Okay on every step; start at the bag's gear
-    the first time the bags open or only once settings open; keep the welcome in front (tour after Start
-    Fresh) or let the tour replace it.
-- Setup questions (user, 2026-11-25, the "skinning knife" case): a question lists, outlines and counts only
-  the items its answer would decide, so not items a more specific rule already places (an item's own
-  Weight, an earlier flag). A special question (sets, BoE, bags, quest items) with nothing left to decide is
-  skipped.
+## Decided, built or dropped (moved out of the to-do list, 2026-11-26)
+The parking lot is TODO.md now; these are the records that were in it.
+
+Built or decided:
 - Setup redesign: BUILT in 0.18.0 (2026-11-25) as described below, except the last point:
   - Setup becomes just "Your order": the kinds of items in your bags in plain by-type order (no opinions),
     plus the Empty Space row; Move Up / Move Down; click a row to outline its items; the bag sorts on each
@@ -148,18 +126,19 @@ Ideas / parked (decided not now):
     Move Up / Move Down buttons on the Weights page. Built, then removed the same day: the user didn't ask
     for them, and the Empty Space already moves there by its number.
   - Root cause noted by the user: the tester mostly wanted simple, and the old rules weren't consistent
-    (the hammer and pick had Weights, the skinning knife didn't). Idea, not decided: a "Profession tools"
-    flag from a fixed item-ID list, since WoW files tools under unrelated categories.
+    (the hammer and pick had Weights, the skinning knife didn't). Idea then: a "Profession tools" flag from
+    a fixed item-ID list, since WoW files tools under unrelated categories (dropped 2026-11-26, below).
 - Setup review (user, 2026-11-25): clicking a row outlines its items in the bag gold (items whose winning
   rule is in that row). The Empty Space row is just "Empty Space" (a parenthetical was removed; the user's
-  rule: no parentheticals in UI text without asking). Open, from the same feedback: "Higher up / Lower down"
+  rule: no parentheticals in UI text without asking). Then open, from the same feedback, all overtaken by Order
+  in 0.19 (the remaining parentheticals are listed in TODO.md): "Higher up / Lower down"
   says nothing about "than what" in the packed layouts (options: name the bag edges, use the Empty Space as
   the reference, or skip float/sink there and order in the review); "Quest" (item class) and "Quest item"
   (the game's flag) look like duplicates (proposed: one question and row). Other UI parentheticals
   ("Not set (default)", "(question 4 of 9)", "(the version in the .toc)", "missing (restart the game)",
   "(removed)", "(deleted)") left for now, pending the user.
 - History simplified (user, 2026-11-25), replacing everything below about names, Save Rules and several pins:
-  two kinds of entry, Created (Setup done; always new) and Snapshot (logout via PLAYER_LOGOUT, before Load
+  two kinds of entry, Created (made at Setup's Done; since 0.19 by Start Fresh; always new) and Snapshot (logout via PLAYER_LOGOUT, before Load
   and Start Fresh, and a login safety net; only if no entry holds the rules in use); titles "<character> —
   <kind> — Nov 25, 10:32" (EntryTitle), the date no longer in the summary line; one pin (pinning moves it);
   newest 20 unpinned kept. Removed: Save Rules and the name box, names, the Pin dialog. Upgrade keeps the
@@ -171,39 +150,48 @@ Ideas / parked (decided not now):
   or the last Active one while edited rules match no save.
 - History preview: dropped (user, 2026-11-25): Load already saves the rules first, so it's a safe way to
   try a save; History marks the save to roll back to as Previous instead.
-- Unset items (user, 2026-11-25): the Weights list shows both the broad group and the narrower one for the
-  same item (Projectile and Arrow), and nothing ties them together. Options discussed: one orange row per
-  narrower group with an item icon (broad groups set from Select Mode / the popup), pointing to Select Mode
-  instead of listing them, or a step-by-step wizard for what's unset. Decide later.
-- Rules export and import (user, 2026-11-24): copy all rules (weights, flags, keep-out, sink line, default) as a
-  text string to share or back up; paste a string to load one. Pairs with weight versions: an export string is
-  a snapshot. Questions: replace vs merge on import; include settings (auto-sort options) or rules only.
-- Sort demo on the welcome screen (user, 2026-11-24, optional): snapshot the bags, sort them to a sample set of
-  weights so a new user sees it work, with Undo restoring the snapshot.
-- Reverse (user, 2026-11-24): flip the whole layout so light items (hearthstone, "good stuff") pack from the
-  bottom and heavy from the top, gap still in the middle. Implementation: reverse the on-screen slot order in
-  Bags.Read (all zones); everything else unchanged. Open questions: a Sorting-tab checkbox and/or
-  Shift+click on the sort button to flip and sort at once.
-- Per-account vs per-character settings (user, 2026-11-24): today everything is account-wide (SedimentDB).
-  Candidates for per-character: reverse, maybe auto-sort options. Weights stay account-wide.
-- Highlight items with no weight of their own / using the default weight (user, 2026-11-24), e.g. a marker
-  on those bag slots, so missing weights are visible in the bag itself (the ladder's "Not set" lists them).
-  Built for the setup questions (0.17.0, only while they're open); a switch to show it any time is a small
-  step from there (Settings.SetHighlight).
-- Weight versions: built as History (0.17.0).
-- Ranking instead of numbers (rungs, sink line as a divider); the ladder is laid out to become that.
-- Buff food and Drink flags; category row breaks; neutral-buoyancy layer.
-- Never-worse partial order; improved target-choice planner (~10% fewer swaps, not noticeable); exact
-  matching (2.3%); splitting pick-up/put-down across frames (per-swap cost isn't noticeable).
-- An exact 99th-percentile frame time in the bench (worst frame already bounds it).
+- Weight versions: built as History (0.17.0). Ranking instead of numbers: built as the Order list (0.18-0.19).
+- Highlight items with nothing set: built as Order's orange outlines (only while Order shows); a switch for
+  any time is in TODO.md, Later.
 
-Done in game: settings rework, select mode incl. the reagent bag, windows closing in combat (2026-11-24;
-the combat close had been cut short by the same select-mode error); editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the
-set flag is read per slot from the game and is part of an item's identity, so it can't land on the wrong copy); herb bag character (2026-11-24); quest items with a 1.1s delay, now the default (was 2s;
-checks run every 0.25s, so 1.1 waits 1.1-1.35s); Alt+right-click on bank items; Task Manager off (no change); partial stacks last; GCD sweep (first version); bags-open pause;
-pause keeps the plan (cloak); reagent bag (silk); test bench; partial order (ring case); settings window.
+Dropped (user, 2026-11-26, from the review of the parked list):
+- Profession tools flag (a fixed item-ID list for tools WoW files under unrelated categories): a hand-kept
+  list is too painful to maintain.
+- Reverse layout (flip so light items pack from the bottom): not needed; moving the Empty Space covers it.
+  Presets are in TODO.md instead.
+- Profiles (named setups to switch between; came out of a History design with named mains and snapshot
+  lineage that grew too complicated for a bag sort): if anything, a per-character History (TODO.md, Later).
+  Per-account vs per-character settings goes with it.
+- History order held while on the page: a rare case, and Load ignores clicks right after a redraw.
+- A movable "Not set" row; category row breaks; a neutral-buoyancy layer.
+- Sorting performance: a never-worse partial order, the improved target-choice planner (~10% fewer swaps),
+  exact matching (2.3%), splitting pick-up/put-down across frames: none of it noticeable. An exact
+  99th-percentile frame time in the bench: the worst frame already bounds it.
+- Overtaken by Order: the Setup question fixes (the "skinning knife" case), "Higher up / Lower down"
+  wording, the Quest vs Quest Item duplicate, the unset-items options (Projectile vs Arrow), the sort demo on
+  the welcome (Start Fresh plus History's Previous does it), dragging items onto the ladder (Select Mode
+  clicks do it).
 
-## Planned: onboarding questionnaire and empty starter rules (designed 2026-11-24, built 0.16.0-0.17.0)
+## Idea details: Guided tour (parked 2026-11-26; see TODO.md, Readable help)
+The Order help paragraph is small and dense, and nobody reads it. Idea (user): a short "wizard-like" tour of
+callouts pointing at one thing at a time, each with an Okay button. Discussed 2026-11-25:
+- Forever has Blizzard's HelpTip (Blizzard_SharedXML/HelpTip.lua: arrow callout, Okay / Next / Got It
+  buttons, acknowledge callbacks), but it shows nothing when the player has turned tutorials off (CVar
+  hideHelptips). Claude's lean: our own small callout styled like it, which always shows and is testable.
+- Suggested steps (at most 5-6): the bag's gear ("Set up how your bags sort"; advances on the click), Start
+  Fresh on the welcome (advances on the click), the Empty Space row (rows above pack at the top; new loot
+  lands there), the first row below it (sinks to the bottom), any row (drag to reorder; bags re-sort as
+  you go), the Select Mode button (hover to find a row, click to add one).
+- A step that asks for a click advances on that click; only explanation steps get Okay. Point at rows and
+  buttons, not bag slots (Start Fresh sorts the bags just as the tour starts). An x on every callout ends
+  the tour; ? replays it. It doesn't auto-start for players who already have rules.
+- The paragraph then shrinks to one line in a normal-size font, or goes. (The bigger font alone is a quick
+  win either way.) Cost: each step is tied to a button or row, so UI changes need the tour updated.
+- Undecided: own callout or HelpTip; advance on the action or Okay on every step; start at the bag's gear
+  the first time the bags open or only once settings open; keep the welcome in front (tour after Start
+  Fresh) or let the tour replace it.
+
+## Onboarding questionnaire and empty starter rules (designed 2026-11-24, built 0.16.0-0.17.0; replaced by Order in 0.19)
 Why: first real user feedback (2026-11-24): onboarding was hard (didn't use "Set weights", didn't realize OK did
 anything), the default weights were bad (they carried the developer's opinions, e.g. hearthstone on top, and a
 weight for a Blacksmith Hammer the user didn't have), and they wanted to keep items out of the reagent bag.
@@ -280,6 +268,24 @@ in-game A/B, test on fresh seeds and a second character's bags. Splitting pick-u
 parked for the same reason (per-swap cost isn't noticeable).
 
 ## Version log
+- 0.20.0 (2026-11-26, user's calls): fewer choices, no "Weight". Auto-sort is always on (the right-click
+  toggle, /sed auto and the checkbox went), every sort uses the full order (the partial auto-sort order,
+  CompareStable / BestBands, was removed: "no partial sort"), and an auto-sort running when the bags open
+  always finishes at full speed (the pause mode, Pause / Unpause / StillValid, was removed; the welcome no
+  longer promises "nothing moves while your bags are open"). The Sorting section became Timing (wait,
+  smoothness). /sed is the only command (it toggles the settings); the developer commands became buttons in
+  a Debug > Tools section (auto-sort status, scan, mute test, cancel); /sed why, delay, budget, bench, sort
+  and help went. The Debug mode checkbox went too: the Debug group (Testing, Tools, Files) shows only while a
+  separate debug addon, SedimentSort_Debug (in this repo, installed as its own AddOns folder), is loaded.
+  Player-facing "Weight" is gone: the Order section shows as "Ordering", the count line reads "N items in your
+  bags aren't ordered yet", History summaries read "24 ordered, 1 kept out", the sort button's tooltip no
+  longer says float/sink. Retired saved settings (autoSort, autoOrder, openBags, testingTools) are cleared on
+  load. README rewritten feature by feature (Sorting, Ordering, the ordering popup, Timing, Special bags,
+  History, then developer material); it says "entry" for the list's items while "row" in the game is open.
+  The cost of the full order, measured with dev/sim.lua bench on the user's bag scan (moves per event, full
+  vs the removed partial order's figures from 2026-11-22): loot + use 9.6 vs 2.8, set swap 9.1 vs 1.3, loot 3
+  19.7 vs 5.3, use 3 20.2 vs 7.9. Streamed while the bags are closed, so probably not noticeable.
+  Name decided (user): "Disorder - Item Manager"; the rename itself is still to do (TODO.md).
 - 0.19.0 (2026-11-25, user's calls): one place to arrange. The settings window's Weights page (rules as
   numbers) and the separate Setup window are merged into the **Order** section (Setup.lua -> Order.lua, the
   list built into the settings page): the same list everywhere, no numbers shown. Section order: Order,
@@ -597,7 +603,7 @@ Second bench (20 seeds x 60 rounds of five events; bags fuller, so loot + use di
   by N, move whole groups adding up to exactly N from one end of the band to the other. Same as stableFill when
   bands shift by 1; clearly better when they shift by more (multi-item loot, several things used up).
 
-## Idea details: Buff food and Drink flags (parked; see To do)
+## Idea details: Buff food and Drink flags (see TODO.md)
 - Buff food flag (discussed 2026-11-20, user said "not quite yet"). Classic data files all food and drink under
   Consumable > Food & Drink. Buff food's tooltip says "well fed" ("If you spend at least 10 seconds eating you
   will become well fed and gain ..."). Plan: for Food & Drink items only, read C_TooltipInfo.GetItemByID(itemID)

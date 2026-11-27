@@ -1,118 +1,112 @@
 # Sediment
 
-A bag sort for World of Warcraft: Forever. Every item has a **Weight**: light items float to the top of
-your bags, heavy items sink to the bottom, and the **Empty Space** stays in the middle, where new loot lands.
-While your bags are closed, **Sediment** keeps them in order quietly in the background.
+A bag sort for World of Warcraft: Forever that keeps your bags in your own order, by itself. You rank the
+kinds of items you carry from top to bottom, and put the **Empty Space** where new loot should land. Whenever
+your bags are closed, **Sediment** quietly puts everything where it belongs.
 
-Writing convention, here and in the game: **Sediment**'s own nouns
-(**Sediment**, **Weight**, **Order**, **Select Mode**, **History**, **Pinned**, **Empty Space**) are bold here and
-sand-coloured in the game; button names are `in code style` here and gold in the game. "Rules" always means
-your whole set: all your **Weights** plus what you keep out of special bags.
+Writing convention, here and in the game: **Sediment**'s own nouns (**Sediment**, **Ordering**, **Select
+Mode**, **History**, **Pinned**, **Empty Space**) are bold here and sand-coloured in the game; button names
+are `in code style` here and gold in the game. "Rules" always means your whole set: your **Ordering** plus
+what you keep out of special bags.
 
-## Getting started
+## 1. Sorting
 
-Click the gear next to the bag's sort button (or type `/sed`): the settings open at **Order**, beside your
-bags. The first time, a short welcome covers the list; press `Start Fresh` to begin from a common layout you
-can rearrange: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable, Quest Items, BoE Gear (and
-any other kind of item in your bags), the **Empty Space**, then Weapon, Armor, Trade Goods, Miscellaneous
-and Gray Quality last. `Start Fresh` saves any rules you had to **History** first, clears them (Keep out of
-special bags too), adds a Created entry for the new layout, and turns on Blizzard's Combined Backpack if
-it's off (**Sediment** sorts in that window's order). The ? next to the settings title brings the welcome back.
+This is the point of **Sediment**: your bags sort themselves.
 
-**Order** lists your rules, top to bottom the way your bags sort, with the **Empty Space** among them. Drag a
-row to move it: press anywhere on it and move the mouse. Clicking a row outlines its items in your bags, and your bags sort on every
-change. The **Empty Space** moves the same way, and where you put it decides the layout:
+- **Auto-sort is always on.** About a second after your bags change (loot, crafting, using something up),
+  and only while they're closed, **Sediment** sorts them. It moves a few items per frame so the game stays
+  smooth. If you open your bags while it's running, it finishes at full speed right away.
+- **It waits** while you're in combat (a sort that's running stops at once and finishes afterwards), while
+  an item is on your cursor, and while a vendor, bank, mail, trade, auction or guild bank window is open.
+- **The sort button** in the bag sorts right now, at full speed. **Sediment** takes it over from the built-in
+  sort. Clicking it again during a sort cancels that sort.
+- **Every sort uses the same exact order**, so every item always has the same spot. Identical stacks sit
+  side by side with the partial stack last, and equipment sets stay together. Every normal bag is sorted:
+  Blizzard's per-bag "Ignore cleanup" option is ignored.
+- **It's quiet:** the item clinks are muted while it sorts, and a cooldown sweep on the sort button and the
+  backpack button shows it working.
+
+The gear next to the sort button, or `/sed`, opens the settings at your **Ordering**. The settings window
+closes in combat, along with everything else **Sediment** opens, so a click in combat always does what you
+expect.
+
+## 2. Ordering
+
+Where you decide the order. The settings open here, next to your bags.
+
+**Getting started.** The first time, a short welcome covers the list. `Start Fresh` lays out a common order
+to start from: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable, Quest Items, BoE Gear, any
+other kind of item in your bags, the **Empty Space**, then Weapon, Armor, Trade Goods, Miscellaneous, and
+Gray Quality last. It saves any rules you had to **History** first, clears them (Keep out of special bags
+too), adds a Created entry for the new order, and turns on Blizzard's Combined Backpack if it's off
+(**Sediment** sorts in that window's order). The ? next to the settings title brings the welcome back.
+
+**The list** shows your **Ordering** top to bottom, the way your bags sort, with the **Empty Space** among
+the entries. Drag an entry to move it: press anywhere on it and move the mouse. Click one to outline its
+items in your bags in gold. Your bags sort on every change. x removes an entry; it stays greyed with `Undo`
+until the list changes again or you leave the section.
+
+**The Empty Space** moves the same way, and where you put it decides the layout:
 - at the top: everything packs toward the bottom of your bags;
 - at the bottom: everything packs from the top, like a normal bag sort;
-- in between: what's above it floats to the top, what's below it sinks to the bottom, and the gap is in the
+- in between: what's above it goes to the top, what's below it goes to the bottom, and the gap is in the
   middle, where new loot lands.
 
-Anything not set yet stays next to the **Empty Space** and is outlined orange (the line above the list says
-how many); select the **Empty Space** to see those items in gold. x removes a row; it stays greyed with
-`Undo` until the list changes again or you leave the section.
+Items that aren't ordered yet stay next to the **Empty Space** and are outlined orange; the line above the
+list says how many. Select the **Empty Space** to see them in gold.
 
-**Select Mode** is on whenever **Order** shows its list; its button, `Select Mode: On`, turns it off until
-you next open **Order**. While it's on, hovering an item in your bags lights up the row that sorts it, and clicking an
-item gives it its own row, right above the row that sorts it now, ready to move. Alt+right-click still opens
-the **Weight** popup.
+**Select Mode** is on whenever the list shows; its button, `Select Mode: On`, turns it off until you next
+open **Ordering**. While it's on, hovering an item in your bags lights up the entry that sorts it, and
+clicking an item gives it an entry of its own, right above the one that sorts it now, ready to move.
+Alt+right-click still opens the ordering popup.
 
-The column right of the list offers wider ways to sort the selected row, e.g. "Sort Mageweave Cloth as:"
-`Trade Goods/Cloth`, `Trade Goods`, or `BoE Gear` for a BoE item; a group/part row offers its whole group.
-Choosing one replaces the row with that one, or joins it to that row if it's already in the list; either
-way, everything it covers sorts there. Hover a choice to see what it would cover.
+**Wider choices.** The column right of the list offers wider ways to sort the selected entry, e.g. "Sort
+Mageweave Cloth as:" `Trade Goods/Cloth`, `Trade Goods`, or `BoE Gear` for a BoE item; a group/part
+offers its whole group. Choosing one replaces the entry, or joins it to that entry if it's already in the
+list; either way, everything it covers sorts there. Hover a choice to see what it would cover.
 
-Alt+right-click on any bag item opens its **Weight** popup: "Sorted as BoE Gear", naming the row in
-**Order** it sorts with, without opening **Order**. It lists what applies to the item, most specific first:
-the item itself, its flags (Equipment Set, Quest Items, Gray Quality, BoE Gear), its group/part, its group.
-The one that decides is marked `wins`;
-the most specific one with a row in **Order** always wins. Each level above it has `Add`, which gives that
-level a row right above the deciding row, so it takes over and your bags sort. The levels below the winner
-can't change this item, so they have no button. `Settings` opens **Order** with the deciding row selected.
-The popup always opens just above your bag window and draws over the settings window.
+**How an item finds its place.** With nothing ordered, **Sediment** sorts by item type, like an ordinary bag
+sort. Otherwise each item sorts with the most specific entry in your **Ordering** that matches it:
+1. that exact item (for example, Hearthstone);
+2. a flag, checked in this order: Equipment Set, Quest Items, Gray Quality, BoE Gear (equippable and not
+   soulbound yet);
+3. its group/part (for example, Consumable/Potions);
+4. its group (for example, Consumable).
 
-## How it sorts
+## 3. The ordering popup
 
-**Sediment** starts with no rules: until you add some, it sorts your bags by item type, like an ordinary
-bag sort. Rules are how you make the order yours.
+Alt+right-click any bag item: a small window opens just above your bags and says how that item sorts, for
+example "Sorted as BoE Gear", naming the entry in your **Ordering**. Below that, everything that applies to
+the item, most specific first: the item itself, its flags, its group/part, its group. The one that decides
+is marked `wins`. Each one above it has `Add`, which gives it an entry right above the deciding one, so it
+takes over and your bags sort; the ones below it can't change this item, so they have no button. For items a
+special bag would take, it also has the Keep out of special bags checkboxes. `Settings` opens **Ordering**
+with the deciding entry selected.
 
-Each item's **Weight** comes from the most specific rule that has one:
-1. a **Weight** for that exact item (for example, Hearthstone 0, so it's always first),
-2. a flag, checked in this order: Equipment set, Quest item, Gray quality, BoE gear (equippable and not
-   soulbound yet),
-3. its subclass (for example, Potions),
-4. its class (for example, Consumable),
-5. the default **Weight**.
+## 4. Timing
 
-The **Empty Space** is where new loot lands. Rules above it float to the top, rules below it sink to the
-bottom; in **Order** you drag it like any row.
+Two numbers, and the defaults should suit nearly everyone:
+- **Wait after changes:** how long your bags must be quiet before they sort (default 1.1 seconds), long
+  enough for a burst of looting to finish and new quest items to register.
+- **Smoothness:** how much time per frame, on average, sorting may spend moving items while your bags are
+  closed (default 0.3 ms). Lower is smoother but slower. The sort button always goes full speed.
 
-Special bags: a reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...) holds
-what it accepts, wherever it sits. Items that belong there are moved in, and each special bag is sorted on
-its own. To keep things out, Alt+right-click one and, under Keep out of special bags, tick "all Cloth"
-(every cloth) or just that item (e.g. "Silk Cloth"); ones already in a special bag move back out. The Special
-bags section in the settings lists every such rule (x removes one, with `Undo`) and has a switch to stop
-filling special bags at all.
+## 5. Special bags
 
-Equipment sets stay together, and identical stacks always sit side by side, with the partial stack last.
-Every normal bag is sorted: Blizzard's per-bag "Ignore cleanup" option is ignored.
+A reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...) holds what it accepts,
+wherever it sits. Items that belong there are moved in, and each special bag is sorted on its own.
 
-## Sorting
+To keep something out, Alt+right-click it and, under Keep out of special bags, tick its group/part (every
+cloth) or just that item (e.g. Silk Cloth); ones already in a special bag move back out. The Special bags
+section lists the special bags you have, every keep-out rule (x removes one, with `Undo`), and a switch,
+Fill reagent and profession bags automatically. Off: nothing is moved in; what's already there stays and is
+still sorted.
 
-- The sort button in the bag does a full sort: the exact order, the same result every time. **Sediment**
-  takes this button over from the built-in sort. Right-click it to turn auto-sort on or off (the button
-  greys out while it's off).
-- Auto-sort (on by default) only runs while the bags are closed, about a second after they change. It
-  moves a few items at a time so the frame rate stays steady, and by default sorts to the same exact order
-  as the button. Opening your bags mid-sort finishes it at once (or, if you choose, pauses it until they
-  close). It never runs in combat or while a vendor, bank, mail, trade, auction or guild bank window is open.
-- Sorting is silent (the item clinks are muted), and a cooldown sweep on the sort button and the backpack
-  button shows a sort in progress.
+## 6. History
 
-## Settings
-
-The settings window lists its sections on the left, like WoW's own Options window; the Debug group only
-appears in debug mode. It closes in combat, along with everything else **Sediment** opens, so a click in
-combat always does what you expect.
-
-### Order
-The list described above.
-
-### Special bags
-The special bags you have; Fill reagent and profession bags automatically (off: nothing is moved in, what's
-there stays and is still sorted); and everything kept out of special bags (all Cloth, Silk Cloth, ...),
-with x to remove (`Undo` puts it back).
-
-### Sorting
-You shouldn't need it: the defaults are auto-sort on, Full order, wait 1.1 seconds, smoothness 0.3, and
-`Finish Now` when the bags open mid-sort. Here you can change them: auto-sort on/off; its order (`Full`:
-the exact order, like the sort button, or `Partial`: only what the **Weights** require, fewest moves); how
-long it waits after changes; how smoothly it runs; and whether opening the bags mid-sort finishes it at
-once or pauses it. Debug mode reveals two more sections (below).
-
-### History
-A safety net of your rules (**Weights**, the **Empty Space**, default and Keep out of special bags; not the sorting
-options), newest first. Two kinds of entry, titled like "Rook — Snapshot — Nov 25, 10:32" (the character
-you were on):
+A safety net of your rules (your **Ordering**, the **Empty Space** and Keep out of special bags; not
+Timing), newest first, each with a short summary like "24 ordered, 1 kept out". Two kinds of entry, titled
+like "Rook — Snapshot — Nov 25, 10:32" (the character you were on):
 - **Created**: added when `Start Fresh` lays out a new order.
 - **Snapshot**: taken automatically when you log out (or `/reload`), and before `Load` or `Start Fresh`, but
   only if your rules have changed since they were last in **History**.
@@ -124,70 +118,48 @@ dropped. Of the rest, the newest 20 are kept. Hover an entry to see its rules. *
 holding the rules you're using; **Previous** marks the one you were using before, which is what you'd go
 back to.
 
-### Testing (debug mode)
-Scramble the bags with a seed (Drift, Minimal, Full or Maximal; the same seed on the same sorted bag makes
-the same mess), then let auto-sort clean up. An optional one-line status text under the bag's search box
-shows what the last sort cost (hover for details), and the section lists recent sorts.
-
-### Commands (debug mode)
-Every `/sed` command and mouse shortcut.
-
-### Files (debug mode)
-The version the game read from the addon's `.toc`, and every file **Sediment** expects, each marked loaded
-or missing. A missing file usually means the game needs a full restart.
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `/sed` | Open the settings at your **Order** (also /sed config, /sed settings). |
-| `/sed sort` | Sort the bags now, the same as clicking the sort button. |
-| `/sed cancel` | Stop a sort that's running. |
-| `/sed auto` | Turn auto-sort on or off (or right-click the sort button). |
-| `/sed status` | What auto-sort is waiting for, and what the last sort cost (also /sed auto?). |
-| `/sed delay [seconds]` | Show or set how long auto-sort waits after the bags change. |
-| `/sed budget [ms]` | Show or set auto-sort's smoothness: time per frame it may spend moving items. |
-| `/sed why` | Hover a bag item, then run this: its **Weight** rules in chat. |
-| `/sed bench` | Open the Testing section (needs debug mode). |
-| `/sed scan` | List every item's class, subclass, quality and flags in chat. |
-| `/sed mutetest` | Mute the item pick-up/put-down sounds for 15 seconds, to check muting works. |
-| `/sed help` | List these commands in chat. |
-
-| Mouse | What it does |
-|---|---|
-| Sort button | Left-click: sort now. Right-click: turn auto-sort on or off. |
-| Gear button | Next to the sort button: the settings at your **Order**. |
-| Alt+right-click | On any bag item: its **Weight** popup. |
-
 ## Install
 
 Put this folder in `World of Warcraft/_forever_/Interface/AddOns/` (copy or symlink) as `SedimentSort`,
 which is what cloning this repo gives you: WoW only loads an addon whose folder matches its `.toc` name
 (`SedimentSort.toc`). It shows as "Sediment" in the game. After updating, a `/reload` is enough (checked on
-Forever, 2026-11-25, with a newly added file). If the settings' Debug > Files section ever shows a file as
-missing, restart the game client.
+Forever, 2026-11-25, with a newly added file). A brand-new addon folder needs a full restart of the game.
 
-## Development
+## For developers
 
-`NOTES.md` holds the design notes, decisions and to-do list. `dev/` holds offline tools, not loaded by
-the game:
+`NOTES.md` holds findings, design records, research and test results; `TODO.md` is the parking lot (what to
+build next, ideas waiting for a decision).
 
-- `Text.lua` (in the addon): every word for one of **Sediment**'s own things and every button label, under
-  keys named for their role. Change a word there and nowhere else. `dev/text_check.lua` checks every key
-  the code uses is defined (and every defined one is used).
-- `dev/files_check.lua`: the file list behind Debug > Files and the login check matches the `.toc`, and
-  every file marks itself loaded.
+**The debug addon.** `SedimentSort_Debug/` is a second addon, installed as its own folder
+(`AddOns/SedimentSort_Debug`, copy or symlink; restart the game the first time). While it's loaded, the
+settings show a Debug group; players without it never see any of it:
+- **Testing:** scramble the bags with a seed (Drift, Minimal, Full or Maximal; the same seed on the same
+  sorted bag makes the same mess), then let auto-sort clean up. An optional status line under the bag's
+  search box shows what the last sort cost (hover for details), and the section lists recent sorts.
+- **Tools:** `Auto-sort status` (what auto-sort is waiting for, what the last sort cost), `Scan bags` (every
+  item's class, subclass, quality, flags and weight in chat, saved for `dev/sim.lua` after a `/reload`),
+  `Mute test` (the item sounds muted for 15 seconds), `Cancel sort`.
+- **Files:** the version the game read from the `.toc`, and every file **Sediment** expects, each marked
+  loaded or missing. A missing file usually means the game needs a full restart.
+
+**Words.** `Text.lua` holds every word for one of **Sediment**'s own things and every button label, under
+keys named for their role. Change a word there and nowhere else.
+
+**Checks** in `dev/`, not loaded by the game; run them from the addon folder:
 - `dev/check_globals.sh`: run after every change; fails on any global that isn't a known WoW API or
   Sediment's own (catches a local declared below the function that uses it).
-- `dev/sim.lua`: runs the real sort code against mocked game APIs, using a saved `/sed scan`:
-  `lua dev/sim.lua <SavedVariables/SedimentSort.lua> [seed] [show|bench]`. `SEDIMENT_AUTO=full` makes
-  auto-sort use the full order; `SEDIMENT_MEASURE=1` compares plans with the proven minimum swaps.
-- `dev/min_swaps.lua`: the proven-minimum swap solver used by that measurement.
-- `dev/resolve_check.lua`: checks the fast weight lookup against the full rule cascade.
-- `dev/rules_check.lua`: new installs start empty on the Full order, older saves migrate once, and
-  **History** (saving, no duplicates, loading, naming, the 20-version limit, the login version) behaves.
-- `dev/ranking_check.lua`: the order behind the **Order** list: the default layout, moving rows and the
+- `dev/text_check.lua`: every word key the code uses is defined, and every defined one is used.
+- `dev/files_check.lua`: the file list behind Debug > Files and the login check matches the `.toc`, and
+  every file marks itself loaded.
+- `dev/sim.lua`: runs the real sort code against mocked game APIs, using a saved scan:
+  `lua dev/sim.lua <SavedVariables/SedimentSort.lua> [seed] [show|bench]`. `SEDIMENT_MEASURE=1` compares
+  plans with the proven minimum swaps (`dev/min_swaps.lua`).
+- `dev/resolve_check.lua`: the fast lookup of an item's place against the full rule cascade.
+- `dev/rules_check.lua`: new installs start empty, older saves migrate once, retired settings are cleared,
+  and **History** (saving, no duplicates, loading, the 20-entry limit) behaves.
+- `dev/ranking_check.lua`: the order behind the **Ordering** list: the default layout, moving entries and the
   **Empty Space**, unset items attached to it, old saves converting, ties kept.
-- `dev/setup_check.lua`: clicks through the settings against mocked frames: the **Order** section (welcome,
-  `Start Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, **Select Mode** and widen,
-  drag and drop), **History**, Special bags and Debug > Files.
+- `dev/setup_check.lua`: clicks through the settings against mocked frames: **Ordering** (welcome, `Start
+  Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, **Select Mode**, wider choices,
+  drag and drop), **History**, Special bags, the Debug group's gating, Tools and Files, and the ordering
+  popup.

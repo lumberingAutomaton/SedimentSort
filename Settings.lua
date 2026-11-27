@@ -3,11 +3,12 @@
 -- the weight popup, always at Order unless you pick another section. It closes in combat; where you drag it
 -- is remembered (SedimentDB.settingsPos), else on Order it sits beside the bags.
 --
--- Order: the list of rules, the one place to arrange Sediment (Order.lua; it replaced the Weights page and
---   the Setup window, 2026-11-25). Its welcome shows while there are no rules; ? brings it back.
+-- Order (shown as "Ordering"): the list of rules, the one place to arrange Sediment (Order.lua; it replaced
+--   the Weights page and the Setup window, 2026-11-25). Its welcome shows while there are no rules; ? brings
+--   it back.
 -- Special bags: the special bags you have, the fill switch, and the keep-out rules with x/Undo.
--- Sorting: auto-sort on/off, its order, wait, smoothness, what happens if the bags open mid-sort, and
---   "Debug mode", which adds a Debug group: Testing, Commands and Files.
+-- Timing: the wait after bag changes and the smoothness (auto-sort is always on, 0.20).
+-- Debug group, only with the debug addon (Settings.DebugOn): Testing, Tools (dev buttons) and Files.
 -- History: Created and Snapshot entries of the rules, the pinned one first, with Pin / Unpin, Load and x.
 
 local _, ns = ...
@@ -19,15 +20,15 @@ local N, B, L = ns.Noun, ns.Btn, ns.L -- nouns, button names in sentences, plain
 local Print = function(msg) ns.Print(msg) end
 
 -- Layout like WoW's own Options window: a section list on the left (grouped, with a Debug group that only
--- shows in debug mode), the selected section's settings on the right under its name. A list scales to any
+-- shows with the debug addon), the selected section's settings on the right under its name. A list scales to any
 -- number of sections, where a row of tabs ran out of width at five.
 local WIDTH, HEIGHT = 760, 680 -- was 600x520, then 760x600: the Order list barely fit (user, 2026-11-25)
 local NAV_W = 140                         -- the section list
 local CONTENT_X = NAV_W + 24              -- where the settings pane starts
 local CONTENT_W = WIDTH - CONTENT_X - 14  -- the settings pane's width
 local NAV_GROUPS = {
-	{ header = "Sediment", items = { "Order", "Special bags", "Sorting", "History" } }, -- user's order, 2026-11-25
-	{ header = "Debug", items = { "Testing", "Commands", "Files" }, debug = true },
+	{ header = "Sediment", items = { "Order", "Special bags", "Timing", "History" } }, -- user's order, 2026-11-25
+	{ header = "Debug", items = { "Testing", "Tools", "Files" }, debug = true }, -- only with the debug addon
 }
 -- The section ids above are internal; what the list and the page title show comes from Text.lua for the
 -- sections named after one of Sediment's nouns, so renaming the noun renames the section.
@@ -400,35 +401,6 @@ local function LabeledBox(page, place, gap, label, help, get, set)
 	end
 end
 
--- A label with a button that cycles through choices, and help text that follows the choice.
-local function ChoiceRow(page, place, gap, label, width, get, set, choices)
-	local text = place(Text(page, "GameFontNormal", label), gap, 4)
-	local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-	button:SetSize(width, 22)
-	button:SetPoint("LEFT", text, "LEFT", CONTROL_X - 4, 0)
-	local help = place(HelpText(page, ""), GAP_HELP + 4, 4, true)
-	local function Show()
-		local current = get()
-		for _, c in ipairs(choices) do
-			if c.value == current then
-				button:SetText(c.label)
-				help:SetText(c.help)
-			end
-		end
-	end
-	button:SetScript("OnClick", function()
-		local current = get()
-		for i, c in ipairs(choices) do
-			if c.value == current then
-				set(choices[i % #choices + 1].value)
-				break
-			end
-		end
-		Show()
-	end)
-	page.refreshers[#page.refreshers + 1] = Show
-end
-
 -- A checkbox with its label, and help text under it if given.
 local function CheckRow(page, place, gap, label, get, set, help)
 	local check = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
@@ -465,14 +437,20 @@ StaticPopupDialogs["SEDIMENT_START_FRESH"] = {
 
 local ShowTab -- defined below
 
--- Lay out the section list: group headers and their entries, the Debug group only in debug mode.
+-- The Debug group (Testing, Tools, Files) exists only when the debug addon (SedimentSort_Debug, a separate
+-- folder players don't get) is installed and loaded (user, 2026-11-26: no switch; the right files or nothing).
+function Settings.DebugOn()
+	return C_AddOns ~= nil and C_AddOns.IsAddOnLoaded(ns.ADDON .. "_Debug") and true or false
+end
+
+-- Lay out the section list: group headers and their entries, the Debug group only with the debug addon.
 function Settings.LayoutNav()
 	if not frame or not frame.nav then
 		return
 	end
 	local y = -8
 	for _, group in ipairs(NAV_GROUPS) do
-		local visible = not group.debug or SedimentDB.testingTools
+		local visible = not group.debug or Settings.DebugOn()
 		local header = frame.navHeaders[group.header]
 		header:SetShown(visible)
 		header.bar:SetShown(visible)
@@ -498,46 +476,19 @@ function Settings.LayoutNav()
 	end
 end
 
-local function BuildSortingPage(page)
+-- Timing: the two numbers worth tuning. Auto-sort itself is always on, sorts in the full order, and an
+-- auto-sort running when the bags open finishes at full speed (user, 2026-11-26: those aren't choices).
+local function BuildTimingPage(page)
 	page.refreshers = {}
 	local place = Flow(page)
-	CheckRow(page, place, 0, "Sort automatically while the bags are closed", ns.AutoSort.IsEnabled, function(on)
-		if on ~= ns.AutoSort.IsEnabled() then
-			ns.AutoSort.Toggle()
-		end
-	end)
-	ChoiceRow(page, place, GAP_GROUP, "Auto-sort order", 100,
-		function() return ns.Sort.AutoOrder() end,
-		function(v) SedimentDB.autoOrder = v ns.AutoSort.Resume() end, {
-			{ value = "partial", label = L("OrderMinimal"), help = "Only what the " .. N("SortValues") .. " require: "
-				.. "items of equal " .. N("SortValue") .. " keep their order, identical stacks stay together. Fewest moves." },
-			{ value = "full", label = L("OrderExact"), help = "The exact order, the same as the sort button. More "
-				.. "moves, but every item always has the same spot." },
-		})
-	LabeledBox(page, place, GAP_GROUP, "Wait after changes (seconds)",
-		"How long the bags must be quiet before auto-sort starts. Long enough for a burst of looting to "
-		.. "finish and new quest items to register.",
+	LabeledBox(page, place, 0, "Wait after changes (seconds)",
+		"How long the bags must be quiet before they sort. Long enough for a burst of looting to finish and "
+		.. "new quest items to register.",
 		ns.AutoSort.Delay, function(n) SedimentDB.autoSortDelay = math.max(0, math.min(30, n)) end)
 	LabeledBox(page, place, GAP_GROUP, "Smoothness (ms per frame)",
-		"How much time per frame, on average, auto-sort may spend moving items. Lower is smoother but "
-		.. "slower. The sort button always goes full speed.",
+		"How much time per frame, on average, sorting may spend moving items while the bags are closed. "
+		.. "Lower is smoother but slower. The sort button always goes full speed.",
 		ns.Sort.BudgetMs, function(n) SedimentDB.streamBudgetMs = math.max(0.01, math.min(50, n)) end)
-	ChoiceRow(page, place, GAP_GROUP, "If the bags open during an auto-sort", 100,
-		ns.Sort.OpenBagsMode, function(v) SedimentDB.openBags = v end, {
-			{ value = "pause", label = L("OpenBagsPause"), help = "Nothing moves while the bags are open; the sort "
-				.. "carries on once they close." },
-			{ value = "finish", label = L("OpenBagsFinish"), help = "Everything left goes out at once, so the bag "
-				.. "settles within about half a second of opening. Expect a short stutter." },
-		})
-	CheckRow(page, place, GAP_GROUP * 2, "Debug mode",
-		function() return SedimentDB.testingTools and true or false end,
-		function(on)
-			SedimentDB.testingTools = on
-			Settings.LayoutNav()
-			ns.Popup.BenchRefresh()
-		end,
-		"Adds a Debug group to the list on the left: Testing (seeded scrambles, recent sorts, a status line in "
-		.. "the bag) and Commands (every /sed command).")
 end
 
 local function BuildTestingPage(page)
@@ -756,30 +707,32 @@ end
 -- closes. Hover a row for its rules.
 local historyRows = {}
 
--- A save's rules, light to heavy with the sink line, for its tooltip.
+-- A save's rules for its tooltip: its order top to bottom with the Empty Space among them, no numbers (user,
+-- 2026-11-26: no Weights shown anywhere), then what it keeps out of special bags.
 local function VersionTooltip(entry)
 	local w, list = entry.weights, {}
 	for id, v in pairs(w.items) do list[#list + 1] = { v, ItemLabel(id) } end
 	for k, v in pairs(w.flags) do list[#list + 1] = { v, ns.Weights.FlagLabel(k) } end
 	for k, v in pairs(w.subclasses) do list[#list + 1] = { v, SubclassLabel(k) } end
 	for k, v in pairs(w.classes) do list[#list + 1] = { v, ClassLabel(k) } end
-	list[#list + 1] = { w.default, "Not set (default)" }
+	list[#list + 1] = { w.default, "Not ordered yet" }
 	table.sort(list, function(a, b)
 		if a[1] ~= b[1] then
 			return a[1] < b[1]
 		end
 		return a[2] < b[2]
 	end)
+	local gapLine = "|cffffb040---- " .. L("LootGap") .. " ----|r"
 	local lines, sinkShown = {}, false
 	for _, e in ipairs(list) do
 		if not sinkShown and e[1] >= w.sinkLine then
-			lines[#lines + 1] = "|cffffb040---- " .. L("LootGap") .. " (" .. tostring(w.sinkLine) .. ") ----|r"
+			lines[#lines + 1] = gapLine
 			sinkShown = true
 		end
-		lines[#lines + 1] = ("%s  |cff888888%s|r"):format(e[2], tostring(e[1]))
+		lines[#lines + 1] = e[2]
 	end
 	if not sinkShown then
-		lines[#lines + 1] = "|cffffb040---- " .. L("LootGap") .. " (" .. tostring(w.sinkLine) .. ") ----|r"
+		lines[#lines + 1] = gapLine
 	end
 	local ko = entry.keepOut or {}
 	for k in pairs(ko.subclasses or {}) do
@@ -976,7 +929,7 @@ local function BuildHistoryPage(page)
 	end
 end
 
--- Files (debug mode): the version the game read from the .toc, and every file Sediment expects with whether
+-- Files (debug addon): the version the game read from the .toc, and every file Sediment expects with whether
 -- it loaded (user, 2026-11-25: "how would I know if it worked?" after a /reload with a new file).
 local function AddonVersion()
 	local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
@@ -1008,30 +961,26 @@ local function BuildFilesPage(page)
 	end
 end
 
--- Commands tab (debug mode): every /sed command and the mouse shortcuts, from the same lists /sed help
--- uses (ns.COMMANDS, ns.SHORTCUTS in Sediment.lua).
-local function BuildCommandsPage(page)
-	local last
-	local function Line(template, text, gap)
-		local fs = page:CreateFontString(nil, "OVERLAY", template)
-		if last then
-			fs:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -(gap or 4))
-		else
-			fs:SetPoint("TOPLEFT", 4, 0)
-		end
-		fs:SetPoint("RIGHT", page, "RIGHT", -8, 0)
-		fs:SetJustifyH("LEFT")
-		fs:SetText(text)
-		last = fs
+-- Tools (debug addon): what used to be /sed commands, as buttons. Output goes to chat.
+local function BuildToolsPage(page)
+	page.refreshers = {}
+	local place = Flow(page)
+	local function Tool(label, help, run, gap)
+		local b = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+		b:SetSize(160, 22)
+		place(b, gap, 2)
+		b:SetText(label)
+		b:SetScript("OnClick", run)
+		place(HelpText(page, help), GAP_HELP, 4, true)
+		return b
 	end
-	Line("GameFontNormal", "Commands")
-	for _, c in ipairs(ns.COMMANDS) do
-		Line("GameFontHighlightSmall", ("|cffffd100%s|r   %s"):format(c.usage, c.text))
-	end
-	Line("GameFontNormal", "Mouse", 14)
-	for _, c in ipairs(ns.SHORTCUTS) do
-		Line("GameFontHighlightSmall", ("|cffffd100%s|r   %s"):format(c.usage, c.text))
-	end
+	page.status = Tool("Auto-sort status", "What auto-sort is waiting for, and what the last sort cost.",
+		function() ns.AutoSort.Status() end, 0)
+	page.scan = Tool("Scan bags", "Every item's class, subclass, quality, flags and weight, in chat; saved for "
+		.. "dev/sim.lua after a /reload.", function() ns.Scan() end, GAP_GROUP)
+	page.mute = Tool("Mute test", "Mutes the item pick-up and put-down sounds for 15 seconds, to check muting works.",
+		function() ns.Sound.Test() end, GAP_GROUP)
+	page.cancel = Tool("Cancel sort", "Stops a sort that's running.", function() ns.Sort.Cancel() end, GAP_GROUP)
 end
 
 -- ? : the Order section's welcome.
@@ -1041,7 +990,7 @@ function Settings.ShowWelcome()
 end
 
 function ShowTab(name)
-	if (name == "Testing" or name == "Commands" or name == "Files") and not SedimentDB.testingTools then
+	if (name == "Testing" or name == "Tools" or name == "Files") and not Settings.DebugOn() then
 		name = "Order"
 	end
 	local wasOrder = Settings.currentTab == "Order" and pages.Order:IsShown()
@@ -1174,11 +1123,11 @@ local function Build()
 	end
 	Settings.LayoutNav()
 	BuildOrderPage(pages.Order)
-	BuildSortingPage(pages.Sorting)
+	BuildTimingPage(pages.Timing)
 	BuildTestingPage(pages.Testing)
 	BuildSpecialPage(pages["Special bags"])
 	BuildHistoryPage(pages.History)
-	BuildCommandsPage(pages.Commands)
+	BuildToolsPage(pages.Tools)
 	BuildFilesPage(pages.Files)
 	frame:SetScript("OnShow", function()
 		Settings.Refresh()
@@ -1207,8 +1156,8 @@ function Settings.Refresh()
 	if pages.Order:IsShown() then
 		ns.Order.Refresh()
 	end
-	if pages.Sorting:IsShown() then
-		RunRefreshers(pages.Sorting)
+	if pages.Timing:IsShown() then
+		RunRefreshers(pages.Timing)
 	end
 	if pages.Testing:IsShown() then
 		RunRefreshers(pages.Testing)

@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Sediment Debug
+## Notes: Developer tools for Sediment: the Debug group in its settings (Testing, Tools, Files). Not for players.
+## Version: 0.20.0
+## Dependencies: SedimentSort
+
+Debug.lua
