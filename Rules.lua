@@ -1,10 +1,10 @@
 -- Weights: resolve an item's weight through the cascade.
 --   item weight > flags (Equipment set > Quest > Gray > BoE gear) > subclass > class > default
--- A level applies only if it has a weight. Weights are account-wide (SedimentDB.weights).
+-- A level applies only if it has a weight. Weights are account-wide (DisorderItemManagerDB.weights).
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Weights.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["Rules.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 local Weights = {}
 ns.Weights = Weights
 
@@ -15,7 +15,7 @@ if not ns.L then
 	ns.Noun, ns.Btn = ns.L, ns.L
 end
 
--- The default rule set: no rules. Copied into SedimentDB on first load, and by Start Fresh; after
+-- The default rule set: no rules. Copied into DisorderItemManagerDB on first load, and by Start Fresh; after
 -- that the saved copy is what counts. With no rules every item ties, and ties fall back to the full order
 -- (class > subclass > item), so Sediment starts out as an ordinary by-type bag sort; rules add the
 -- player's own preferences. (It used to ship with the developer's own opinions, hearthstone on top and
@@ -57,12 +57,12 @@ local function DeepCopy(t)
 end
 
 function Weights.Init()
-	if not SedimentDB.weights then
+	if not DisorderItemManagerDB.weights then
 		-- A new install: the default (empty) rules, already up to date, so no migration below adds anything.
-		SedimentDB.weights = DeepCopy(DEFAULTS)
-		SedimentDB.weightsVersion = WEIGHTS_VERSION
+		DisorderItemManagerDB.weights = DeepCopy(DEFAULTS)
+		DisorderItemManagerDB.weightsVersion = WEIGHTS_VERSION
 	end
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	-- Fill any level a newer version added, without touching the user's values.
 	for k, v in pairs(DEFAULTS) do
 		if w[k] == nil then
@@ -70,28 +70,28 @@ function Weights.Init()
 		end
 	end
 	-- Migrations for saved rules from older versions; each runs once.
-	SedimentDB.weightsVersion = SedimentDB.weightsVersion or 1
-	if SedimentDB.weightsVersion < 2 then
+	DisorderItemManagerDB.weightsVersion = DisorderItemManagerDB.weightsVersion or 1
+	if DisorderItemManagerDB.weightsVersion < 2 then
 		-- 0.3.0 added the Equipment set flag to the starter set of the time.
 		if w.flags.equipmentSet == nil then
 			w.flags.equipmentSet = 35
 		end
 	end
-	SedimentDB.weightsVersion = WEIGHTS_VERSION
+	DisorderItemManagerDB.weightsVersion = WEIGHTS_VERSION
 	-- The single backup slot before History (0.16.0): it becomes the oldest version.
-	local b = SedimentDB.rulesBackup
+	local b = DisorderItemManagerDB.rulesBackup
 	if b then
 		local h = Weights.History()
 		h[#h + 1] = { time = b.time or "?", reason = b.reason, weights = b.weights, keepOut = b.keepOut }
-		SedimentDB.rulesBackup = nil
+		DisorderItemManagerDB.rulesBackup = nil
 	end
 	-- Older entries: ids (for Active / Previous); one pin only, the most recently pinned (0.17.0 "Kept"
 	-- entries, named, count as pinned).
 	local keep, keepTime
 	for _, e in ipairs(Weights.History()) do
 		if not e.id then
-			SedimentDB.nextSaveId = (SedimentDB.nextSaveId or 0) + 1
-			e.id = SedimentDB.nextSaveId
+			DisorderItemManagerDB.nextSaveId = (DisorderItemManagerDB.nextSaveId or 0) + 1
+			e.id = DisorderItemManagerDB.nextSaveId
 		end
 		local t = (e.pinned or (e.name and e.keptTime ~= nil) or e.name) and (e.pinnedTime or e.keptTime or e.time or "")
 		if t and (not keepTime or t > keepTime) then
@@ -105,11 +105,11 @@ function Weights.Init()
 	Weights.PurgeDeleted() -- deletes not undone before the last logout
 	Weights.NoteActive()
 	-- The Setup window (0.17-0.18) became the settings' Order section: its saved state goes.
-	SedimentDB.setup, SedimentDB.setupHidden, SedimentDB.setupPos = nil, nil, nil
-	SedimentDB.popupPos = nil -- the weight popup always opens above the bag now (0.19)
+	DisorderItemManagerDB.setup, DisorderItemManagerDB.setupHidden, DisorderItemManagerDB.setupPos = nil, nil, nil
+	DisorderItemManagerDB.popupPos = nil -- the weight popup always opens above the bag now (0.19)
 	-- Settings that are fixed since 0.20 (user, 2026-11-26): auto-sort always on, the full order always,
 	-- bags opening mid-sort always finish; debug tools come with the debug addon, not a switch.
-	SedimentDB.autoSort, SedimentDB.autoOrder, SedimentDB.openBags, SedimentDB.testingTools = nil, nil, nil, nil
+	DisorderItemManagerDB.autoSort, DisorderItemManagerDB.autoOrder, DisorderItemManagerDB.openBags, DisorderItemManagerDB.testingTools = nil, nil, nil, nil
 end
 
 
@@ -122,18 +122,18 @@ end
 
 -- Do these rules say anything (any item, flag, subclass or class rule, or a keep-out rule)?
 function Weights.HasRules()
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	for _, t in ipairs({ w.items, w.flags, w.subclasses, w.classes }) do
 		if next(t) then
 			return true
 		end
 	end
-	local ko = SedimentDB.keepOut
+	local ko = DisorderItemManagerDB.keepOut
 	return ko ~= nil and ((ko.items and next(ko.items)) or (ko.subclasses and next(ko.subclasses))) and true or false
 end
 
 -- History ------------------------------------------------------------------------------------
--- A safety net of the rules (weights, sink line, default, keep-out), newest first, in SedimentDB.history.
+-- A safety net of the rules (weights, sink line, default, keep-out), newest first, in DisorderItemManagerDB.history.
 -- Two kinds of entry (user, 2026-11-25; a design with named rulesets was parked as "Profiles"):
 --   Created:  made when Setup is done. Always a new entry, even if identical to another.
 --   Snapshot: made automatically at logout (and /reload), before Load and Start Fresh, and at login as a
@@ -170,7 +170,7 @@ local function VersionKey(weights, keepOut)
 end
 
 local function CurrentKey()
-	return VersionKey(SedimentDB.weights, SedimentDB.keepOut)
+	return VersionKey(DisorderItemManagerDB.weights, DisorderItemManagerDB.keepOut)
 end
 
 local function Now()
@@ -183,8 +183,8 @@ function Weights.SetCharacter(name)
 end
 
 function Weights.History()
-	SedimentDB.history = SedimentDB.history or {}
-	return SedimentDB.history
+	DisorderItemManagerDB.history = DisorderItemManagerDB.history or {}
+	return DisorderItemManagerDB.history
 end
 
 -- Are these the rules in use now?
@@ -228,27 +228,27 @@ local function SaveById(id)
 end
 
 -- Which entry is Active, and which was Active before it (Previous: what you'd roll back to). Kept by id
--- (SedimentDB.activeSaveId / previousSaveId; table references don't survive a reload), updated whenever the
+-- (DisorderItemManagerDB.activeSaveId / previousSaveId; table references don't survive a reload), updated whenever the
 -- rules or History change. While the rules match no entry (edited, not saved yet), the last Active one stays
 -- recorded, so it's Previous: the rules from before the edits.
 function Weights.NoteActive()
 	local a = Weights.ActiveSave()
-	if a and a.id ~= SedimentDB.activeSaveId then
-		SedimentDB.previousSaveId = SedimentDB.activeSaveId
-		SedimentDB.activeSaveId = a.id
+	if a and a.id ~= DisorderItemManagerDB.activeSaveId then
+		DisorderItemManagerDB.previousSaveId = DisorderItemManagerDB.activeSaveId
+		DisorderItemManagerDB.activeSaveId = a.id
 	end
 end
 
 local function AddEntry(kind)
 	local h = Weights.History()
-	SedimentDB.nextSaveId = (SedimentDB.nextSaveId or 0) + 1
+	DisorderItemManagerDB.nextSaveId = (DisorderItemManagerDB.nextSaveId or 0) + 1
 	table.insert(h, 1, {
-		id = SedimentDB.nextSaveId,
+		id = DisorderItemManagerDB.nextSaveId,
 		kind = kind,
 		character = Weights.character,
 		time = Now(),
-		weights = DeepCopy(SedimentDB.weights),
-		keepOut = SedimentDB.keepOut and DeepCopy(SedimentDB.keepOut) or nil,
+		weights = DeepCopy(DisorderItemManagerDB.weights),
+		keepOut = DisorderItemManagerDB.keepOut and DeepCopy(DisorderItemManagerDB.keepOut) or nil,
 	})
 	Prune(h)
 	Weights.NoteActive()
@@ -350,7 +350,7 @@ end
 function Weights.PreviousSave()
 	Weights.NoteActive()
 	local active = Weights.ActiveSave()
-	local p = SaveById(active and SedimentDB.previousSaveId or SedimentDB.activeSaveId)
+	local p = SaveById(active and DisorderItemManagerDB.previousSaveId or DisorderItemManagerDB.activeSaveId)
 	if p and not Weights.IsCurrent(p) then
 		return p
 	end
@@ -364,8 +364,8 @@ end
 -- Put an entry's rules back. The rules in use get a Snapshot first (if not saved), so loading can be undone.
 function Weights.LoadVersion(entry)
 	Weights.Snapshot()
-	SedimentDB.weights = DeepCopy(entry.weights)
-	SedimentDB.keepOut = entry.keepOut and DeepCopy(entry.keepOut) or nil
+	DisorderItemManagerDB.weights = DeepCopy(entry.weights)
+	DisorderItemManagerDB.keepOut = entry.keepOut and DeepCopy(entry.keepOut) or nil
 	Weights.NoteActive()
 end
 
@@ -394,13 +394,13 @@ end
 -- Start Fresh: a Snapshot of the rules (if not saved), then the default (empty) weights and no keep-out rules.
 function Weights.ClearAll()
 	Weights.Snapshot()
-	SedimentDB.weights = DeepCopy(DEFAULTS)
-	SedimentDB.keepOut = nil
+	DisorderItemManagerDB.weights = DeepCopy(DEFAULTS)
+	DisorderItemManagerDB.keepOut = nil
 	Weights.NoteActive()
 end
 
 function Weights.SinkLine()
-	return SedimentDB.weights.sinkLine
+	return DisorderItemManagerDB.weights.sinkLine
 end
 
 -- Which flags this item carries, in priority order.
@@ -426,7 +426,7 @@ Weights.ItemFlags = ItemFlags
 -- { { kind, key, label, weight = number or nil, applies = bool }, ... }
 -- plus the index of the winning level. kind/key say where the weight is stored (see SetLevel).
 function Weights.Explain(item)
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	local levels = {}
 	local function Add(kind, key, label, weight, applies)
 		levels[#levels + 1] = { kind = kind, key = key, label = label, weight = weight, applies = applies }
@@ -454,7 +454,7 @@ end
 -- Store a weight for one level. nil clears it (that level then inherits), except for the default,
 -- which must always have a value.
 function Weights.SetLevel(kind, key, value)
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	if kind == "item" then
 		w.items[key] = value
 	elseif kind == "flag" then
@@ -474,7 +474,7 @@ end
 -- on every planning pass, and Explain's tables were garbage for Lua to clean up each time.
 -- Returns weight, label of the winning level.
 function Weights.Resolve(item)
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	local v = w.items[item.itemID]
 	if v ~= nil then
 		return v, item.name or "This item"
@@ -512,11 +512,11 @@ end
 
 -- A copy of the weights, and putting one back (the setup questions' Back).
 function Weights.CopyWeights()
-	return DeepCopy(SedimentDB.weights)
+	return DeepCopy(DisorderItemManagerDB.weights)
 end
 
 function Weights.SetWeights(copy)
-	SedimentDB.weights = DeepCopy(copy)
+	DisorderItemManagerDB.weights = DeepCopy(copy)
 end
 
 -- Ranking ------------------------------------------------------------------------------------
@@ -533,7 +533,7 @@ local KIND_RANK = { item = 1, flag = 2, subclass = 3, class = 4, default = 5 }
 -- How an old save's sink line reads: "bottom" (100 or more: the space at the bottom), "top" (0 or less) or
 -- "middle". After any write it's always "middle", with the divider's position doing the work.
 function Weights.Layout()
-	local s = SedimentDB.weights.sinkLine
+	local s = DisorderItemManagerDB.weights.sinkLine
 	if s >= 100 then
 		return "bottom"
 	elseif s <= 0 then
@@ -545,7 +545,7 @@ end
 -- Every rule with a weight as a ranking list: rungs { weight, rules = { { kind, key }, ... } } and one
 -- { divider = true }.
 function Weights.RankingList()
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	local rules = {}
 	local function Add(kind, key, weight)
 		rules[#rules + 1] = { kind = kind, key = key, weight = weight }
@@ -661,7 +661,7 @@ end
 
 function Weights.WriteRankingList(list)
 	Weights.PinDefault(list)
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	local floatN, sinkN, past = 0, 0, false
 	for _, e in ipairs(list) do
 		if e.divider then

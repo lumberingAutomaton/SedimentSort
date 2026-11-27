@@ -1,10 +1,10 @@
 -- Check that Weights.Resolve (fast) always agrees with Weights.Explain (full) on random items.
 Enum = { ItemQuality = { Poor = 0 } }
-SedimentDB = {}
+DisorderItemManagerDB = {}
 local ns = {}
-assert(loadfile("Weights.lua"))("Sediment", ns)
+assert(loadfile("Rules.lua"))("Disorder_ItemManager", ns)
 ns.Weights.Init()
-local w = SedimentDB.weights
+local w = DisorderItemManagerDB.weights
 math.randomseed(7)
 local locs = { "", "INVTYPE_NON_EQUIP_IGNORE", "INVTYPE_WRIST", "INVTYPE_BAG", "INVTYPE_2HWEAPON" }
 for i = 1, 20000 do

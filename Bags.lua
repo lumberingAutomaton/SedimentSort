@@ -8,7 +8,7 @@
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Bags.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["Bags.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 local Bags = {}
 ns.Bags = Bags
 
@@ -65,9 +65,9 @@ Bags.refused = {}
 -- Kept out of special bags ("Keep ... in my normal bags" in the weight popup). People think in categories
 -- ("my cloth"), so it works per subclass (all Cloth) as well as per item; either keeps an item out. Such
 -- items are never moved into a special bag, and ones already in one are moved back out.
--- SedimentDB.keepOut = { items = { [itemID] = true }, subclasses = { ["classID:subclassID"] = true } }
+-- DisorderItemManagerDB.keepOut = { items = { [itemID] = true }, subclasses = { ["classID:subclassID"] = true } }
 local function KeepOutTable()
-	local ko = SedimentDB.keepOut
+	local ko = DisorderItemManagerDB.keepOut
 	if not ko then
 		return nil
 	end
@@ -80,7 +80,7 @@ local function KeepOutTable()
 			end
 		end
 		ko = { items = items, subclasses = {} }
-		SedimentDB.keepOut = ko
+		DisorderItemManagerDB.keepOut = ko
 	end
 	ko.subclasses = ko.subclasses or {}
 	return ko
@@ -101,7 +101,7 @@ function Bags.SetKeepOut(kind, key, on)
 	local ko = KeepOutTable()
 	if not ko then
 		ko = { items = {}, subclasses = {} }
-		SedimentDB.keepOut = ko
+		DisorderItemManagerDB.keepOut = ko
 	end
 	local t = kind == "item" and ko.items or ko.subclasses
 	t[key] = on and true or nil
@@ -150,7 +150,7 @@ end
 -- "Fill reagent and profession bags automatically" (Settings > Sorting; on unless switched off). Off: nothing
 -- is moved into special bags; what's already in them stays and is still sorted there.
 function Bags.FillSpecialBags()
-	return SedimentDB.fillSpecialBags ~= false
+	return DisorderItemManagerDB.fillSpecialBags ~= false
 end
 
 -- Could this item ever go into a special bag (whatever bags the player has)? For showing the checkbox.

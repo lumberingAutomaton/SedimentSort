@@ -14,17 +14,17 @@
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["AutoSort.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["AutoSort.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 local AutoSort = {}
 ns.AutoSort = AutoSort
 
 local CHECK_EVERY = 0.25 -- seconds between checks while a sort is pending
 -- Seconds of no bag changes before sorting: long enough for a burst of looting to finish and for
--- the game to mark new quest items as quest items. Adjustable in the Timing section (SedimentDB.autoSortDelay).
+-- the game to mark new quest items as quest items. Adjustable in the Timing section (DisorderItemManagerDB.autoSortDelay).
 local DEFAULT_DELAY = 1.1 -- tuned in game 2026-11-24: new quest items register within it; checks run every 0.25s
 
 function AutoSort.Delay()
-	return SedimentDB.autoSortDelay or DEFAULT_DELAY
+	return DisorderItemManagerDB.autoSortDelay or DEFAULT_DELAY
 end
 
 local ready = false      -- false until shortly after login, while the bags are still loading in

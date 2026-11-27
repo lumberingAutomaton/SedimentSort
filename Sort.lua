@@ -8,7 +8,7 @@
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Sort.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["Sort.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 local Sort = {}
 ns.Sort = Sort
 
@@ -426,9 +426,9 @@ local function Stop(msg, success)
 			run.worstSecondFps = perfMinWindowFps < math.huge and perfMinWindowFps or beforeFps
 			run.dropPct = beforeFps > 0 and math.max(0, (1 - run.worstSecondFps / beforeFps) * 100) or 0
 			Sort.lastRun = run
-			SedimentDB.benchHistory = SedimentDB.benchHistory or {}
-			table.insert(SedimentDB.benchHistory, 1, run)
-			SedimentDB.benchHistory[21] = nil
+			DisorderItemManagerDB.benchHistory = DisorderItemManagerDB.benchHistory or {}
+			table.insert(DisorderItemManagerDB.benchHistory, 1, run)
+			DisorderItemManagerDB.benchHistory[21] = nil
 			ns.OnBenchRun()
 		end)
 	end
@@ -701,7 +701,7 @@ local DEFAULT_BUDGET_MS = 0.3 -- picked in game 2026-11-24: Drift clean-ups ~1s 
 local MAX_SAVED_MS = 5 -- allowance can't pile up beyond this, so a quiet spell can't buy a burst
 
 function Sort.BudgetMs()
-	return SedimentDB.streamBudgetMs or DEFAULT_BUDGET_MS
+	return DisorderItemManagerDB.streamBudgetMs or DEFAULT_BUDGET_MS
 end
 
 local allowance = 0

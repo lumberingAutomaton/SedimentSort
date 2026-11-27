@@ -1,14 +1,14 @@
--- Checks that ns.FILES (Sediment.lua) lists exactly the .toc's files in the same order, and that each file
+-- Checks that ns.FILES (Core.lua) lists exactly the .toc's files in the same order, and that each file
 -- marks itself loaded under its own name (ns.loadedFiles["X.lua"]). The login check and Debug > Files rely on
 -- both. Run: lua dev/files_check.lua (from the addon folder).
 local toc = {}
-for line in io.lines("SedimentSort.toc") do
+for line in io.lines("Disorder_ItemManager.toc") do
 	if line:match("%.lua%s*$") then
 		toc[#toc + 1] = line:match("^%s*(.-)%s*$")
 	end
 end
-local src = assert(io.open("Sediment.lua")):read("a")
-local block = assert(src:match("ns%.FILES = (%b{})"), "no ns.FILES in Sediment.lua")
+local src = assert(io.open("Core.lua")):read("a")
+local block = assert(src:match("ns%.FILES = (%b{})"), "no ns.FILES in Core.lua")
 local listed = {}
 for name in block:gmatch('"([^"]+)"') do
 	listed[#listed + 1] = name

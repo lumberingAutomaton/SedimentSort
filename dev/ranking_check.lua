@@ -6,13 +6,13 @@
 Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
 local ns = {}
-assert(loadfile("Text.lua"))("Sediment", ns)
-assert(loadfile("Weights.lua"))("Sediment", ns)
+assert(loadfile("Text.lua"))("Disorder_ItemManager", ns)
+assert(loadfile("Rules.lua"))("Disorder_ItemManager", ns)
 local W = ns.Weights
 local HS = 6948
 
 local function Fresh(weights)
-	SedimentDB = { weights = weights, weightsVersion = weights and 3 or nil }
+	DisorderItemManagerDB = { weights = weights, weightsVersion = weights and 3 or nil }
 	W.Init()
 end
 
@@ -40,7 +40,7 @@ end
 
 -- After a write: weights above the Empty Space are under 50, below it 50 or more, the line is 50.
 local function CheckSides()
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	assert(w.sinkLine == 50, "sink line isn't 50: " .. tostring(w.sinkLine))
 	local past = false
 	for _, e in ipairs(W.RankingList()) do
@@ -97,7 +97,7 @@ Fresh({ sinkLine = 40, default = 39, items = { [HS] = 0, [5] = 45 }, flags = { g
 Expect("item:6948 subclass:0:1+subclass:0:5 default | item:5+class:2 class:7 flag:gray", "existing rules")
 W.WriteRankingList(W.RankingList())
 Expect("item:6948 subclass:0:1+subclass:0:5 default | item:5+class:2 class:7 flag:gray", "tidied")
-assert(SedimentDB.weights.subclasses["0:1"] == SedimentDB.weights.subclasses["0:5"], "a tie was broken")
+assert(DisorderItemManagerDB.weights.subclasses["0:1"] == DisorderItemManagerDB.weights.subclasses["0:5"], "a tie was broken")
 CheckSides()
 
 -- Many rungs: weights stay distinct and inside their half.
@@ -138,7 +138,7 @@ W.DefaultOrder({ 0, 1, 2, 9, 12 })
 Expect("item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest+class:12 flag:unboundGear class:1 class:9 default | "
 	.. "class:2 class:4 class:7 class:15 flag:gray", "default order")
 CheckSides()
-assert(SedimentDB.weights.flags.quest == SedimentDB.weights.classes[12], "the quest rules aren't on one row")
+assert(DisorderItemManagerDB.weights.flags.quest == DisorderItemManagerDB.weights.classes[12], "the quest rules aren't on one row")
 
 -- MoveRow (drag and drop): positions among the shown rows (unset items not counted); the Empty Space too.
 -- Shown rows now: 1 Hearthstone ... 8 class:9, 9 Empty Space, 10 Weapon ... 14 Gray.
@@ -155,8 +155,8 @@ CheckSides()
 local copy = W.CopyWeights()
 W.SetLevel("class", 99, 1)
 W.SetWeights(copy)
-assert(SedimentDB.weights.classes[99] == nil, "restoring a copy didn't undo")
-SedimentDB.weights.classes[3] = 1
+assert(DisorderItemManagerDB.weights.classes[99] == nil, "restoring a copy didn't undo")
+DisorderItemManagerDB.weights.classes[3] = 1
 assert(copy.classes[3] == nil, "the copy shares tables with the live weights")
 
 print("ranking OK")

@@ -1,0 +1,21 @@
+## Interface: 16001
+## Title: Disorder - Item Manager
+## Notes: Keeps your bags sorted in your own order, by itself.
+## Version: 0.21.0
+## SavedVariables: DisorderItemManagerDB
+
+Text.lua
+Rules.lua
+Bags.lua
+Sound.lua
+Sort.lua
+AutoSort.lua
+Settings.lua
+Overlays.lua
+Popup.lua
+Ordering.lua
+Options.lua
+History.lua
+Debug.lua
+SortButton.lua
+Core.lua

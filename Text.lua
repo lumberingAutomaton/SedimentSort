@@ -11,11 +11,11 @@
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Text.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["Text.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 
 ns.TEXT = {
 	-- Nouns: Sediment's own things.
-	AddonName = "Sediment",
+	AddonName = "Disorder",
 	SavedRules = "History",        -- the list of saves, and its section
 	KeptSave = "Pinned",           -- a save that stays at the top and is never dropped
 	OrderSection = "Ordering",     -- the settings section where rules are arranged (it replaced Weights and Setup)

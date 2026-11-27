@@ -8,8 +8,10 @@
 local svPath, seed = arg[1], tonumber(arg[2] or "1")
 local root = arg[0]:match("^(.*)/dev/") or "."
 dofile(svPath)
-local scan = SedimentDB.lastScan.rows
-SedimentDB = {}
+-- Scans saved before the rename (0.20 and earlier) are under the old variable name.
+DisorderItemManagerDB = DisorderItemManagerDB or SedimentDB
+local scan = DisorderItemManagerDB.lastScan.rows
+DisorderItemManagerDB = {}
 math.randomseed(seed)
 
 -- Bags 0-4 are the normal bag slots; 5 is the reagent bag slot. By seed, slot 5 holds a big
@@ -210,7 +212,7 @@ C_Timer.After = function(_, fn) fn() end
 local MEASURE = os.getenv("SEDIMENT_MEASURE") == "1"
 local MinSwaps = MEASURE and dofile(root .. "/dev/min_swaps.lua").MinSwaps
 Measured = { plans = 0, ours = 0, best = 0, worse = 0, unproven = 0, oursUnproven = 0, worst = 0 }
-for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
+for _, f in ipairs({ "Rules.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 	local fh = assert(io.open(root .. "/" .. f))
 	local src = fh:read("a")
 	fh:close()
@@ -219,7 +221,7 @@ for _, f in ipairs({ "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua" }) do
 		src = src:gsub("(\n\tlocal rounds = {}\n)", "\n\tif SimMeasure then SimMeasure(cur0, want, #round1 + #round2, slots) end%1", 1)
 		assert(src:find("SimMeasure%(cur0"), "measurement hook not inserted")
 	end
-	assert(load(src, "@" .. f))("Sediment", ns)
+	assert(load(src, "@" .. f))("Disorder_ItemManager", ns)
 end
 if MEASURE then
 	-- Target-choice bracket (bench events only, tagged with SimEvent): for each placement plan,
@@ -249,7 +251,7 @@ if MEASURE then
 			Measured.oursUnproven = Measured.oursUnproven + ours
 			return
 		end
-		assert(ours >= best, "Sediment beat the proven minimum: the solver is wrong")
+		assert(ours >= best, "the sort beat the proven minimum: the solver is wrong")
 		Measured.ours, Measured.best = Measured.ours + ours, Measured.best + best
 		if ours > best then
 			Measured.worse = Measured.worse + 1
@@ -309,7 +311,7 @@ if MEASURE then
 end
 ns.Weights.Init()
 -- Test fixture: the old starter rules (the addon now starts with none), so the sorts have real weights.
-SedimentDB.weights = {
+DisorderItemManagerDB.weights = {
 	sinkLine = 50, default = 20,
 	items = { [6948] = 0, [2901] = 0.01, [6206] = 0.01, [5956] = 0.01, [6256] = 0.02, [4471] = 0.03 },
 	flags = { equipmentSet = 35, quest = 51, gray = 100, unboundGear = 45 },
@@ -417,7 +419,7 @@ for sb = 0, 5 do if IsSpecial(sb) then
 	if hasEmpty then
 		for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = bags[b][s]
 			local keptOut = t and ns.Bags.KeepOut(ns.Bags.ReadSlot(b, s))
-			local filling = SedimentDB.fillSpecialBags ~= false
+			local filling = DisorderItemManagerDB.fillSpecialBags ~= false
 			assert(not (t and Fits(sb, t) and not keptOut and filling),
 				("%s left in the normal bags with room in special bag %d"):format(t and t.name or "", sb))
 		end end end
@@ -526,7 +528,7 @@ do
 	print("scramble test: " .. msg)
 	print("cleanup after scramble: " .. Run(true))
 	Check(false)
-	local run = SedimentDB.benchHistory and SedimentDB.benchHistory[1]
+	local run = DisorderItemManagerDB.benchHistory and DisorderItemManagerDB.benchHistory[1]
 	assert(run and run.kind == "auto", "bench history not recorded")
 end
 
@@ -549,10 +551,10 @@ do
 		assert(not (bags[b][s] and ns.Bags.KeepOut(ns.Bags.ReadSlot(b, s))), "a kept-out item is still in a special bag")
 	end end end
 	-- The old per-item format converts.
-	SedimentDB.keepOut = { [123] = true }
+	DisorderItemManagerDB.keepOut = { [123] = true }
 	assert(ns.Bags.KeepOutRule("item", 123), "old keep-out format didn't convert")
-	SedimentDB.keepOut = nil
-	SedimentDB.fillSpecialBags = false
+	DisorderItemManagerDB.keepOut = nil
+	DisorderItemManagerDB.fillSpecialBags = false
 	local before = {}
 	for b = 0, 5 do if IsSpecial(b) then for s = 1, BAG_SIZES[b] do before[b * 100 + s] = bags[b][s] and bags[b][s].itemID end end end
 	Run(false)
@@ -564,7 +566,7 @@ do
 			assert(wasThere, "filling is off but an item moved into a special bag")
 		end
 	end end end
-	SedimentDB.fillSpecialBags = nil
+	DisorderItemManagerDB.fillSpecialBags = nil
 	Run(false)
 	Check(false)
 	print("keep-out and fill-off tests passed")
@@ -588,7 +590,7 @@ do
 			local it = ns.Bags.ReadSlot(b, s)
 			if ns.Weights.Resolve(it) < ns.Weights.SinkLine() then last = it end
 		end end end end
-	SedimentDB.weights.items[last.itemID] = -2
+	DisorderItemManagerDB.weights.items[last.itemID] = -2
 	local start = Snapshot()
 	Run(true)
 	local plain = ns.Sort.lastMovesByKind.place or 0
@@ -602,7 +604,7 @@ do
 	-- differ by a move; Check above verifies both end states.
 	print(("bags-open test: placement moves uninterrupted %d, bags opened every other tick %d"):format(plain, interrupted))
 	assert(interrupted == plain, "opening the bags changed the number of placement moves")
-	SedimentDB.weights.items[last.itemID] = nil
+	DisorderItemManagerDB.weights.items[last.itemID] = nil
 	Run(true)
 end
 
@@ -672,7 +674,7 @@ if arg[3] == "bench" then
 		local any = RandomItemSlot()
 		if any then
 			local item = ns.Bags.ReadSlot(any[1], any[2])
-			local w = SedimentDB.weights.subclasses
+			local w = DisorderItemManagerDB.weights.subclasses
 			local old = w[item.subKey]
 			w[item.subKey] = ns.Weights.Resolve(item) + (math.random() < 0.5 and -3 or 3)
 			SimEvent = "weight edit" Record("weight edit", Moves())
@@ -716,16 +718,16 @@ for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = ba
 		local item = ns.Bags.ReadSlot(b, s)
 		if ns.Weights.Resolve(item) < ns.Weights.SinkLine() then lastFloater = item end
 	end end end end
-SedimentDB.weights.items[lastFloater.itemID] = -1
+DisorderItemManagerDB.weights.items[lastFloater.itemID] = -1
 print("to the top (" .. lastFloater.name .. "): " .. Run())
 Check(false)
 -- And back down again.
-SedimentDB.weights.items[lastFloater.itemID] = 1000
+DisorderItemManagerDB.weights.items[lastFloater.itemID] = 1000
 print("to the bottom: " .. Run())
 Check(false)
 -- Auto-sort path: streamed and quiet. Clearing the weight sends the bracers back down.
-SedimentDB.weights.items[lastFloater.itemID] = nil
-SedimentDB.streamBudgetMs = 1
+DisorderItemManagerDB.weights.items[lastFloater.itemID] = nil
+DisorderItemManagerDB.streamBudgetMs = 1
 Run(true)
 Check(false)
 print(("streamed: %d moves, %d rounds, over %d frames"):format(ns.Sort.lastMoves, ns.Sort.lastRounds, ns.Sort.lastFrames))

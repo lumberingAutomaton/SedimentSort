@@ -30,31 +30,35 @@ then a stop for the user to try it in game; commits only when the user says so.
 The game loads the addon straight from the repo folder (the AddOns symlink), so switching branches in that
 folder would hand the game a half-built addon. A second checkout of the same repo keeps the old one playable.
 
-- [ ] Create the branch `disorder` and check it out in a second folder, `~/Source/Disorder-wip` (a git
+- [x] Create the branch `disorder` and check it out in a second folder, `~/Source/Disorder-wip` (a git
       worktree: same repo, same history, its own folder).
-- [ ] After Phase 1 creates its `.toc`: link the new addon folder and its debug addon into AddOns.
+- [x] After Phase 1 creates its `.toc`: link the new addon folder and its debug addon into AddOns.
 - [ ] The rule while both exist: enable only one of Sediment and Disorder in the AddOns list. Two sorters at
       once would fight over the bags.
 
 ## Phase 1: rename and split (no change in behaviour)
 
-- [ ] New `.toc` (title "Disorder - Item Manager", version, saved settings), the command, window and frame
-      names, the debug addon, the addon's name in Text.lua.
-- [ ] One file per feature:
-  - [ ] `Core.lua`: load check, events, start-up (from Sediment.lua)
-  - [ ] `Rules.lua`: the Ordering and how an item finds its place (from Weights.lua)
-  - [ ] `Bags.lua`, `Sort.lua`, `AutoSort.lua`, `Sound.lua`: as they are
-  - [ ] `SortButton.lua`: the bag's sort button, the gear and the progress sweep (from Sediment.lua and
-        Popup.lua)
-  - [ ] `Settings.lua`: only the window: frame, section list, placement, closing in combat
-  - [ ] `Overlays.lua`: Select Mode's catchers and the bag outlines (from Settings.lua)
-  - [ ] `Ordering.lua`: the Ordering section (from Order.lua)
-  - [ ] `Popup.lua`: the ordering popup only
-  - [ ] `Options.lua`: today's Timing and Special bags sections, still separate until Phase 2
-  - [ ] `History.lua`: the saves and the History section
-  - [ ] `Text.lua`: the words
-- [ ] Tests and dev scripts follow the new file and frame names; nothing else in them changes.
-- [ ] All checks pass; the user tries it in game; commit.
+- [x] New `.toc` (title "Disorder - Item Manager", version 0.21.0, saved settings `DisorderItemManagerDB`),
+      `/dim`, window and frame names, the debug addon (`Disorder_ItemManager_Debug`), the addon's name in
+      Text.lua.
+- [x] One file per feature (load order): `Text.lua`, `Rules.lua` (from Weights.lua), `Bags.lua`, `Sound.lua`,
+      `Sort.lua`, `AutoSort.lua`, `Settings.lua` (only the window: frame, section list, placement, closing in
+      combat, shared helpers in `Settings.UI`), `Overlays.lua` (Select Mode and the outlines, from
+      Settings.lua), `Popup.lua` (the popup only), `Ordering.lua` (from Order.lua), `Options.lua` (Timing and
+      Special bags, still two sections until Phase 2), `History.lua` (the section), `Debug.lua`,
+      `SortButton.lua` (the sort button, the gear, the sweep), `Core.lua` (start-up, events, /dim).
+- [x] Each section registers itself with the window (`Settings.AddPage`: build, onShow, onHide,
+      onWindowHide, refresh), so the window knows nothing about what's in them.
+- Differences from the plan, all to keep this phase mechanical:
+  - [x] `Debug.lua` is new: the Debug group's sections, the test bench and the bag scan, gathered from
+        Settings.lua, Popup.lua and Sediment.lua. It moves into the debug addon in Phase 3.
+  - [x] History's saves stay in `Rules.lua` for now; they move to `History.lua` with the data change
+        (Phase 4), which rewrites them anyway.
+  - [x] The rules module keeps its code name `ns.Weights` until Phase 4 renames it with the data change.
+- [x] Tests and dev scripts follow the new file and frame names; nothing else in them changed. All checks
+      and the simulator pass.
+- [x] The user tries it in game ("basically an in place copy and code split"); commit. The Sediment AddOns
+      links were removed at the user's request; the game loads only Disorder now.
 
 ## Phase 2: the player-facing changes
 

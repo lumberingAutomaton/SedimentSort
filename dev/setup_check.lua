@@ -12,7 +12,7 @@ local function NewObj(name)
 		if Methods[k] then
 			return Methods[k]
 		end
-		if type(k) == "string" and k:match("^%u") and not k:match("^Sediment") then
+		if type(k) == "string" and k:match("^%u") and not k:match("^Disorder") then
 			return function() return 0 end
 		end
 	end })
@@ -160,10 +160,10 @@ ns.Popup = { Refresh = function() end, Open = function() ns.popupOpened = true e
 ns.AutoSort = { Resume = function() end, Delay = function() return 1.1 end, Status = function() ns.statusShown = true end }
 -- The debug addon (SedimentSort_Debug): absent until the Debug section of this test installs it.
 local debugAddon = false
-C_AddOns = { IsAddOnLoaded = function(name) return debugAddon and name == "SedimentSort_Debug" end }
+C_AddOns = { IsAddOnLoaded = function(name) return debugAddon and name == "Disorder_ItemManager_Debug" end }
 -- (Sediment.lua isn't loaded here: its file list, as it would be with one file missing.)
-ns.FILES = { "Text.lua", "Weights.lua", "Settings.lua", "Order.lua", "Missing.lua" }
-ns.ADDON = "SedimentSort"
+ns.FILES = { "Text.lua", "Rules.lua", "Settings.lua", "Ordering.lua", "Missing.lua" }
+ns.ADDON = "Disorder_ItemManager"
 ns.MissingFiles = function()
 	local m = {}
 	for _, f in ipairs(ns.FILES) do if not ns.loadedFiles[f] then m[#m + 1] = f end end
@@ -183,21 +183,22 @@ ContainerFrameCombinedBags = NewObj()
 ContainerFrameCombinedBags.EnumerateValidItems = function() return ipairs(buttons) end
 ContainerFrameCombinedBags.UpdateItems = function() end
 
-for _, file in ipairs({ "Text.lua", "Weights.lua", "Settings.lua", "Order.lua" }) do
-	assert(loadfile(file))("Sediment", ns)
+for _, file in ipairs({ "Text.lua", "Rules.lua", "Settings.lua", "Overlays.lua", "Ordering.lua", "Options.lua",
+	"History.lua", "Debug.lua" }) do
+	assert(loadfile(file))("Disorder_ItemManager", ns)
 end
-SedimentDB = {}
+DisorderItemManagerDB = {}
 ns.Weights.Init()
 local W, S = ns.Weights, ns.Settings
-local w = function() return SedimentDB.weights end
+local w = function() return DisorderItemManagerDB.weights end
 local function Weight(it) return (W.Resolve(it)) end
 
 -- A new user clicks the gear: the settings open at Order, with the welcome over the list (no rules yet).
 S.OpenDefault()
 local P = ns.Order.pane
-assert(SedimentSettings.shown and S.currentTab == "Order", "the gear didn't open Order")
+assert(DisorderItemManagerSettings.shown and S.currentTab == "Order", "the gear didn't open Order")
 assert(P.welcome.shown and not P.welcome.close.shown, "no welcome (or a Close button) with no rules")
-assert(not S.IsSelecting(), "Select Mode is on under the welcome")
+assert(not ns.Overlays.IsSelecting(), "Select Mode is on under the welcome")
 
 -- Start Fresh from the welcome: the default order, a Created entry, Combined Backpack on, the bags sorted,
 -- and Select Mode on now that the list shows.
@@ -210,7 +211,7 @@ assert(W.History()[1] and W.History()[1].kind == "created", "Start Fresh didn't 
 assert(cvars.combinedBags == "1", "Start Fresh didn't turn on Combined Backpack")
 assert(Plain(P.widenLabel.text):find("Combined Backpack"), "no notice on the page")
 assert(ns.lastPrint and Plain(ns.lastPrint):find("Combined Backpack"), "no notice in chat")
-assert(S.IsSelecting() and P.pick.text == "Select Mode: On", "Select Mode isn't on once the list shows")
+assert(ns.Overlays.IsSelecting() and P.pick.text == "Select Mode: On", "Select Mode isn't on once the list shows")
 local function OrderRows()
 	local list = {}
 	for _, f in ipairs(allFrames) do
@@ -235,16 +236,16 @@ end
 local FRESH = "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 gap class:2 class:4 "
 	.. "class:7 class:15 flag:gray"
 assert(RowIds() == FRESH, "fresh rows: " .. RowIds())
-assert(SedimentDB.weights.sinkLine == 50, "sink line isn't 50")
+assert(DisorderItemManagerDB.weights.sinkLine == 50, "sink line isn't 50")
 assert(P.unset.text == "" and P.unset.shown, "the not-set line should be empty but kept")
 
 -- Click Trade Goods: its items are outlined gold, nothing else; a group has nothing to widen to.
 local function Gold(i)
-	local m = buttons[i].SedimentMark
+	local m = buttons[i].DisorderMark
 	return m and m.shown and m.tint.color and m.tint.color[2] == 0.85
 end
 local function Orange(i)
-	local m = buttons[i].SedimentMark
+	local m = buttons[i].DisorderMark
 	return m and m.shown and m.tint.color and m.tint.color[2] == 0.5
 end
 Wait(1)
@@ -327,20 +328,20 @@ local orderBefore = RowIds()
 Wait(1)
 sortsBefore = sorts
 Click(RowById("class:7").remove)
-assert(SedimentDB.weights.classes[7] == nil and sorts > sortsBefore, "x didn't remove the rule and sort")
+assert(DisorderItemManagerDB.weights.classes[7] == nil and sorts > sortsBefore, "x didn't remove the rule and sort")
 local ghostRow
 for _, r in ipairs(OrderRows()) do if r.ghost then ghostRow = r end end
 assert(ghostRow and ghostRow.undo.shown and not ghostRow.remove.shown, "no greyed row with Undo")
 assert(RowIds() == orderBefore:gsub("class:7", "ghost"), "the removed row didn't stay in place: " .. RowIds())
 Click(ghostRow.undo)
-assert(RowIds() == orderBefore and SedimentDB.weights.classes[7], "Undo didn't put it back in place")
+assert(RowIds() == orderBefore and DisorderItemManagerDB.weights.classes[7], "Undo didn't put it back in place")
 
 -- Select Mode (on since the list showed): hovering a bag item lights up the row that sorts it; a click adds
 -- the item's row right above that row, selected, with its widen choices on the right; hovering a choice
 -- outlines what it would cover; choosing swaps the row in place.
-local function SlotEnter(i) buttons[i].SedimentSelect.scripts.OnEnter(buttons[i].SedimentSelect) end
-local function SlotLeave(i) buttons[i].SedimentSelect.scripts.OnLeave(buttons[i].SedimentSelect) end
-local function SlotClick(i, button) buttons[i].SedimentSelect.scripts.OnClick(buttons[i].SedimentSelect, button) end
+local function SlotEnter(i) buttons[i].DisorderSelect.scripts.OnEnter(buttons[i].DisorderSelect) end
+local function SlotLeave(i) buttons[i].DisorderSelect.scripts.OnLeave(buttons[i].DisorderSelect) end
+local function SlotClick(i, button) buttons[i].DisorderSelect.scripts.OnClick(buttons[i].DisorderSelect, button) end
 SlotEnter(2) -- 2589, Trade Goods/Cloth: Trade Goods sorts it
 assert(RowById("class:7").locked and not RowById("class:4").locked, "hover didn't light up the Trade Goods row")
 SlotLeave(2)
@@ -363,7 +364,7 @@ for i, it in ipairs(contents) do
 end
 P.widen[1].scripts.OnLeave(P.widen[1])
 Click(P.widen[1])
-assert(SedimentDB.weights.items[2589] == nil and SedimentDB.weights.subclasses["7:5"], "widening didn't swap the rule")
+assert(DisorderItemManagerDB.weights.items[2589] == nil and DisorderItemManagerDB.weights.subclasses["7:5"], "widening didn't swap the rule")
 assert(RowIds():find("subclass:7:5 class:7", 1, true), "the Cloth row didn't take the item's place: " .. RowIds())
 assert(Choices() == "Trade Goods", "a group/part row should offer its group: " .. Choices())
 SlotClick(14) -- 2000, BoE chest: a flag choice too
@@ -380,25 +381,25 @@ assert(ns.popupOpened and RowIds() == before, "Alt+right-click picked instead of
 IsAltKeyDown, ns.popupOpened = function() return false end, nil
 -- The button turns picking off and on.
 Click(P.pick)
-assert(not S.IsSelecting() and P.pick.text == "Select Mode: Off", "the button didn't turn Select Mode off")
+assert(not ns.Overlays.IsSelecting() and P.pick.text == "Select Mode: Off", "the button didn't turn Select Mode off")
 Click(P.pick)
-assert(S.IsSelecting() and P.pick.text == "Select Mode: On", "the button didn't turn Select Mode back on")
+assert(ns.Overlays.IsSelecting() and P.pick.text == "Select Mode: On", "the button didn't turn Select Mode back on")
 
 -- ? shows the welcome over the list, with Close now that there are rules; no picking under it.
 S.ShowWelcome()
 assert(P.welcome.shown and P.welcome.close.shown, "? didn't show the welcome with Close")
-assert(not S.IsSelecting(), "Select Mode stayed on under the welcome")
+assert(not ns.Overlays.IsSelecting(), "Select Mode stayed on under the welcome")
 Click(P.welcome.close)
-assert(not P.welcome.shown and S.IsSelecting(), "Close didn't hide the welcome and pick again")
+assert(not P.welcome.shown and ns.Overlays.IsSelecting(), "Close didn't hide the welcome and pick again")
 
 -- Start Fresh with rules (the bottom button asks first): saves them, keep-out included, clears, lays out again.
-SedimentDB.weights.items[2002] = 5
-SedimentDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
+DisorderItemManagerDB.weights.items[2002] = 5
+DisorderItemManagerDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
 local nBefore = #W.History()
 ns.lastPrint = nil
-StaticPopupDialogs.SEDIMENT_START_FRESH.OnAccept()
+StaticPopupDialogs.DISORDER_ITEMMANAGER_START_FRESH.OnAccept()
 RunTimers()
-assert(SedimentDB.weights.items[2002] == nil and SedimentDB.keepOut == nil, "Start Fresh didn't clear")
+assert(DisorderItemManagerDB.weights.items[2002] == nil and DisorderItemManagerDB.keepOut == nil, "Start Fresh didn't clear")
 local h = W.History()
 assert(#h == nBefore + 2 and h[1].kind == "created" and h[2].kind == "snapshot" and h[2].keepOut.subclasses["7:5"],
 	"Start Fresh didn't save the rules first and add a Created entry")
@@ -409,20 +410,20 @@ assert(not (ns.lastPrint and Plain(ns.lastPrint):find("Combined")), "a notice al
 -- Leaving the section: no outlines, picking ends; coming back turns it on again, even if it was turned off.
 Click(P.pick)
 S.Open("Sorting")
-assert(not buttons[2].SedimentMark.shown and not S.IsSelecting(), "outlines or picking stayed after leaving Order")
+assert(not buttons[2].DisorderMark.shown and not ns.Overlays.IsSelecting(), "outlines or picking stayed after leaving Order")
 S.Open("Order")
-assert(S.IsSelecting(), "Select Mode isn't on again on returning to Order")
+assert(ns.Overlays.IsSelecting(), "Select Mode isn't on again on returning to Order")
 Wait(1)
 Click(RowById("class:7"))
 assert(Gold(2), "outlines didn't come back on returning to Order")
 S.OnCombat()
-assert(not SedimentSettings.shown and not S.IsSelecting(), "combat didn't close the settings and end picking")
+assert(not DisorderItemManagerSettings.shown and not ns.Overlays.IsSelecting(), "combat didn't close the settings and end picking")
 contents[#contents] = false
 print(("order section OK (%d sorts)"):format(sorts))
 
 -- The History section: a row per entry, the pinned one first; Pin / Unpin, Load, x with Undo.
-SedimentDB.setup = nil
-SedimentDB.weights.classes[4] = 31
+DisorderItemManagerDB.setup = nil
+DisorderItemManagerDB.weights.classes[4] = 31
 W.Snapshot()
 S.Open("History")
 local function HistoryRows()
@@ -439,7 +440,7 @@ local hrows = HistoryRows()
 assert(#hrows == #W.History() and #hrows >= 2, "History rows: " .. #hrows .. " for " .. #W.History() .. " saves")
 assert(Plain(hrows[1].info.text):find("%d+ ordered"), "row summary missing: " .. hrows[1].info.text)
 -- Load a save that isn't in use; the rules in use (changed since the last save) are saved first.
-SedimentDB.weights.classes[4] = 32
+DisorderItemManagerDB.weights.classes[4] = 32
 S.Refresh()
 hrows = HistoryRows()
 local target
@@ -490,7 +491,7 @@ assert(victim.deleted and hrows[1].entry == victim and hrows[1].undo.shown and n
 Click(hrows[1].undo)
 assert(not victim.deleted, "Undo didn't undo")
 Click(HistoryRows()[1].remove)
-SedimentSettings:Hide()
+DisorderItemManagerSettings:Hide()
 for _, e in ipairs(W.History()) do assert(e ~= victim, "closing the window didn't delete") end
 assert(StaticPopupDialogs.SEDIMENT_RESTORE_RULES == nil, "Restore previous rules is still there")
 print("history section OK")
@@ -504,9 +505,9 @@ end
 assert(fill, "fill checkbox not found")
 local function Tick(on) fill.checked = on fill.scripts.OnClick(fill) end
 Tick(false)
-assert(SedimentDB.fillSpecialBags == false, "unticking didn't turn filling off")
+assert(DisorderItemManagerDB.fillSpecialBags == false, "unticking didn't turn filling off")
 Tick(true)
-assert(SedimentDB.fillSpecialBags == nil, "ticking didn't turn filling back on")
+assert(DisorderItemManagerDB.fillSpecialBags == nil, "ticking didn't turn filling back on")
 S.Refresh()
 assert(fill.checked, "the box shows unticked after turning filling on")
 print("special bags switch OK")
@@ -536,9 +537,9 @@ end
 local function Has(pattern)
 	for _, line in ipairs(seen) do if line:find(pattern) then return true end end
 end
-assert(Has("^Sediment 0%.17%.1 %(the version in the %.toc%)$"), "no version line")
+assert(Has("^Disorder 0%.17%.1 %(the version in the %.toc%)$"), "no version line")
 assert(Has("^1 of 5 files missing%.$"), "no missing summary")
-assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Order%.lua   loaded$"), "file lines wrong")
+assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Ordering%.lua   loaded$"), "file lines wrong")
 debugAddon = false
 print("files section OK")
 
@@ -547,14 +548,14 @@ ns.Bags.SpecialBagItem = function() return false end
 ns.Bags.KeepOutRule = function() return false end
 C_Container = { GetContainerItemInfo = function(_, slot) return contents[slot] and { itemID = contents[slot].itemID } end }
 C_Item.GetItemInfoInstant = function(id) return id, nil, nil, nil, "icon" .. id end
-assert(loadfile("Popup.lua"))("Sediment", ns)
+assert(loadfile("Popup.lua"))("Disorder_ItemManager", ns)
 local Popup = ns.Popup
-StaticPopupDialogs.SEDIMENT_START_FRESH.OnAccept() -- the default order again
+StaticPopupDialogs.DISORDER_ITEMMANAGER_START_FRESH.OnAccept() -- the default order again
 RunTimers()
 local function PopupRows()
 	local list = {}
 	for _, f in ipairs(allFrames) do
-		if f.parent == SedimentWeightPopup and f.add and f.shown then list[#list + 1] = f end
+		if f.parent == DisorderItemManagerPopup and f.add and f.shown then list[#list + 1] = f end
 	end
 	table.sort(list, function(a, b) return a.y < b.y end)
 	local out = {}
@@ -566,25 +567,25 @@ end
 -- A gray cloth armor piece, like the Calico Bracers: Gray Quality wins; the item above it can be added;
 -- its group/part and group (Armor has a row) are below it, with nothing to add.
 Popup.Open(0, 13)
-local at = SedimentWeightPopup.lastPoint
+local at = DisorderItemManagerPopup.lastPoint
 assert(at[1] == "BOTTOMLEFT" and at[2] == ContainerFrameCombinedBags and at[3] == "TOPLEFT", "the popup isn't above the bag")
-assert(SedimentWeightPopup.strata == "DIALOG" and SedimentSettings.strata == "HIGH", "the popup isn't a layer above the settings")
-assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Gray Quality.",
-	"summary: " .. SedimentWeightPopup.summary.text)
+assert(DisorderItemManagerPopup.strata == "DIALOG" and DisorderItemManagerSettings.strata == "HIGH", "the popup isn't a layer above the settings")
+assert(Plain(DisorderItemManagerPopup.summary.text) == "Sorted as Gray Quality.",
+	"summary: " .. DisorderItemManagerPopup.summary.text)
 local got, list = PopupRows()
 assert(got == "item3301 [Add] | Gray Quality <wins | Armor/sub4:1 | Armor", "gray armor rows: " .. got)
 sortsBefore = sorts
 Click(list[1].add)
-assert(SedimentDB.weights.items[3301] and sorts > sortsBefore, "Add didn't give the item a row and sort")
-assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as item3301.",
-	"summary after Add: " .. SedimentWeightPopup.summary.text)
+assert(DisorderItemManagerDB.weights.items[3301] and sorts > sortsBefore, "Add didn't give the item a row and sort")
+assert(Plain(DisorderItemManagerPopup.summary.text) == "Sorted as item3301.",
+	"summary after Add: " .. DisorderItemManagerPopup.summary.text)
 got = PopupRows()
 assert(got == "item3301 <wins | Gray Quality | Armor/sub4:1 | Armor", "after Add: " .. got)
 -- Nothing set: every level can be added, "Not set" wins; adding the group puts its row by the Empty Space.
 contents[#contents] = Item(9100, 9, 3)
 Popup.Open(0, #contents)
-assert(Plain(SedimentWeightPopup.summary.text) == "Nothing set: it stays next to the Empty Space.",
-	"unset summary: " .. SedimentWeightPopup.summary.text)
+assert(Plain(DisorderItemManagerPopup.summary.text) == "Nothing set: it stays next to the Empty Space.",
+	"unset summary: " .. DisorderItemManagerPopup.summary.text)
 got, list = PopupRows()
 assert(got == "item9100 [Add] | Recipe/sub9:3 [Add] | Recipe [Add] | Not set <wins", "unset rows: " .. got)
 Click(list[3].add)
@@ -593,22 +594,22 @@ assert(RowIds():find("class:1 class:9 gap", 1, true), "the new group row isn't j
 got = PopupRows()
 assert(got == "item9100 [Add] | Recipe/sub9:3 [Add] | Recipe <wins", "after adding the group: " .. got)
 -- Settings: Order, with the deciding row selected.
-Click(SedimentWeightPopup.settingsButton)
+Click(DisorderItemManagerPopup.settingsButton)
 assert(S.currentTab == "Order" and RowById("class:9").selected.shown, "Settings didn't select the deciding row")
 -- Quest items (user's screenshots): named as the Order row they sort with ("Quest Items" holds the quest flag
 -- and the Quest group), and no "Quest/Quest" line.
 local questSlot
 for i, it in ipairs(contents) do if it and it.itemID == 5000 then questSlot = i end end
 Popup.Open(0, questSlot) -- 5000, a quest item
-assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Quest Items.", "quest summary: " .. SedimentWeightPopup.summary.text)
+assert(Plain(DisorderItemManagerPopup.summary.text) == "Sorted as Quest Items.", "quest summary: " .. DisorderItemManagerPopup.summary.text)
 got = PopupRows()
 assert(got == "item5000 [Add] | Quest Items <wins | Quest", "quest item rows: " .. got)
 contents[#contents] = Item(5001, 12, 0) -- like the Okra: the Quest group, no quest flag
 Popup.Open(0, #contents)
-assert(Plain(SedimentWeightPopup.summary.text) == "Sorted as Quest Items.", "okra summary: " .. SedimentWeightPopup.summary.text)
+assert(Plain(DisorderItemManagerPopup.summary.text) == "Sorted as Quest Items.", "okra summary: " .. DisorderItemManagerPopup.summary.text)
 got = PopupRows()
 assert(got == "item5001 [Add] | Quest <wins", "okra rows: " .. got)
-Click(SedimentWeightPopup.settingsButton)
+Click(DisorderItemManagerPopup.settingsButton)
 assert(RowById("flag:quest").selected.shown, "Settings didn't select the Quest Items row for the Quest group")
 contents[#contents] = false
 print("weight popup OK")

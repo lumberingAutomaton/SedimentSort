@@ -1,33 +1,13 @@
--- Sediment core: saved data, the bag sort button, the /sed command.
--- /sed is the only command: it opens the settings (user, 2026-11-26: "/sed is all we need"). The developer
--- tools that used to be commands are buttons in the Debug group's Tools section (needs the debug addon).
+-- SortButton: the bag's sort button (taken over from the built-in sort), the gear next to it that opens the
+-- settings, and the progress sweep while a sort runs.
 
-local ADDON, ns = ...
+local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Sediment.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
-local N, L = ns.Noun, ns.L -- nouns in its colour, plain words (see Text.lua)
-
-function ns.Print(msg)
-	print("|cffc8a96eSediment:|r " .. msg)
-end
-local Print = ns.Print
-
--- Every file the addon expects, in .toc order. Each marks itself in ns.loadedFiles as it loads; the login
--- check and the Debug > Files section compare the two (dev/files_check.lua keeps this list equal to the .toc).
-ns.FILES = { "Text.lua", "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Popup.lua",
-	"Settings.lua", "Order.lua", "Sediment.lua" }
-ns.ADDON = ADDON
-
--- Files in ns.FILES that didn't load (a /reload may not pick up a file new to the .toc; a restart does).
-function ns.MissingFiles()
-	local missing = {}
-	for _, file in ipairs(ns.FILES) do
-		if not ns.loadedFiles[file] then
-			missing[#missing + 1] = file
-		end
-	end
-	return missing
-end
+ns.loadedFiles["SortButton.lua"] = true -- see ns.FILES (Core.lua) and the Files section
+local SortButton = {}
+ns.SortButton = SortButton
+local N, L = ns.Noun, ns.L -- nouns in their colour, plain words (see Text.lua)
+local Print = function(msg) ns.Print(msg) end
 
 -- Sort button ---------------------------------------------------------------------------------
 -- We replace the click and tooltip of Blizzard's bag sort button. We never touch
@@ -147,11 +127,6 @@ function ns.OnSortProgress(done, total)
 	glider:Show()
 end
 
--- A sort's smoothness numbers are final a second after it ends (see Sort.lua); show them.
-function ns.OnBenchRun()
-	ns.Popup.BenchRefresh()
-end
-
 function ns.OnSortFinished(success)
 	glider:Hide()
 	if shown then
@@ -168,7 +143,7 @@ function ns.OnSortFinished(success)
 	end
 	shown = nil
 	ns.Popup.OnBagUpdate()
-	ns.Popup.BenchRefresh()
+	ns.Debug.BenchRefresh()
 end
 
 function ns.OnSortStateChanged()
@@ -178,93 +153,67 @@ function ns.OnSortStateChanged()
 	end
 end
 
--- Scan and /sed --------------------------------------------------------------------------------
+-- The bag button: a small icon left of the sort button (a child of it, so it shows and moves with
+-- it) that opens the settings window on the Sorting tab. Picked in game (2026-11-24):
+-- - Blizzard's button-style gear: people read a gear as "settings", and a button graphic has
+--   transparent padding like the old dice, so it sits lightly where a full-square item icon looked heavy.
+-- - 15 units, not 16: an empirical fit (16 looked about half a pixel low). The search bar is 18 units
+--   tall, so not an odd/even centring issue; most likely its border art isn't centred in its frame, or
+--   the UI scale's rounding onto screen pixels. Sizes are in UI units, so the gear scales with the bag
+--   at any UI scale; at other scales the rounding may land half a pixel differently.
+-- - Vertically centred on the search bar (the sort button sits a little lower), re-measured when shown
+--   and whenever Blizzard repositions the sort button.
+local ICON = "Interface\\Buttons\\UI-OptionsButton"
+local bagButton
+local ICON_SIZE = 15
 
-local function FormatWeight(w)
-	return w == nil and "—" or tostring(w)
-end
-
--- Every item in the bags with its class, subclass, quality, flags and weight, in chat; also saved to
--- SedimentDB.lastScan for dev/sim.lua. The Debug group's Tools section has a button for it.
-function ns.Scan()
-	local rows = {}
-	local slots = ns.Bags.Read()
-	for _, s in ipairs(slots) do
-		local item = s.item
-		if item then
-			item.weight, item.weightFrom = ns.Weights.Resolve(item)
-			rows[#rows + 1] = item
-			print(("  %d/%d %s x%d | %s(%d) > %s(%d) | q%s%s%s | w%s from %s"):format(
-				item.bag, item.slot, item.link, item.count,
-				item.className or "?", item.classID, item.subclassName or "?", item.subclassID,
-				tostring(item.quality), item.isQuestItem and " QUEST" or "", item.isBound and " bound" or "",
-				FormatWeight(item.weight), item.weightFrom))
-		end
+local function CreateBagButton()
+	local sortButton = BagItemAutoSortButton
+	if not sortButton or bagButton then
+		return
 	end
-	SedimentDB.lastScan = { time = date("%Y-%m-%d %H:%M:%S"), rows = rows }
-	Print(("%d items in %d sortable slots. /reload to write the scan to disk."):format(#rows, #slots))
-end
-
-SLASH_SEDIMENT1 = "/sediment"
-SLASH_SEDIMENT2 = "/sed"
-SlashCmdList.SEDIMENT = function()
-	ns.Settings.Toggle()
-end
-
--- Events --------------------------------------------------------------------------------------
-
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-frame:RegisterEvent("BAG_UPDATE_DELAYED")
-frame:RegisterEvent("QUEST_LOG_UPDATE")
-frame:RegisterEvent("PLAYER_REGEN_DISABLED")
-frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-frame:RegisterEvent("PLAYER_LOGOUT")
-frame:SetScript("OnEvent", function(self, event, arg1)
-	if event == "ADDON_LOADED" and arg1 == ADDON then
-		SedimentDB = SedimentDB or {}
-		SedimentDB.lastMove = nil -- left over from the 0.0.1 probe
-		ns.Weights.Init()
-		self:UnregisterEvent("ADDON_LOADED")
-	elseif event == "PLAYER_LOGIN" then
-		-- A file new to the .toc may not load on a /reload (a full restart always works). Without it the rest
-		-- of the addon can't work, so say so instead of failing quietly. Debug > Files shows the same list.
-		local missing = ns.MissingFiles()
-		if #missing > 0 then
-			Print("|cffff6666not loaded: " .. table.concat(missing, ", ")
-				.. ". Exit WoW completely and start it again (a /reload isn't enough for new files).|r")
-			self:UnregisterAllEvents()
-			return
+	-- Values left over from tuning the icon in game (/sed icon, nudge, iconsize, now removed).
+	DisorderItemManagerDB.bagIcon, DisorderItemManagerDB.bagIconNudge, DisorderItemManagerDB.bagIconSize, DisorderItemManagerDB.bagIconVersion = nil, nil, nil, nil
+	local b = CreateFrame("Button", nil, sortButton)
+	b:SetSize(20, 20)
+	b:SetPoint("RIGHT", sortButton, "LEFT", -2, 0)
+	local function Align()
+		local search = BagItemSearchBox
+		local searchY, sortY
+		if search and search:IsVisible() then
+			searchY = select(2, search:GetCenter()) -- GetCenter returns x, y; "a and f()" would keep only x
 		end
-		ns.Weights.SetCharacter(UnitName("player"))
-		ns.Weights.Snapshot() -- safety net; logout normally takes it (only if the rules aren't in History)
-		TakeOverSortButton()
-		ns.Popup.Hook()
-		ns.Popup.CreateBagButton()
-	elseif event == "PLAYER_LOGOUT" then
-		-- Logout, quit and /reload all fire this before WoW writes saved data: a Snapshot of the rules if
-		-- they've changed (user, 2026-11-25: logout rather than login; a crash skips it, but then the
-		-- session's changes aren't written either).
-		ns.Weights.Snapshot()
-	elseif event == "PLAYER_ENTERING_WORLD" then
-		ns.AutoSort.OnEnteringWorld()
-	elseif event == "GET_ITEM_INFO_RECEIVED" then
-		ns.Settings.RefreshNames() -- item names in the ladder that weren't loaded yet (no re-sort)
-		ns.Order.OnBagUpdate() -- item names in the Order list
-	elseif event == "PLAYER_REGEN_DISABLED" then
-		ns.Sort.OnCombatStart()
-		ns.Settings.OnCombat()
-	elseif event == "QUEST_LOG_UPDATE" then
-		ns.AutoSort.OnQuestLogChanged()
-	elseif event == "BAG_UPDATE_DELAYED" then
-		ns.Sort.OnBagUpdateDelayed()
-		ns.AutoSort.OnBagUpdateDelayed()
-		ns.Popup.OnBagUpdate()
-		if ns.Settings.OverlaysActive() then
-			ns.Settings.RefreshOverlays()
-		end
-		ns.Order.OnBagUpdate()
+		sortY = select(2, sortButton:GetCenter())
+		local dy = (searchY and sortY) and (searchY - sortY) or 0
+		b:ClearAllPoints()
+		b:SetPoint("RIGHT", sortButton, "LEFT", -2, dy)
 	end
-end)
+	b:SetScript("OnShow", function()
+		Align()
+		C_Timer.After(0, Align) -- again once the bag has finished laying itself out
+	end)
+	hooksecurefunc(sortButton, "SetPoint", function() C_Timer.After(0, Align) end)
+	b.icon = b:CreateTexture(nil, "ARTWORK")
+	b.icon:SetSize(ICON_SIZE, ICON_SIZE)
+	b.icon:SetPoint("CENTER")
+	b.icon:SetTexture(ICON)
+	b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+	b:SetScript("OnClick", function()
+		ns.Settings.OpenDefault() -- the settings at Order
+	end)
+	b:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip_SetTitle(GameTooltip, L("AddonName") .. " settings")
+		GameTooltip_AddNormalLine(GameTooltip, N("OrderSection") .. " and the other settings.")
+		GameTooltip:Show()
+	end)
+	b:SetScript("OnLeave", GameTooltip_Hide)
+	bagButton = b
+	ns.Debug.BenchRefresh() -- put the status text in the bag from the start, if it's on
+end
+
+-- At login: take over the sort button and add the gear.
+function SortButton.Setup()
+	TakeOverSortButton()
+	CreateBagButton()
+end

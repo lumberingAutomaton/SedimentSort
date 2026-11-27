@@ -2,10 +2,10 @@
 -- and every key in the table is used somewhere. A missing key wouldn't error in game; it would quietly show
 -- the key itself ("ClearAllButton") as the text. Run: lua dev/text_check.lua (from the addon folder).
 local ns = {}
-assert(loadfile("Text.lua"))("Sediment", ns)
+assert(loadfile("Text.lua"))("Disorder_ItemManager", ns)
 
-local files = { "Weights.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Popup.lua", "Settings.lua",
-	"Order.lua", "Sediment.lua" }
+local files = { "Rules.lua", "Bags.lua", "Sound.lua", "Sort.lua", "AutoSort.lua", "Settings.lua", "Overlays.lua",
+	"Popup.lua", "Ordering.lua", "Options.lua", "History.lua", "Debug.lua", "SortButton.lua", "Core.lua" }
 local used, problems = {}, {}
 for _, file in ipairs(files) do
 	local f = assert(io.open(file))

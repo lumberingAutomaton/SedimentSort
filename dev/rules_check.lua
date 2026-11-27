@@ -4,61 +4,61 @@ Enum = { ItemQuality = { Poor = 0 } }
 date = os.date
 local function Load()
 	local ns = {}
-	assert(loadfile("Text.lua"))("Sediment", ns)
-	assert(loadfile("Weights.lua"))("Sediment", ns)
+	assert(loadfile("Text.lua"))("Disorder_ItemManager", ns)
+	assert(loadfile("Rules.lua"))("Disorder_ItemManager", ns)
 	return ns.Weights
 end
 
 -- New install.
-SedimentDB = {}
+DisorderItemManagerDB = {}
 local W = Load()
 W.Init()
-assert(next(SedimentDB.weights.items) == nil and next(SedimentDB.weights.classes) == nil, "new install isn't empty")
-assert(next(SedimentDB.weights.flags) == nil, "new install has flags")
+assert(next(DisorderItemManagerDB.weights.items) == nil and next(DisorderItemManagerDB.weights.classes) == nil, "new install isn't empty")
+assert(next(DisorderItemManagerDB.weights.flags) == nil, "new install has flags")
 assert(not W.HasRules(), "empty rules report as having rules")
 W.Init() -- a second load changes nothing
-assert(next(SedimentDB.weights.flags) == nil, "a reload added a flag")
+assert(next(DisorderItemManagerDB.weights.flags) == nil, "a reload added a flag")
 
 -- An old save (version 1, no Equipment set flag) migrates once; settings fixed since 0.20 are cleared.
-SedimentDB = { weights = { sinkLine = 40, default = 39, items = { [6948] = 0 }, flags = {}, subclasses = {}, classes = { [7] = 80 } },
+DisorderItemManagerDB = { weights = { sinkLine = 40, default = 39, items = { [6948] = 0 }, flags = {}, subclasses = {}, classes = { [7] = 80 } },
 	autoSort = false, autoOrder = "partial", openBags = "pause", testingTools = true }
 W = Load()
 W.Init()
-assert(SedimentDB.weights.flags.equipmentSet == 35, "old save didn't get the Equipment set flag")
-assert(SedimentDB.autoSort == nil and SedimentDB.autoOrder == nil and SedimentDB.openBags == nil
-	and SedimentDB.testingTools == nil, "a retired setting was kept")
-SedimentDB.weights.flags.equipmentSet = nil
+assert(DisorderItemManagerDB.weights.flags.equipmentSet == 35, "old save didn't get the Equipment set flag")
+assert(DisorderItemManagerDB.autoSort == nil and DisorderItemManagerDB.autoOrder == nil and DisorderItemManagerDB.openBags == nil
+	and DisorderItemManagerDB.testingTools == nil, "a retired setting was kept")
+DisorderItemManagerDB.weights.flags.equipmentSet = nil
 W.Init()
-assert(SedimentDB.weights.flags.equipmentSet == nil, "a cleared flag came back")
+assert(DisorderItemManagerDB.weights.flags.equipmentSet == nil, "a cleared flag came back")
 
 -- A version-2 save is left exactly as it is.
-SedimentDB = { weightsVersion = 2, weights = { sinkLine = 40, default = 39, items = {}, flags = {}, subclasses = {}, classes = { [7] = 80 } } }
+DisorderItemManagerDB = { weightsVersion = 2, weights = { sinkLine = 40, default = 39, items = {}, flags = {}, subclasses = {}, classes = { [7] = 80 } } }
 W = Load()
 W.Init()
-assert(SedimentDB.weights.classes[7] == 80 and next(SedimentDB.weights.flags) == nil, "a version-2 save changed")
+assert(DisorderItemManagerDB.weights.classes[7] == 80 and next(DisorderItemManagerDB.weights.flags) == nil, "a version-2 save changed")
 
 -- History (user, 2026-11-25): Created at Setup done (always new); Snapshot before Load / Start Fresh and at
 -- logout / login, only if no entry holds the rules in use; one pin; Active / Previous.
 local function Count() return #W.History() end
 W.SetCharacter("Rook")
-SedimentDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
+DisorderItemManagerDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
 local before = Count()
 W.ClearAll() -- Start Fresh
-assert(not W.HasRules() and SedimentDB.keepOut == nil, "Start Fresh left rules behind")
+assert(not W.HasRules() and DisorderItemManagerDB.keepOut == nil, "Start Fresh left rules behind")
 assert(Count() == before + 1, "Start Fresh didn't take a Snapshot first")
 local saved = W.History()[1]
 assert(saved.kind == "snapshot" and saved.character == "Rook" and saved.weights.classes[7] == 80
 	and saved.keepOut.subclasses["7:5"], "the Snapshot lacks kind, character, rules or keep-out")
 assert(W.EntryTitle(saved):match("^Rook — Snapshot — %a%a%a %d+, %d+:%d+$"), "title: " .. W.EntryTitle(saved))
 W.LoadVersion(saved)
-assert(SedimentDB.weights.classes[7] == 80 and SedimentDB.keepOut.subclasses["7:5"], "loading didn't bring rules back")
+assert(DisorderItemManagerDB.weights.classes[7] == 80 and DisorderItemManagerDB.keepOut.subclasses["7:5"], "loading didn't bring rules back")
 assert(W.ActiveSave() == saved, "the loaded entry isn't Active")
 assert(Count() == before + 1, "loading took a Snapshot of empty rules")
 
 -- Load when the rules in use are already an entry: no Snapshot; Previous follows what was Active.
-SedimentDB.weights.classes[7] = 61
+DisorderItemManagerDB.weights.classes[7] = 61
 local x = W.Snapshot()
-SedimentDB.weights.classes[7] = 62
+DisorderItemManagerDB.weights.classes[7] = 62
 local y = W.Snapshot()
 assert(x and y and x ~= y, "Snapshots of different rules weren't made")
 assert(W.Snapshot() == nil and Count() == Count(), "a Snapshot of rules already saved")
@@ -67,7 +67,7 @@ local count = Count()
 W.LoadVersion(y)
 assert(Count() == count, "Load took a Snapshot of rules already saved")
 assert(W.ActiveSave() == y and W.PreviousSave() == x, "Previous isn't the entry Active before the Load")
-SedimentDB.weights.classes[7] = 63 -- an edit: nothing Active
+DisorderItemManagerDB.weights.classes[7] = 63 -- an edit: nothing Active
 assert(W.ActiveSave() == nil and W.PreviousSave() == y, "after an edit, Previous isn't the last Active entry")
 W.LoadVersion(x)
 assert(Count() == count + 1 and W.History()[1].weights.classes[7] == 63, "Load didn't take a Snapshot of unsaved rules")
@@ -104,7 +104,7 @@ assert(W.Snapshot() == nil, "a Snapshot of no rules")
 
 -- The newest 20 unpinned entries are kept; the pinned one isn't dropped.
 for i = 1, 30 do
-	SedimentDB.weights.classes[9] = i
+	DisorderItemManagerDB.weights.classes[9] = i
 	W.Snapshot()
 end
 local unpinned = 0
@@ -127,9 +127,9 @@ assert(pins == 1 and W.History()[2].pinned, "upgrade didn't keep exactly the mos
 assert(W.EntryTitle(W.History()[2]):match("^old — Snapshot — "), "legacy title: " .. W.EntryTitle(W.History()[2]))
 
 -- Upgrading from 0.16.0's single backup slot: it becomes the oldest entry.
-SedimentDB = { weightsVersion = 3, weights = { sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {},
+DisorderItemManagerDB = { weightsVersion = 3, weights = { sinkLine = 50, default = 20, items = {}, flags = {}, subclasses = {},
 	classes = { [9] = 99 } } }
-SedimentDB.rulesBackup = { time = "old", reason = "before Reset to default", weights = { sinkLine = 40, default = 39,
+DisorderItemManagerDB.rulesBackup = { time = "old", reason = "before Reset to default", weights = { sinkLine = 40, default = 39,
 	items = {}, flags = {}, subclasses = {}, classes = { [7] = 1 } } }
 W.Init()
 W.Snapshot() -- login safety net
@@ -137,5 +137,5 @@ local h = W.History()
 assert(#h == 2, "upgrade should give two entries (the old backup, the rules at login), got " .. #h)
 assert(h[1].kind == "snapshot" and h[1].weights.classes[9] == 99, "login didn't snapshot changed rules")
 assert(h[#h].time == "old" and h[#h].weights.classes[7] == 1, "the old backup didn't become the oldest entry")
-assert(SedimentDB.rulesBackup == nil, "the old backup slot is still there")
+assert(DisorderItemManagerDB.rulesBackup == nil, "the old backup slot is still there")
 print("rules check: new install, migrations, history, reset and restore all OK")

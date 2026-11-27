@@ -12,7 +12,7 @@ BagItemAutoSortButton ContainerFrameCombinedBags BagItemSearchBox IsAnyBagOpen G
 NUM_CONTAINER_FRAMES ContainerFrameContainer OpenAllBags
 C_AddOns GetAddOnMetadata GetCursorInfo ClearCursor GetCursorPosition GetMouseButtonClicked IsMouseButtonDown GetMouseFoci GetMouseFocus
 UnitName IsAltKeyDown IsControlKeyDown IsShiftKeyDown InCombatLockdown GetTime GetFramerate debugprofilestop
-SlashCmdList SLASH_SEDIMENT1 SLASH_SEDIMENT2 SedimentDB
+SlashCmdList SLASH_DISORDERITEMMANAGER1 DisorderItemManagerDB
 StaticPopupDialogs StaticPopup_Show YES NO ACCEPT CANCEL GetCVar GetCVarBool SetCVar"
 status=0
 for f in *.lua; do

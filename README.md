@@ -1,24 +1,24 @@
-# Sediment
+# Disorder - Item Manager
 
 A bag sort for World of Warcraft: Forever that keeps your bags in your own order, by itself. You rank the
 kinds of items you carry from top to bottom, and put the **Empty Space** where new loot should land. Whenever
-your bags are closed, **Sediment** quietly puts everything where it belongs.
+your bags are closed, **Disorder** quietly puts everything where it belongs.
 
-Writing convention, here and in the game: **Sediment**'s own nouns (**Sediment**, **Ordering**, **Select
+Writing convention, here and in the game: **Disorder**'s own nouns (**Disorder**, **Ordering**, **Select
 Mode**, **History**, **Pinned**, **Empty Space**) are bold here and sand-coloured in the game; button names
 are `in code style` here and gold in the game. "Rules" always means your whole set: your **Ordering** plus
 what you keep out of special bags.
 
 ## 1. Sorting
 
-This is the point of **Sediment**: your bags sort themselves.
+This is the point of **Disorder**: your bags sort themselves.
 
 - **Auto-sort is always on.** About a second after your bags change (loot, crafting, using something up),
-  and only while they're closed, **Sediment** sorts them. It moves a few items per frame so the game stays
+  and only while they're closed, **Disorder** sorts them. It moves a few items per frame so the game stays
   smooth. If you open your bags while it's running, it finishes at full speed right away.
 - **It waits** while you're in combat (a sort that's running stops at once and finishes afterwards), while
   an item is on your cursor, and while a vendor, bank, mail, trade, auction or guild bank window is open.
-- **The sort button** in the bag sorts right now, at full speed. **Sediment** takes it over from the built-in
+- **The sort button** in the bag sorts right now, at full speed. **Disorder** takes it over from the built-in
   sort. Clicking it again during a sort cancels that sort.
 - **Every sort uses the same exact order**, so every item always has the same spot. Identical stacks sit
   side by side with the partial stack last, and equipment sets stay together. Every normal bag is sorted:
@@ -26,8 +26,8 @@ This is the point of **Sediment**: your bags sort themselves.
 - **It's quiet:** the item clinks are muted while it sorts, and a cooldown sweep on the sort button and the
   backpack button shows it working.
 
-The gear next to the sort button, or `/sed`, opens the settings at your **Ordering**. The settings window
-closes in combat, along with everything else **Sediment** opens, so a click in combat always does what you
+The gear next to the sort button, or `/dim`, opens the settings at your **Ordering**. The settings window
+closes in combat, along with everything else **Disorder** opens, so a click in combat always does what you
 expect.
 
 ## 2. Ordering
@@ -39,7 +39,7 @@ to start from: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable,
 other kind of item in your bags, the **Empty Space**, then Weapon, Armor, Trade Goods, Miscellaneous, and
 Gray Quality last. It saves any rules you had to **History** first, clears them (Keep out of special bags
 too), adds a Created entry for the new order, and turns on Blizzard's Combined Backpack if it's off
-(**Sediment** sorts in that window's order). The ? next to the settings title brings the welcome back.
+(**Disorder** sorts in that window's order). The ? next to the settings title brings the welcome back.
 
 **The list** shows your **Ordering** top to bottom, the way your bags sort, with the **Empty Space** among
 the entries. Drag an entry to move it: press anywhere on it and move the mouse. Click one to outline its
@@ -65,7 +65,7 @@ Mageweave Cloth as:" `Trade Goods/Cloth`, `Trade Goods`, or `BoE Gear` for a BoE
 offers its whole group. Choosing one replaces the entry, or joins it to that entry if it's already in the
 list; either way, everything it covers sorts there. Hover a choice to see what it would cover.
 
-**How an item finds its place.** With nothing ordered, **Sediment** sorts by item type, like an ordinary bag
+**How an item finds its place.** With nothing ordered, **Disorder** sorts by item type, like an ordinary bag
 sort. Otherwise each item sorts with the most specific entry in your **Ordering** that matches it:
 1. that exact item (for example, Hearthstone);
 2. a flag, checked in this order: Equipment Set, Quest Items, Gray Quality, BoE Gear (equippable and not
@@ -120,18 +120,27 @@ back to.
 
 ## Install
 
-Put this folder in `World of Warcraft/_forever_/Interface/AddOns/` (copy or symlink) as `SedimentSort`,
-which is what cloning this repo gives you: WoW only loads an addon whose folder matches its `.toc` name
-(`SedimentSort.toc`). It shows as "Sediment" in the game. After updating, a `/reload` is enough (checked on
+Put this folder in `World of Warcraft/_forever_/Interface/AddOns/` (copy or symlink) as
+`Disorder_ItemManager`: WoW only loads an addon whose folder matches its `.toc` name
+(`Disorder_ItemManager.toc`). It shows as "Disorder - Item Manager" in the AddOns list and as "Disorder" in
+the game. After updating, a `/reload` is enough (checked on
 Forever, 2026-11-25, with a newly added file). A brand-new addon folder needs a full restart of the game.
 
 ## For developers
 
 `NOTES.md` holds findings, design records, research and test results; `TODO.md` is the parking lot (what to
-build next, ideas waiting for a decision).
+build next, ideas waiting for a decision); `PLAN.md` is the restructure in progress.
 
-**The debug addon.** `SedimentSort_Debug/` is a second addon, installed as its own folder
-(`AddOns/SedimentSort_Debug`, copy or symlink; restart the game the first time). While it's loaded, the
+**The files**, one per feature, in load order: `Text.lua` (the words), `Rules.lua` (the rules and how an item
+finds its place, and History's saves for now), `Bags.lua` (reading the bags and special bags), `Sound.lua`,
+`Sort.lua` (the sort engine), `AutoSort.lua`, `Settings.lua` (the window, its section list and shared
+helpers; each section registers itself), `Overlays.lua` (Select Mode and the outlines), `Popup.lua` (the
+ordering popup), `Ordering.lua`, `Options.lua` (Timing, Special bags), `History.lua`, `Debug.lua` (the Debug
+group and test bench, until it moves into the debug addon), `SortButton.lua` (the sort button, the gear, the
+progress sweep), `Core.lua` (start-up, events, `/dim`).
+
+**The debug addon.** `Disorder_ItemManager_Debug/` is a second addon, installed as its own folder
+(`AddOns/Disorder_ItemManager_Debug`, copy or symlink; restart the game the first time). While it's loaded, the
 settings show a Debug group; players without it never see any of it:
 - **Testing:** scramble the bags with a seed (Drift, Minimal, Full or Maximal; the same seed on the same
   sorted bag makes the same mess), then let auto-sort clean up. An optional status line under the bag's
@@ -139,20 +148,21 @@ settings show a Debug group; players without it never see any of it:
 - **Tools:** `Auto-sort status` (what auto-sort is waiting for, what the last sort cost), `Scan bags` (every
   item's class, subclass, quality, flags and weight in chat, saved for `dev/sim.lua` after a `/reload`),
   `Mute test` (the item sounds muted for 15 seconds), `Cancel sort`.
-- **Files:** the version the game read from the `.toc`, and every file **Sediment** expects, each marked
+- **Files:** the version the game read from the `.toc`, and every file **Disorder** expects, each marked
   loaded or missing. A missing file usually means the game needs a full restart.
 
-**Words.** `Text.lua` holds every word for one of **Sediment**'s own things and every button label, under
+**Words.** `Text.lua` holds every word for one of **Disorder**'s own things and every button label, under
 keys named for their role. Change a word there and nowhere else.
 
 **Checks** in `dev/`, not loaded by the game; run them from the addon folder:
 - `dev/check_globals.sh`: run after every change; fails on any global that isn't a known WoW API or
-  Sediment's own (catches a local declared below the function that uses it).
+  Disorder's own (catches a local declared below the function that uses it).
 - `dev/text_check.lua`: every word key the code uses is defined, and every defined one is used.
 - `dev/files_check.lua`: the file list behind Debug > Files and the login check matches the `.toc`, and
   every file marks itself loaded.
 - `dev/sim.lua`: runs the real sort code against mocked game APIs, using a saved scan:
-  `lua dev/sim.lua <SavedVariables/SedimentSort.lua> [seed] [show|bench]`. `SEDIMENT_MEASURE=1` compares
+  `lua dev/sim.lua <SavedVariables/Disorder_ItemManager.lua> [seed] [show|bench]` (scans saved before the
+  rename, in `SedimentSort.lua`, work too). `SEDIMENT_MEASURE=1` compares
   plans with the proven minimum swaps (`dev/min_swaps.lua`).
 - `dev/resolve_check.lua`: the fast lookup of an item's place against the full rule cascade.
 - `dev/rules_check.lua`: new installs start empty, older saves migrate once, retired settings are cleared,

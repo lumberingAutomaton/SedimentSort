@@ -20,7 +20,7 @@
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
-ns.loadedFiles["Order.lua"] = true -- see ns.FILES (Sediment.lua) and the Files section
+ns.loadedFiles["Ordering.lua"] = true -- see ns.FILES (Core.lua) and the Files section
 local Order = {}
 ns.Order = Order
 local N, B, L = ns.Noun, ns.Btn, ns.L -- nouns, button names in sentences, plain words (see Text.lua)
@@ -56,7 +56,7 @@ end
 
 -- Any weight rules (items, flags, subclasses, classes)? Keep-out rules don't count.
 local function HasWeightRules()
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	return next(w.items) ~= nil or next(w.flags) ~= nil or next(w.subclasses) ~= nil or next(w.classes) ~= nil
 end
 
@@ -68,7 +68,7 @@ end
 local function AfterChange()
 	lastDraw = GetTime() -- the rows are about to change under the mouse
 	ns.Popup.Refresh()
-	ns.Settings.RefreshOverlays()
+	ns.Overlays.Refresh()
 	ns.Sort.StartSoon()
 end
 
@@ -311,7 +311,7 @@ local function Remove(row)
 	if not e or not e.rules or GetTime() - lastDraw < CLICK_GUARD then
 		return
 	end
-	local w = SedimentDB.weights
+	local w = DisorderItemManagerDB.weights
 	local ghost = { position = row.position, rules = {} }
 	ghost.label, ghost.icon = RungLabel(e)
 	for _, r in ipairs(e.rules) do
@@ -401,8 +401,8 @@ end
 local function StopPicking()
 	if picking then
 		picking = false
-		if ns.Settings.IsSelecting() then
-			ns.Settings.SetSelectMode(false)
+		if ns.Overlays.IsSelecting() then
+			ns.Overlays.SetSelectMode(false)
 		end
 	end
 	bagHover = nil
@@ -413,7 +413,7 @@ local function SyncPicking(showWelcome)
 	local want = pickWanted and not showWelcome and Shown() and not InCombatLockdown()
 	if want and not picking then
 		picking = true
-		ns.Settings.SetSelectMode(true, OnPick, OnHover)
+		ns.Overlays.SetSelectMode(true, OnPick, OnHover)
 	elseif not want and picking then
 		StopPicking()
 	end
@@ -512,8 +512,8 @@ function Order.StartFresh()
 		notice = N("AddonName") .. " turned on Blizzard's Combined Backpack: it sorts in that window's order."
 		ns.Print(notice)
 	end
-	if ns.Settings.RefreshSpecialList then
-		ns.Settings.RefreshSpecialList() -- keep-out rules were cleared
+	if ns.Options.RefreshSpecialList then
+		ns.Options.RefreshSpecialList() -- keep-out rules were cleared
 	end
 	AfterChange()
 	Order.Refresh()
@@ -647,11 +647,11 @@ function Order.Build(page, width)
 		b:SetScript("OnClick", function(self) Widen(self.choice) end)
 		b:SetScript("OnEnter", function(self)
 			hoverRule = self.choice
-			ns.Settings.RefreshOverlays()
+			ns.Overlays.Refresh()
 		end)
 		b:SetScript("OnLeave", function()
 			hoverRule = nil
-			ns.Settings.RefreshOverlays()
+			ns.Overlays.Refresh()
 		end)
 		pane.widen[k] = b
 	end
@@ -661,7 +661,7 @@ function Order.Build(page, width)
 	pane.fresh:SetHeight(24)
 	pane.fresh:SetPoint("BOTTOMLEFT", 2, 4)
 	pane.fresh:SetScript("OnClick", function()
-		StaticPopup_Show("SEDIMENT_START_FRESH")
+		StaticPopup_Show("DISORDER_ITEMMANAGER_START_FRESH")
 	end)
 
 	-- The welcome: over the list while there are no rules, or after ?. It covers the list rather than pushing
@@ -692,7 +692,7 @@ function Order.Build(page, width)
 	welcome.fresh:SetPoint("TOPLEFT", wbody, "BOTTOMLEFT", 0, -16)
 	welcome.fresh:SetScript("OnClick", function()
 		if HasWeightRules() then
-			StaticPopup_Show("SEDIMENT_START_FRESH")
+			StaticPopup_Show("DISORDER_ITEMMANAGER_START_FRESH")
 		else
 			Order.StartFresh()
 		end
@@ -831,7 +831,7 @@ function Order.Refresh()
 		end
 	end
 	if Shown() then
-		ns.Settings.SetHighlight(true, Focus) -- orange: not set yet; gold: the selected row's items
+		ns.Overlays.SetHighlight(true, Focus) -- orange: not set yet; gold: the selected row's items
 	end
 end
 
@@ -842,7 +842,7 @@ function Order.OnShow()
 	end
 	pickWanted = true -- Select Mode is on each time the section opens
 	Order.Refresh()
-	ns.Settings.SetHighlight(true, Focus)
+	ns.Overlays.SetHighlight(true, Focus)
 end
 
 -- The section or the window closes: stop picking, no outlines, removed rows are final.
@@ -851,7 +851,7 @@ function Order.OnHide()
 	ghosts, notice, dragging, press, hoverRule = {}, nil, nil, nil, nil
 	pane:SetScript("OnUpdate", nil)
 	pane.dropLine:Hide()
-	ns.Settings.SetHighlight(false)
+	ns.Overlays.SetHighlight(false)
 end
 
 -- Select a rule's row and bring it into view (the weight popup's Settings button: the row deciding that item).
@@ -886,3 +886,29 @@ function Order.OnBagUpdate()
 		Order.Refresh()
 	end
 end
+
+-- Start Fresh from the bottom button (or the welcome, with rules): it asks first.
+StaticPopupDialogs["DISORDER_ITEMMANAGER_START_FRESH"] = {
+	text = B("ClearAllButton") .. "? Your rules are saved to " .. N("SavedRules") .. ", then cleared, "
+		.. L("KeepOutRule") .. " rules too, and replaced by a common order to start from.",
+	button1 = YES,
+	button2 = NO,
+	OnAccept = function()
+		ns.Order.StartFresh()
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+ns.Settings.AddPage("Order", {
+	build = function(page)
+		Order.Build(page, ns.Settings.UI.CONTENT_W)
+	end,
+	onShow = Order.OnShow, -- opens the bags: the outlines are the point
+	onHide = Order.OnHide,
+	onWindowHide = Order.OnHide, -- removed rows are final, no outlines
+	refresh = function()
+		Order.Refresh()
+	end,
+})

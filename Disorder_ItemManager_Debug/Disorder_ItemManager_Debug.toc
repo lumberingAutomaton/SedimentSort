@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Disorder - Item Manager Debug
+## Notes: Developer tools for Disorder - Item Manager: the Debug group in its settings (Testing, Tools, Files). Not for players.
+## Version: 0.21.0
+## Dependencies: Disorder_ItemManager
+
+Debug.lua
