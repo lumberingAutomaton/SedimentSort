@@ -759,49 +759,15 @@ function Weights.ReplaceRule(oldKind, oldKey, newKind, newKey)
 	Weights.WriteRankingList(list)
 end
 
--- Start Fresh's order (user, 2026-11-25, from their own rules): the groups everyone has or will loot, always
--- listed, in a conventional layout that's easy to change. Quest Items is one row holding both quest rules
--- (the flag for items a quest needs now, and the game's Quest category). extraClasses: other item classes in
--- the bags, listed just above the Empty Space in class order.
-local DEFAULT_ABOVE = {
-	{ { kind = "item", key = 6948 } },          -- Hearthstone
-	{ { kind = "subclass", key = "0:1" } },     -- Consumable/Potions
-	{ { kind = "subclass", key = "0:7" } },     -- Consumable/Bandages
-	{ { kind = "class", key = 0 } },            -- Consumable
-	{ { kind = "flag", key = "quest" }, { kind = "class", key = 12 } }, -- Quest Items
-	{ { kind = "flag", key = "unboundGear" } }, -- BoE Gear
-}
-local DEFAULT_BELOW = {
-	{ { kind = "class", key = 2 } },            -- Weapon
-	{ { kind = "class", key = 4 } },            -- Armor
-	{ { kind = "class", key = 7 } },            -- Trade Goods
-	{ { kind = "class", key = 15 } },           -- Miscellaneous
-	{ { kind = "flag", key = "gray" } },        -- Gray Quality
-}
-local DEFAULT_CLASSES = { [0] = true, [2] = true, [4] = true, [7] = true, [12] = true, [15] = true }
-
-function Weights.DefaultOrder(extraClasses)
-	local list = {}
-	local function Rung(rules)
-		local copy = {}
-		for i, r in ipairs(rules) do
-			copy[i] = { kind = r.kind, key = r.key }
-		end
-		list[#list + 1] = { rules = copy }
-	end
-	for _, rules in ipairs(DEFAULT_ABOVE) do
-		Rung(rules)
-	end
-	for _, c in ipairs(extraClasses or {}) do
-		if not DEFAULT_CLASSES[c] then
-			Rung({ { kind = "class", key = c } })
-		end
-	end
-	list[#list + 1] = { divider = true }
-	for _, rules in ipairs(DEFAULT_BELOW) do
-		Rung(rules)
-	end
-	Weights.WriteRankingList(list)
+-- Start Fresh's order (user, 2026-11-27): only the Hearthstone first and Gray Quality last, the Empty Space between
+-- them; everything else isn't ordered yet and sorts by type next to the Empty Space, close to WoW's own sort, so
+-- nothing jarring on the first open. (It used to lay out ten groups.)
+function Weights.DefaultOrder()
+	Weights.WriteRankingList({
+		{ rules = { { kind = "item", key = 6948 } } }, -- Hearthstone
+		{ divider = true },
+		{ rules = { { kind = "flag", key = "gray" } } }, -- Gray Quality
+	})
 end
 
 -- Move a row (any rung but the unset items', or the Empty Space) to a new place among the rows shown: drag

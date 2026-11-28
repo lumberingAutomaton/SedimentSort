@@ -93,6 +93,39 @@ User-facing overview: README.md. This section is the developer's view; history i
   plain phrase, lowercase in sentences. No "kind" / "category": the game's own names, a part with its
   group ("Trade Goods/Cloth"), "Silk Cloth". No "row" in player-facing text (open; see TODO.md). "Empty Space", not "gap" or "sink line". Not reformatted: these notes' history sections.
 
+## Moving an item again mid-flight (2026-11-27)
+- Seen in game (user, Disorder phase 2): after Start Fresh, removing most rows quickly made a big reshuffle;
+  the sort hung ("Sorting... click to cancel", 40 moves in 10 rounds over 163 s, never finished), the game
+  said "internal bag error", and 8 backpack items (slots 10-19) stayed locked through /reload until a full
+  client restart. Our sort then waited for ever: it never plans while any slot is locked, with no time limit.
+- The user's diagnosis, which the code supports: we moved an item (or into a slot) again before its previous
+  move had landed. After a round, the sort waited for the game's "bags changed" signal (or 2 s) and relied on
+  the game's locked flags to show what was still in flight; the signal can come when only part of a round
+  has landed, and if an in-flight item isn't flagged locked at that moment, the next round plans from a
+  half-finished picture.
+- Then (same day): the A/B test showed Sediment 0.19 locks up the same way when rows are cleared quickly, so
+  the cause predates the refactor: edit-triggered sorts sent whole rounds in one frame, edit after edit, and the
+  game dropped a move now and then (the trace showed no double move: the last failure was one ordinary swap in a
+  9-swap burst, 0.9 s after a 19-swap sort). Auto-sort, which streams its moves, never failed (user). Bag Master
+  (Ironhide; studied 2026-11-27) steps 4 moves every 0.1 s and plans around locked slots.
+- The fix, after a first version that misfired (it called a slot "stuck" after 2 s and wrote to chat for each
+  one, and an earlier 5 s limit stopped auto-sorts outright; user: "you think that's the solution? to spam the chat
+  window"): Bag Master's approach, for every sort including auto-sort, since auto-sort got caught too.
+  (1) Locked slots, whatever the reason, are left out of each plan: no waiting, no timer, no message; they're
+  planned again once they unlock. (2) At most MAX_IN_FLIGHT (4) of our swaps wait for the game at once; the sender
+  waits for them to land (both slots hold what they should and are unlocked) up to LAND_WAIT (2 s), then carries
+  on around whatever is still locked. (3) A slot that got locked after planning drops the rest of the round and it
+  is planned again. (4) Sort.StartSoon waits SETTLE (0.5 s) after the last edit. Every round goes through the
+  streaming sender; auto-sort keeps its smoothness pacing on top. Cost: sorts wait for the game's answers, so a
+  48-move sort takes ~2 s in the simulator instead of 0.2 s.
+  dev/sim.lua now unlocks each moved slot 0.1 s after the move (like the server) instead of at the end of a round,
+  checks that no more than 4 swaps (8 slots) ever wait for the game at once, and that a never-unlocking slot is
+  sorted around without any chat message.
+- Earlier fixes, kept in spirit: (1) in flight (now Sort.lua Fly / Land): every move sent records what its two slots should
+  hold; nothing new is planned until all of them do (3 s, then re-read and re-plan if nothing is locked);
+  dev/sim.lua fails if any move doesn't land as predicted (0 misses over five seeds and the user's rules).
+  (2) The sort trace (debug addon): every step in DisorderItemManagerDB.sortTrace.
+
 ## Verified in game
 Settings rework, select mode incl. the reagent bag, windows closing in combat (2026-11-24;
 the combat close had been cut short by the same select-mode error); editing safety (2026-11-24); gliding sweep and combat mid-sort (2026-11-24); dropped the identical-copy-in-a-set test (the

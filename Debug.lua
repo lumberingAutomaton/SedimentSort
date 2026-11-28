@@ -19,6 +19,83 @@ local ItemLabel, ClassLabel, SubclassLabel, KeepOutLabel = UI.ItemLabel, UI.Clas
 
 local Print = function(msg) ns.Print(msg) end
 
+-- The sort trace: every step of every sort (start, rounds, each move with both slots, waits and why, bag
+-- updates, how it ended), kept in DisorderItemManagerDB.sortTrace (the last 600 lines) for reading after a
+-- /reload. Recorded only while the debug addon is loaded (added 2026-11-27 to find a sort that never finished).
+local TRACE_MAX = 600
+function ns.SortTrace(...)
+	if not Settings.DebugOn() then
+		return
+	end
+	local db = DisorderItemManagerDB
+	db.sortTrace = db.sortTrace or {}
+	local parts = { ("%.2f"):format(GetTime()) }
+	for i = 1, select("#", ...) do
+		parts[#parts + 1] = tostring((select(i, ...)))
+	end
+	table.insert(db.sortTrace, table.concat(parts, " "))
+	while #db.sortTrace > TRACE_MAX do
+		table.remove(db.sortTrace, 1)
+	end
+end
+
+-- Locked items get a red overlay (user, 2026-11-27): any bag item the game has locked (a move waiting for the game, an
+-- item in use, or one left locked by a dropped move) gets a red overlay as soon as the game says so, and loses it
+-- when it unlocks. A normal move flashes red for a moment; an item that stays red is stuck.
+local hookedBags = {}
+
+local function LockMark(button)
+	local m = button.DisorderLockMark
+	if m then
+		return m
+	end
+	m = CreateFrame("Frame", nil, button)
+	m:SetAllPoints(button)
+	m:SetFrameLevel(button:GetFrameLevel() + 6) -- over the outlines, under Select Mode's catcher; takes no clicks
+	m.tint = m:CreateTexture(nil, "OVERLAY", nil, 2)
+	m.tint:SetAllPoints()
+	m.tint:SetColorTexture(1, 0.1, 0.1, 0.45)
+	button.DisorderLockMark = m
+	return m
+end
+
+function Debug.RefreshLockMarks()
+	local on = Settings.DebugOn()
+	for _, f in ipairs(ns.Overlays.ContainerFrames()) do
+		if f.EnumerateValidItems then
+			if on and not hookedBags[f] and f.UpdateItems then
+				hooksecurefunc(f, "UpdateItems", Debug.RefreshLockMarks) -- bag windows rebuild their buttons
+				hookedBags[f] = true
+			end
+			for _, b in f:EnumerateValidItems() do
+				local item = on and b and b.GetBagID and f:IsShown() and ns.Bags.ReadSlot(b:GetBagID(), b:GetID())
+				if item and item.isLocked then
+					LockMark(b):Show()
+				elseif b and b.DisorderLockMark then
+					b.DisorderLockMark:Hide()
+				end
+			end
+		end
+	end
+end
+
+-- The game reports every lock and unlock; redraw the overlays on the next frame (once, however many arrive).
+local lockWatch = CreateFrame("Frame")
+lockWatch:RegisterEvent("ITEM_LOCK_CHANGED")
+lockWatch:RegisterEvent("BAG_UPDATE_DELAYED")
+local lockRedrawPending = false
+lockWatch:SetScript("OnEvent", function()
+	if lockRedrawPending or not Settings.DebugOn() then
+		return
+	end
+	lockRedrawPending = true
+	C_Timer.After(0, function()
+		lockRedrawPending = false
+		Debug.RefreshLockMarks()
+	end)
+end)
+Debug.lockWatch = lockWatch -- for dev/setup_check.lua
+
 -- A sort's smoothness numbers are final a second after it ends (see Sort.lua); show them.
 function ns.OnBenchRun()
 	Debug.BenchRefresh()
@@ -312,6 +389,11 @@ local function BuildToolsPage(page)
 	page.mute = Tool("Mute test", "Mutes the item pick-up and put-down sounds for 15 seconds, to check muting works.",
 		function() ns.Sound.Test() end, GAP_GROUP)
 	page.cancel = Tool("Cancel sort", "Stops a sort that's running.", function() ns.Sort.Cancel() end, GAP_GROUP)
+	page.clearTrace = Tool("Clear sort trace", "Empties the sort trace (every step of every sort, kept for reading "
+		.. "after a /reload).", function()
+		DisorderItemManagerDB.sortTrace = nil
+		Print("sort trace cleared.")
+	end, GAP_GROUP)
 end
 
 -- Files (debug addon): the version the game read from the .toc, and every file Sediment expects with whether

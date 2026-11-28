@@ -23,7 +23,7 @@ local NAV_W = 140                         -- the section list
 local CONTENT_X = NAV_W + 24              -- where the settings pane starts
 local CONTENT_W = WIDTH - CONTENT_X - 14  -- the settings pane's width
 local NAV_GROUPS = {
-	{ header = "Disorder", items = { "Order", "Special bags", "Timing", "History" } }, -- user's order, 2026-11-25
+	{ header = "Disorder", items = { "Order", "Options", "History" } }, -- user's order, 2026-11-25 / 27
 	{ header = "Debug", items = { "Testing", "Tools", "Files" }, debug = true }, -- only with the debug addon
 }
 -- The section ids above are internal; what the list and the page title show comes from Text.lua for the
@@ -297,12 +297,6 @@ for _, group in ipairs(NAV_GROUPS) do
 		end
 	end
 end
--- ? : the Order section's welcome.
-function Settings.ShowWelcome()
-	Settings.Open("Order")
-	ns.Order.ShowWelcome()
-end
-
 function ShowTab(name)
 	if debugPages[name] and not Settings.DebugOn() then
 		name = "Order"
@@ -362,22 +356,6 @@ local function Build()
 	title:SetText(L("AddonName"))
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -2, -2)
-
-	-- ? brings back the Order section's welcome.
-	local help = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	help:SetSize(22, 22)
-	help:SetPoint("LEFT", title, "RIGHT", 8, 0)
-	help:SetText("?")
-	help:SetScript("OnClick", function()
-		Settings.ShowWelcome()
-	end)
-	help:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip_SetTitle(GameTooltip, "How " .. L("AddonName") .. " works")
-		GameTooltip_AddNormalLine(GameTooltip, "What it does, and how to start.")
-		GameTooltip:Show()
-	end)
-	help:SetScript("OnLeave", GameTooltip_Hide)
 
 	-- The section list.
 	local nav = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -561,13 +539,12 @@ function Settings.Open(tab)
 	end
 end
 
--- The gear on the bag and /sed: the settings at Order (user, 2026-11-25: one place to arrange; its welcome
--- shows while there are no rules).
+-- The gear on the bag and /dim: the settings at Ordering (user, 2026-11-25: one place to arrange).
 function Settings.OpenDefault()
 	Settings.Open("Order")
 end
 
--- /sed: close it if open, else open it.
+-- /dim: close it if open, else open it.
 function Settings.Toggle()
 	if frame and frame:IsShown() then
 		frame:Hide()

@@ -11,6 +11,7 @@ dofile(svPath)
 -- Scans saved before the rename (0.20 and earlier) are under the old variable name.
 DisorderItemManagerDB = DisorderItemManagerDB or SedimentDB
 local scan = DisorderItemManagerDB.lastScan.rows
+local savedRules = DisorderItemManagerDB.weights -- for SIM_KEEP_RULES below
 DisorderItemManagerDB = {}
 math.randomseed(seed)
 
@@ -90,7 +91,10 @@ end
 local now, cursor = 0, nil
 -- Slots touched this round stay locked until the round is "confirmed" at the end of the tick,
 -- like the real game waiting on the server. Touching a locked slot fails.
-local locked = {}
+local locked = {} -- slot -> when the game answers and unlocks it
+local LAND_DELAY = 0.1 -- seconds from a move to the game's answer
+MostLocked = 0 -- the most slots of ours waiting for the game at once (two per swap)
+local stuckLocked = {} -- slots the game never unlocks (a dropped move): only a client restart frees them
 local function Key(b, s) return b * 100 + s end
 local tickFn
 Enum = { BagIndex = { Backpack = 0, Bag_4 = 4, ReagentBag = 5 }, BagSlotFlags = { DisableAutoSort = 1 }, ItemQuality = { Poor = 0 } }
@@ -112,7 +116,7 @@ C_Container = {
 		local t = bags[b][s]
 		if not t then return nil end
 		return { itemID = t.itemID, itemName = t.name, hyperlink = t.link, stackCount = t.count,
-			quality = t.quality, isBound = t.isBound, isLocked = locked[Key(b, s)] or false }
+			quality = t.quality, isBound = t.isBound, isLocked = locked[Key(b, s)] or stuckLocked[Key(b, s)] or false }
 	end,
 	GetContainerItemEquipmentSetInfo = function(b, s)
 		local t = bags[b][s]
@@ -124,7 +128,7 @@ C_Container = {
 		return { isQuestItem = t and t.isQuestItem or false }
 	end,
 	PickupContainerItem = function(b, s)
-		if locked[Key(b, s)] then return end -- fails; a held cursor stays held
+		if locked[Key(b, s)] or stuckLocked[Key(b, s)] then return end -- fails; a held cursor stays held
 		local t = bags[b][s]
 		if not cursor then
 			if t then cursor = { b = b, s = s, count = t.count } end
@@ -150,11 +154,15 @@ C_Container = {
 			assert(cursor.count == src.count, "swap with a split stack on the cursor")
 			bags[b][s], bags[cursor.b][cursor.s] = src, t
 		end
-		locked[Key(b, s)] = true; locked[Key(cursor.b, cursor.s)] = true
+		-- Locked until the game "answers" a moment later, like the real server.
+		locked[Key(b, s)] = now + LAND_DELAY; locked[Key(cursor.b, cursor.s)] = now + LAND_DELAY
+		local n = 0
+		for _ in pairs(locked) do n = n + 1 end
+		MostLocked = math.max(MostLocked, n)
 		cursor = nil
 	end,
 	SplitContainerItem = function(b, s, n)
-		if locked[Key(b, s)] then return end
+		if locked[Key(b, s)] or stuckLocked[Key(b, s)] then return end
 		cursor = { b = b, s = s, count = n }
 	end,
 }
@@ -206,6 +214,12 @@ local ns = { Print = function(m) messages[#messages + 1] = m end, OnSortStateCha
 	AutoSort = { BagsOpen = function() return simBagsOpen end, Resume = function() end } }
 
 MuteSoundFile, UnmuteSoundFile = function() end, function() end
+-- The sort trace: every move must land as Sort.lua predicted (ExpectMove). A wrong prediction would make real
+-- sorts stall CONFIRM_TIMEOUT seconds a round, so count any "not landed" and fail on it at the end.
+NotLanded = 0
+ns.SortTrace = function(what)
+	if what == "not landed after" then NotLanded = NotLanded + 1 end
+end
 C_Timer.After = function(_, fn) fn() end
 -- SEDIMENT_MEASURE=1: after every placement plan, compare Sediment's swap count with the proven
 -- minimum for the same target (dev/min_swaps.lua). Results in Measured, printed by bench mode.
@@ -311,13 +325,15 @@ if MEASURE then
 end
 ns.Weights.Init()
 -- Test fixture: the old starter rules (the addon now starts with none), so the sorts have real weights.
-DisorderItemManagerDB.weights = {
+-- SIM_KEEP_RULES=1 keeps the save's own rules instead (to reproduce what a player sees).
+if os.getenv("SIM_KEEP_RULES") == "1" then DisorderItemManagerDB.weights = savedRules
+else DisorderItemManagerDB.weights = {
 	sinkLine = 50, default = 20,
 	items = { [6948] = 0, [2901] = 0.01, [6206] = 0.01, [5956] = 0.01, [6256] = 0.02, [4471] = 0.03 },
 	flags = { equipmentSet = 35, quest = 51, gray = 100, unboundGear = 45 },
 	subclasses = { ["0:1"] = 8, ["0:5"] = 9 },
 	classes = { [0] = 10, [2] = 40, [4] = 40, [7] = 30, [12] = 51, [15] = 15 },
-}
+} end
 
 local function Total()
 	local n = {}
@@ -341,10 +357,13 @@ local function Run(quiet, interrupt, starter)
 				if f.shown and f.OnUpdate then f:OnUpdate() end
 			end
 		end
-		-- Only the sort's sender streams swaps; other frames (frame timing) always update.
-		local streaming = ns.Sort.sender.shown
-		if not streaming then
-			locked = {}
+		-- The game answers each move LAND_DELAY after it was made: those slots unlock and the bags-changed
+		-- event fires.
+		local answered = false
+		for key, at in pairs(locked) do
+			if at <= now then locked[key] = nil; answered = true end
+		end
+		if answered or not next(locked) then
 			ns.Sort.OnBagUpdateDelayed()
 		end
 		assert(ticks < 20000, "sort never finished")
@@ -590,6 +609,9 @@ do
 			local it = ns.Bags.ReadSlot(b, s)
 			if ns.Weights.Resolve(it) < ns.Weights.SinkLine() then last = it end
 		end end end end
+	if not last then
+		print("bags-open test skipped: nothing floats with these rules")
+	else
 	DisorderItemManagerDB.weights.items[last.itemID] = -2
 	local start = Snapshot()
 	Run(true)
@@ -606,6 +628,7 @@ do
 	assert(interrupted == plain, "opening the bags changed the number of placement moves")
 	DisorderItemManagerDB.weights.items[last.itemID] = nil
 	Run(true)
+	end
 end
 
 if arg[3] == "bench" then
@@ -718,6 +741,9 @@ for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do local t = ba
 		local item = ns.Bags.ReadSlot(b, s)
 		if ns.Weights.Resolve(item) < ns.Weights.SinkLine() then lastFloater = item end
 	end end end end
+if not lastFloater then
+	print("top/bottom scenario skipped: nothing floats with these rules")
+else
 DisorderItemManagerDB.weights.items[lastFloater.itemID] = -1
 print("to the top (" .. lastFloater.name .. "): " .. Run())
 Check(false)
@@ -731,4 +757,52 @@ DisorderItemManagerDB.streamBudgetMs = 1
 Run(true)
 Check(false)
 print(("streamed: %d moves, %d rounds, over %d frames"):format(ns.Sort.lastMoves, ns.Sort.lastRounds, ns.Sort.lastFrames))
+end
+-- Shuffle the normal bags (a big reshuffle, like clearing most of the Ordering), leaving out the given slots.
+local function ShuffleMain(skip)
+	local spots, items = {}, {}
+	for b = 0, 4 do if not IsSpecial(b) then for s = 1, BAG_SIZES[b] do
+		if not (skip and skip[Key(b, s)]) then
+			spots[#spots + 1] = { b, s }
+			items[#items + 1] = bags[b][s] or false
+		end
+	end end end
+	for i = #items, 2, -1 do local j = math.random(i); items[i], items[j] = items[j], items[i] end
+	for i, p in ipairs(spots) do bags[p[1]][p[2]] = items[i] or nil end
+end
+local function EditSort() ns.Sort.Start(false, "edit") end
+
+-- An edit's sort after a big reshuffle (like clearing most of the Ordering): never more than one swap waiting for
+-- the game at once (2 slots), same result as always.
+ShuffleMain()
+MostLocked = 0
+print("edit sort after a big reshuffle: " .. Run(false, false, EditSort))
+assert(MostLocked <= 2, "more than one swap waited for the game at once (" .. MostLocked .. " slots)")
+Check(false)
+print(("edit sort: at most %d swaps waiting for the game at once"):format(MostLocked // 2))
+
+-- A slot the game never unlocks: the sort leaves that item where it is, says nothing, sorts everything else
+-- around it and finishes; the next sort finds nothing to do.
+local stuckB, stuckS
+for s = 1, BAG_SIZES[0] do if bags[0][s] and not stuckB then stuckB, stuckS = 0, s end end
+local stuckItem = bags[stuckB][stuckS]
+stuckLocked[Key(stuckB, stuckS)] = true
+ShuffleMain({ [Key(stuckB, stuckS)] = true })
+local before = #messages
+local result = Run(false, false, EditSort)
+print("with a stuck slot: " .. result)
+assert(result:find("^sorted") or result:find("^already sorted"), "the sort didn't finish around a stuck slot: " .. result)
+assert(bags[stuckB][stuckS] == stuckItem, "the stuck item moved")
+for i = before + 1, #messages do
+	assert(not messages[i]:find("locked"), "a message about the locked item: " .. messages[i])
+end
+local again = Run(false, false, EditSort)
+assert(again:find("^already sorted"), "a second sort around the stuck slot still moved things: " .. again)
+stuckLocked = {}
+Run(true)
+Check(false)
+print("stuck slot: sorted around it without a word, and sorted normally once it unlocked")
+
+print(("in-flight check: %d waits for the game timed out"):format(NotLanded))
+assert(NotLanded == 0, "a swap didn't land the way Sort.lua predicted")
 print("OK")

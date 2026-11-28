@@ -62,10 +62,22 @@ folder would hand the game a half-built addon. A second checkout of the same rep
 
 ## Phase 2: the player-facing changes
 
-- [ ] One **Options** section: Timing (wait after changes, smoothness) on top, then Special bags.
-- [ ] No welcome screen and no ? button: the first open with nothing ordered lays out the default order.
-- [ ] README, help text and tests follow.
-- [ ] All checks pass; the user tries it in game; commit.
+- [x] One **Options** section: Timing (wait after changes, smoothness) on top, then Special bags. The section
+      list is Ordering, Options, History (and the Debug group with the debug addon).
+- [x] No welcome screen and no ? button: the first open with nothing ordered lays out the default order (what
+      Start Fresh does, without asking), once per install (`DisorderItemManagerDB.laidOut`), so a list
+      emptied on purpose stays empty. The welcome's Close word went from Text.lua.
+- [x] README (Getting started, Options), help text and the click-through test follow (the test now also
+      checks that an emptied list stays empty, and stops visiting the long-gone "Sorting" section).
+- [x] All checks and the simulator pass.
+- [x] Also, from the user's in-game review: Start Fresh (and the first open) lays out only Hearthstone, the Empty
+      Space and Gray Quality; a removed row's Undo stays until Ordering closes, under the row that was above it.
+- [x] Bug found while testing (it predates the refactor: Sediment 0.19 did the same; see NOTES.md, "Moving an
+      item again mid-flight"): fast edits made the game drop moves and leave items locked until a client
+      restart, and the sort then waited for ever. Fixed: one swap waiting for the game at a time, for every sort
+      (auto-sort already worked that way); locked slots are sorted around quietly; edits settle 0.5 s before
+      sorting. Debug addon: a sort trace, and a red overlay on any locked item.
+- [x] The user tried it in game ("so far, so good"); commit.
 
 ## Phase 3: debug code into the debug addon
 

@@ -44,6 +44,7 @@ local function ContainerFrames()
 	end
 	return list
 end
+Overlays.ContainerFrames = ContainerFrames -- also the debug addon's red overlay on locked items
 
 local function Catcher(button)
 	local c = button.DisorderSelect

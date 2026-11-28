@@ -131,12 +131,26 @@ local function Wt(item) return (W.Resolve(item)) end
 assert(Wt(potion) < Wt(cloth) and Wt(cloth) < 50 and Wt(misc) >= 50, "items don't follow the order")
 assert(W.HasOwnRule(potion) and not W.HasOwnRule(Item(4, 9)), "HasOwnRule wrong")
 
--- Start Fresh's default order: the always-listed groups, other classes just above the Empty Space, the Quest
--- Items row holding both quest rules.
+-- Start Fresh's default order: the Hearthstone, the Empty Space, Gray Quality; everything else isn't ordered
+-- yet and sits next to the Empty Space.
 Fresh(nil)
-W.DefaultOrder({ 0, 1, 2, 9, 12 })
+W.DefaultOrder()
+Expect("item:6948 default | flag:gray", "default order")
+CheckSides()
+
+-- A longer order to move rows in (Start Fresh's old ten groups), with a row holding two rules (Quest Items).
+local function Rung(...)
+	local rules = {}
+	for i = 1, select("#", ...), 2 do
+		rules[#rules + 1] = { kind = select(i, ...), key = select(i + 1, ...) }
+	end
+	return { rules = rules }
+end
+W.WriteRankingList({ Rung("item", HS), Rung("subclass", "0:1"), Rung("subclass", "0:7"), Rung("class", 0),
+	Rung("flag", "quest", "class", 12), Rung("flag", "unboundGear"), Rung("class", 1), Rung("class", 9),
+	{ divider = true }, Rung("class", 2), Rung("class", 4), Rung("class", 7), Rung("class", 15), Rung("flag", "gray") })
 Expect("item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest+class:12 flag:unboundGear class:1 class:9 default | "
-	.. "class:2 class:4 class:7 class:15 flag:gray", "default order")
+	.. "class:2 class:4 class:7 class:15 flag:gray", "a longer order")
 CheckSides()
 assert(DisorderItemManagerDB.weights.flags.quest == DisorderItemManagerDB.weights.classes[12], "the quest rules aren't on one row")
 

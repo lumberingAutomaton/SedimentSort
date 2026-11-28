@@ -13,10 +13,10 @@
 -- Select Mode is on whenever the list shows, until its button ("Select Mode: On") turns it off: hovering a bag
 -- item lights up the row that sorts it; clicking one adds a row for it right above that row, selected.
 --
--- With no rules, or after ?, a welcome panel covers the list (it sits over it, so nothing shifts) with Start
--- Fresh: save the rules to History, lay out the default order (Weights.DefaultOrder), add a Created entry, and
--- turn on Blizzard's Combined Backpack if it's off (Sediment sorts in its order). The numbers behind the rows
--- are still stored; the page never shows them.
+-- Start Fresh (the bottom button; it asks first): save the rules to History, lay out the default order
+-- (Weights.DefaultOrder), add a Created entry, and turn on Blizzard's Combined Backpack if it's off (the addon
+-- sorts in its order). The first time the section opens with nothing ordered, it does that by itself (user,
+-- 2026-11-27: no welcome screen). The numbers behind the rows are still stored; the page never shows them.
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
@@ -37,7 +37,8 @@ local listW           -- the list's width
 local selected        -- the selected row: a rule id, or GAP_ID
 local orderList       -- the ranking list as last drawn
 local rows, child = {}, nil
-local ghosts = {}     -- rows removed with x, shown greyed with Undo: { position, label, icon, rules = { { kind, key, weight } } }
+local ghosts = {}     -- rows removed with x, shown greyed with Undo until the section closes (see Remove)
+local ghostCount = 0  -- for ghost ids
 local picking = false -- Select Mode, with our click and hover handlers
 local pickWanted = true -- on whenever the list shows, unless its button turned it off (until the section reopens)
 local hoverRule       -- a widen choice under the mouse: outline what it would cover
@@ -46,7 +47,6 @@ local scrollToSelected = false -- after a pick or a move: bring the selected row
 local press           -- a press on a row that may become a drag: { row, x, y }
 local dragging        -- the row being dragged: its position among the shown rows
 local dropTime = 0    -- the click that ends a drag isn't a click on the row
-local welcomeForced = false -- ? shows the welcome even with rules
 local notice          -- a one-off line under the list ("turned on Combined Backpack")
 local lastDraw = 0    -- clicks on rows right after the rows changed are ignored (they may have moved)
 
@@ -70,20 +70,6 @@ local function AfterChange()
 	ns.Popup.Refresh()
 	ns.Overlays.Refresh()
 	ns.Sort.StartSoon()
-end
-
--- The item classes that have items in the bags with nothing set, in class order.
-local function UnsetClasses()
-	local seen, list = {}, {}
-	for _, s in ipairs(ns.Bags.Read()) do
-		local item = s.item
-		if item and not seen[item.classID] and not ns.Weights.HasOwnRule(item) then
-			seen[item.classID] = true
-			list[#list + 1] = item.classID
-		end
-	end
-	table.sort(list)
-	return list
 end
 
 local function UnsetCount()
@@ -212,7 +198,12 @@ local function DropSlot()
 		return nil
 	end
 	local slot = math.floor((top - y) / ROW_HEIGHT + 0.5)
-	return math.max(0, math.min(pane.rowCount or 0, slot))
+	return math.max(0, math.min(pane.visualCount or 0, slot))
+end
+
+-- A drop line below this many visual rows (removed rows included) = below this many real rows.
+local function RealSlot(visual)
+	return pane.realBefore and pane.realBefore[visual] or visual
 end
 
 local function DragUpdate()
@@ -257,10 +248,11 @@ local function DragStop()
 	dragging, dropTime = nil, GetTime()
 	pane.dropLine:Hide()
 	if slot then
+		slot = RealSlot(slot)
 		-- A slot just above or just below the row itself leaves it where it is.
 		local to = slot < from - 1 and slot + 1 or slot > from and slot or nil
 		if to and ns.Weights.MoveRow(from, to) then
-			ghosts, scrollToSelected = {}, true
+			scrollToSelected = true
 			AfterChange()
 		end
 	end
@@ -305,20 +297,26 @@ end
 
 -- Removing (x) and Undo --------------------------------------------------------------------------------
 
+-- A removed row stays greyed with Undo until the section closes (user, 2026-11-27: Undo shouldn't vanish when
+-- the list changes), directly below the row that was above it (its anchor), wherever that row moves. Undo puts
+-- its rules back as a row right there.
 local function Remove(row)
 	local i = row.id and IndexOf(row.id)
 	local e = i and orderList[i]
 	if not e or not e.rules or GetTime() - lastDraw < CLICK_GUARD then
 		return
 	end
-	local w = DisorderItemManagerDB.weights
-	local ghost = { position = row.position, rules = {} }
+	ghostCount = ghostCount + 1
+	local ghost = { id = "ghost:" .. ghostCount, anchor = row.above, position = row.visual, rules = {} }
 	ghost.label, ghost.icon = RungLabel(e)
 	for _, r in ipairs(e.rules) do
-		local tbl = r.kind == "item" and w.items or r.kind == "flag" and w.flags or r.kind == "subclass" and w.subclasses
-			or w.classes
-		ghost.rules[#ghost.rules + 1] = { kind = r.kind, key = r.key, weight = tbl[r.key] }
+		ghost.rules[#ghost.rules + 1] = { kind = r.kind, key = r.key }
 		ns.Weights.SetLevel(r.kind, r.key, nil)
+	end
+	for _, g in ipairs(ghosts) do
+		if g.anchor == row.id then
+			g.anchor = ghost.id -- removed rows under this one now sit under its ghost
+		end
 	end
 	ghosts[#ghosts + 1] = ghost
 	if selected == row.id then
@@ -328,9 +326,72 @@ local function Remove(row)
 	Order.Refresh()
 end
 
+-- The real row a ghost sits under: its anchor, or if that's another removed row, that one's anchor, and so on
+-- (nil = the top).
+local function AnchorRow(ghost)
+	local anchor, seen = ghost.anchor, {}
+	while anchor and anchor:find("^ghost:") and not seen[anchor] do
+		seen[anchor] = true
+		local next
+		for _, g in ipairs(ghosts) do
+			if g.id == anchor then
+				next = g.anchor
+			end
+		end
+		anchor = next
+	end
+	return anchor
+end
+
 local function Undo(ghost)
+	local list = ns.Weights.RankingList()
+	-- Rules already back in the list (re-added since) aren't added twice.
+	local present = {}
+	for _, e in ipairs(list) do
+		for _, r in ipairs(e.rules or {}) do
+			present[RuleId(r.kind, r.key)] = true
+		end
+	end
+	local rules = {}
 	for _, r in ipairs(ghost.rules) do
-		ns.Weights.SetLevel(r.kind, r.key, r.weight)
+		if not present[RuleId(r.kind, r.key)] then
+			rules[#rules + 1] = { kind = r.kind, key = r.key }
+		end
+	end
+	if #rules > 0 then
+		-- Without the unset items' rule: the write puts them back next to the Empty Space.
+		local clean = {}
+		for _, e in ipairs(list) do
+			if e.divider then
+				clean[#clean + 1] = e
+			else
+				local keep = {}
+				for _, r in ipairs(e.rules) do
+					if r.kind ~= "default" then
+						keep[#keep + 1] = r
+					end
+				end
+				if #keep > 0 then
+					clean[#clean + 1] = { rules = keep }
+				end
+			end
+		end
+		local anchor, at = AnchorRow(ghost), 1
+		for n, e in ipairs(clean) do
+			if (anchor == GAP_ID and e.divider) or (anchor and not e.divider and RowId(e) == anchor) then
+				at = n + 1
+			end
+		end
+		table.insert(clean, at, { rules = rules })
+		ns.Weights.WriteRankingList(clean)
+	end
+	-- Removed rows that sat under this ghost now sit under the row it became (or where it sat, if nothing came
+	-- back).
+	local newAnchor = #rules > 0 and RuleId(rules[1].kind, rules[1].key) or ghost.anchor
+	for _, g in ipairs(ghosts) do
+		if g.anchor == ghost.id then
+			g.anchor = newAnchor
+		end
 	end
 	for n, g in ipairs(ghosts) do
 		if g == ghost then
@@ -350,7 +411,6 @@ local function OnPick(bag, slot)
 		return
 	end
 	if ns.Weights.AddRuleAbove("item", item.itemID, item) then
-		ghosts = {}
 		AfterChange()
 	end
 	-- (If it already had a row, that row is just selected.)
@@ -408,9 +468,9 @@ local function StopPicking()
 	bagHover = nil
 end
 
--- Select Mode is on while the list shows (not under the welcome), unless its button turned it off.
-local function SyncPicking(showWelcome)
-	local want = pickWanted and not showWelcome and Shown() and not InCombatLockdown()
+-- Select Mode is on while the list shows, unless its button turned it off.
+local function SyncPicking()
+	local want = pickWanted and Shown() and not InCombatLockdown()
 	if want and not picking then
 		picking = true
 		ns.Overlays.SetSelectMode(true, OnPick, OnHover)
@@ -479,7 +539,7 @@ local function Widen(choice)
 		return
 	end
 	ns.Weights.ReplaceRule(rule.kind, rule.key, choice.kind, choice.key)
-	hoverRule, ghosts, notice = nil, {}, nil
+	hoverRule, notice = nil, nil
 	orderList = ns.Weights.PinDefault(ns.Weights.RankingList())
 	selected, scrollToSelected = RowIdOfRule(choice.kind, choice.key), true
 	AfterChange()
@@ -499,15 +559,15 @@ local function EnsureCombinedBackpack()
 end
 
 -- Save the rules to History (if not saved), clear them (Weights and keep-out rules), lay out the default order
--- with the bags' other kinds of items above the Empty Space, and add a Created entry to History.
+-- (Hearthstone, the Empty Space, Gray Quality), and add a Created entry to History.
 function Order.StartFresh()
 	if InCombatLockdown() then
 		return
 	end
 	ns.Weights.ClearAll()
-	ns.Weights.DefaultOrder(UnsetClasses())
+	ns.Weights.DefaultOrder()
 	ns.Weights.Created()
-	selected, ghosts, welcomeForced = nil, {}, false
+	selected, ghosts = nil, {}
 	if EnsureCombinedBackpack() then
 		notice = N("AddonName") .. " turned on Blizzard's Combined Backpack: it sorts in that window's order."
 		ns.Print(notice)
@@ -663,48 +723,6 @@ function Order.Build(page, width)
 	pane.fresh:SetScript("OnClick", function()
 		StaticPopup_Show("DISORDER_ITEMMANAGER_START_FRESH")
 	end)
-
-	-- The welcome: over the list while there are no rules, or after ?. It covers the list rather than pushing
-	-- it down, so nothing shifts when it goes.
-	local welcome = CreateFrame("Frame", nil, pane, "BackdropTemplate")
-	welcome:SetPoint("TOPLEFT", pane.help, "TOPLEFT", -4, 4)
-	welcome:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", 0, 34)
-	welcome:SetFrameLevel(pane:GetFrameLevel() + 20)
-	welcome:EnableMouse(true)
-	welcome:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
-	welcome:SetBackdropColor(0.05, 0.05, 0.05, 1)
-	local wtitle = welcome:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	wtitle:SetPoint("TOPLEFT", 8, -8)
-	wtitle:SetText("Your bags, always in your order")
-	local wbody = welcome:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	wbody:SetPoint("TOPLEFT", wtitle, "BOTTOMLEFT", 0, -12)
-	wbody:SetPoint("RIGHT", -12, 0)
-	wbody:SetJustifyH("LEFT")
-	wbody:SetSpacing(3)
-	wbody:SetText(N("AddonName") .. " keeps your bags sorted all the time, quietly, while they're closed. You "
-		.. "decide the order, and where the " .. N("LootGap") .. " goes: new loot lands there, so you always see "
-		.. "what's new.\n\n"
-		.. "Nothing ever moves in combat.\n\n"
-		.. B("ClearAllButton") .. " lays out a common order to start from. Then drag the rows until your bags look "
-		.. "right; they sort as you go. Alt+right-click any bag item to see what decides where it goes.")
-	welcome.fresh = Button(welcome, L("ClearAllButton"), 140)
-	welcome.fresh:SetHeight(26)
-	welcome.fresh:SetPoint("TOPLEFT", wbody, "BOTTOMLEFT", 0, -16)
-	welcome.fresh:SetScript("OnClick", function()
-		if HasWeightRules() then
-			StaticPopup_Show("DISORDER_ITEMMANAGER_START_FRESH")
-		else
-			Order.StartFresh()
-		end
-	end)
-	welcome.close = Button(welcome, L("CloseButton"), 90)
-	welcome.close:SetPoint("LEFT", welcome.fresh, "RIGHT", 10, 0)
-	welcome.close:SetScript("OnClick", function()
-		welcomeForced = false
-		Order.Refresh()
-	end)
-	welcome:Hide()
-	pane.welcome = welcome
 end
 
 -- Drawing ------------------------------------------------------------------------------------------------
@@ -717,10 +735,6 @@ function Order.Refresh()
 	pane.unset:SetText(n > 0 and ("%d item%s in your bags %s ordered yet."):format(n, n == 1 and "" or "s",
 		n == 1 and "isn't" or "aren't") or "")
 
-	local showWelcome = welcomeForced or not HasWeightRules()
-	pane.welcome:SetShown(showWelcome)
-	pane.welcome.close:SetShown(HasWeightRules())
-
 	orderList = ns.Weights.PinDefault(ns.Weights.RankingList())
 	if selected and not IndexOf(selected) then
 		selected = nil
@@ -732,14 +746,30 @@ function Order.Refresh()
 			shown[#shown + 1] = { entry = e }
 		end
 	end
-	table.sort(ghosts, function(a, b) return a.position < b.position end)
+	-- Ghosts in the order they were removed, each right below its anchor (a row or an earlier ghost); a ghost
+	-- whose anchor is gone keeps the place it had.
 	for _, g in ipairs(ghosts) do
-		table.insert(shown, math.min(g.position, #shown + 1), { ghost = g })
+		local at
+		if not g.anchor then
+			at = 1
+		else
+			for n, sh in ipairs(shown) do
+				local id = sh.ghost and sh.ghost.id or RowId(sh.entry)
+				if id == g.anchor then
+					at = n + 1
+				end
+			end
+		end
+		table.insert(shown, math.min(at or g.position or 1, #shown + 1), { ghost = g })
 	end
 	local k, past, position = 0, false, 0
+	local realBefore = { [0] = 0 }
+	local aboveId -- the id of the row just above, for Remove's anchor
 	for _, s in ipairs(shown) do
 		k = k + 1
 		local row = Row(k)
+		row.above, row.visual = aboveId, k
+		aboveId = s.ghost and s.ghost.id or RowId(s.entry)
 		row:ClearAllPoints()
 		row:SetPoint("TOPLEFT", 0, -(k - 1) * ROW_HEIGHT)
 		row:Show()
@@ -761,9 +791,11 @@ function Order.Refresh()
 			row.label:SetTextColor(0.45, 0.45, 0.45)
 			row.remove:Hide()
 			row.undo:Show()
+			realBefore[k] = position
 		else
 			local e = s.entry
 			position = position + 1
+			realBefore[k] = position
 			row.id, row.position = RowId(e), position
 			row.selected:SetShown(row.id == selected)
 			row.undo:Hide()
@@ -801,7 +833,7 @@ function Order.Refresh()
 		rows[r].id, rows[r].ghost = nil, nil
 	end
 	child:SetHeight(k * ROW_HEIGHT + 4)
-	pane.rowCount = position
+	pane.rowCount, pane.visualCount, pane.realBefore = position, k, realBefore
 	-- Bring the selected row into view after a pick or a move.
 	if scrollToSelected and selected then
 		scrollToSelected = false
@@ -809,7 +841,7 @@ function Order.Refresh()
 	end
 	DragLook(dragging ~= nil) -- a redraw mid-drag keeps the dragged row dimmed
 	ShowBagHover()
-	SyncPicking(showWelcome)
+	SyncPicking()
 	-- The state, not the action (user, 2026-11-25: "Pick from Bags" / "Stop Picking" read badly once it was
 	-- on by default).
 	pane.pick:SetText(L("SelectMode") .. (picking and ": On" or ": Off"))
@@ -839,7 +871,13 @@ end
 function Order.OnShow()
 	if not InCombatLockdown() then
 		OpenAllBags()
+		-- The first open with nothing ordered lays out the default order: nothing to lose yet. Only once, so a
+		-- list emptied on purpose stays empty.
+		if not HasWeightRules() and not DisorderItemManagerDB.laidOut then
+			Order.StartFresh()
+		end
 	end
+	DisorderItemManagerDB.laidOut = true
 	pickWanted = true -- Select Mode is on each time the section opens
 	Order.Refresh()
 	ns.Overlays.SetHighlight(true, Focus)
@@ -874,12 +912,6 @@ function Order.RowLabel(kind, key)
 	return (ns.Settings.RuleLabel(kind, key))
 end
 
--- ? on the settings window: the welcome, even with rules.
-function Order.ShowWelcome()
-	welcomeForced = true
-	Order.Refresh()
-end
-
 -- Bag changes (our own sorts among them): the not-set count and the outlines.
 function Order.OnBagUpdate()
 	if Shown() then
@@ -887,7 +919,7 @@ function Order.OnBagUpdate()
 	end
 end
 
--- Start Fresh from the bottom button (or the welcome, with rules): it asks first.
+-- Start Fresh from the bottom button: it asks first.
 StaticPopupDialogs["DISORDER_ITEMMANAGER_START_FRESH"] = {
 	text = B("ClearAllButton") .. "? Your rules are saved to " .. N("SavedRules") .. ", then cleared, "
 		.. L("KeepOutRule") .. " rules too, and replaced by a common order to start from.",

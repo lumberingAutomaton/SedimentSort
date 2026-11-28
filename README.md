@@ -34,17 +34,20 @@ expect.
 
 Where you decide the order. The settings open here, next to your bags.
 
-**Getting started.** The first time, a short welcome covers the list. `Start Fresh` lays out a common order
-to start from: Hearthstone, Consumable/Potions, Consumable/Bandages, Consumable, Quest Items, BoE Gear, any
-other kind of item in your bags, the **Empty Space**, then Weapon, Armor, Trade Goods, Miscellaneous, and
-Gray Quality last. It saves any rules you had to **History** first, clears them (Keep out of special bags
-too), adds a Created entry for the new order, and turns on Blizzard's Combined Backpack if it's off
-(**Disorder** sorts in that window's order). The ? next to the settings title brings the welcome back.
+**Getting started.** The first time you open it, the list starts with three entries: Hearthstone, the
+**Empty Space**, and Gray Quality. Everything else isn't ordered yet and sorts by type next to the **Empty
+Space**, so your bags look much like WoW's own sort: Hearthstone first, junk last. It also turns on
+Blizzard's Combined Backpack if it's off (**Disorder** sorts in that window's order). From there, add the
+things you care about (see Select Mode below) and drag them where you want them; your bags sort as you go.
+
+`Start Fresh`, at the bottom, goes back to those three entries whenever you like. It asks first, saves your
+rules to **History**, clears them (Keep out of special bags too), and adds a Created entry.
 
 **The list** shows your **Ordering** top to bottom, the way your bags sort, with the **Empty Space** among
 the entries. Drag an entry to move it: press anywhere on it and move the mouse. Click one to outline its
 items in your bags in gold. Your bags sort on every change. x removes an entry; it stays greyed with `Undo`
-until the list changes again or you leave the section.
+until you leave **Ordering**, right below the entry that was above it, wherever that entry moves. `Undo`
+puts it back there.
 
 **The Empty Space** moves the same way, and where you put it decides the layout:
 - at the top: everything packs toward the bottom of your bags;
@@ -83,29 +86,27 @@ takes over and your bags sort; the ones below it can't change this item, so they
 special bag would take, it also has the Keep out of special bags checkboxes. `Settings` opens **Ordering**
 with the deciding entry selected.
 
-## 4. Timing
+## 4. Options
 
-Two numbers, and the defaults should suit nearly everyone:
+**Timing.** Two numbers, and the defaults should suit nearly everyone:
 - **Wait after changes:** how long your bags must be quiet before they sort (default 1.1 seconds), long
   enough for a burst of looting to finish and new quest items to register.
 - **Smoothness:** how much time per frame, on average, sorting may spend moving items while your bags are
   closed (default 0.3 ms). Lower is smoother but slower. The sort button always goes full speed.
 
-## 5. Special bags
-
-A reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...) holds what it accepts,
+**Special bags.** A reagent bag holds crafting reagents, and a profession bag (herb, mining, soul, ...) holds what it accepts,
 wherever it sits. Items that belong there are moved in, and each special bag is sorted on its own.
 
 To keep something out, Alt+right-click it and, under Keep out of special bags, tick its group/part (every
-cloth) or just that item (e.g. Silk Cloth); ones already in a special bag move back out. The Special bags
-section lists the special bags you have, every keep-out rule (x removes one, with `Undo`), and a switch,
+cloth) or just that item (e.g. Silk Cloth); ones already in a special bag move back out. Options lists the special
+bags you have, every keep-out rule (x removes one, with `Undo`), and a switch,
 Fill reagent and profession bags automatically. Off: nothing is moved in; what's already there stays and is
 still sorted.
 
-## 6. History
+## 5. History
 
 A safety net of your rules (your **Ordering**, the **Empty Space** and Keep out of special bags; not
-Timing), newest first, each with a short summary like "24 ordered, 1 kept out". Two kinds of entry, titled
+Options), newest first, each with a short summary like "24 ordered, 1 kept out". Two kinds of entry, titled
 like "Rook — Snapshot — Nov 25, 10:32" (the character you were on):
 - **Created**: added when `Start Fresh` lays out a new order.
 - **Snapshot**: taken automatically when you log out (or `/reload`), and before `Load` or `Start Fresh`, but
@@ -135,7 +136,7 @@ build next, ideas waiting for a decision); `PLAN.md` is the restructure in progr
 finds its place, and History's saves for now), `Bags.lua` (reading the bags and special bags), `Sound.lua`,
 `Sort.lua` (the sort engine), `AutoSort.lua`, `Settings.lua` (the window, its section list and shared
 helpers; each section registers itself), `Overlays.lua` (Select Mode and the outlines), `Popup.lua` (the
-ordering popup), `Ordering.lua`, `Options.lua` (Timing, Special bags), `History.lua`, `Debug.lua` (the Debug
+ordering popup), `Ordering.lua`, `Options.lua` (Timing and Special bags), `History.lua`, `Debug.lua` (the Debug
 group and test bench, until it moves into the debug addon), `SortButton.lua` (the sort button, the gear, the
 progress sweep), `Core.lua` (start-up, events, `/dim`).
 
@@ -150,6 +151,9 @@ settings show a Debug group; players without it never see any of it:
   `Mute test` (the item sounds muted for 15 seconds), `Cancel sort`.
 - **Files:** the version the game read from the `.toc`, and every file **Disorder** expects, each marked
   loaded or missing. A missing file usually means the game needs a full restart.
+- **Red overlay on locked items:** any bag item the game has locked gets a red overlay over its whole slot as
+  soon as the game reports it, and loses it when it unlocks. A normal move flashes red for a moment; an item that stays red is
+  stuck (a move the game never answered; a full restart of the game frees it).
 
 **Words.** `Text.lua` holds every word for one of **Disorder**'s own things and every button label, under
 keys named for their role. Change a word there and nowhere else.
@@ -169,7 +173,7 @@ keys named for their role. Change a word there and nowhere else.
   and **History** (saving, no duplicates, loading, the 20-entry limit) behaves.
 - `dev/ranking_check.lua`: the order behind the **Ordering** list: the default layout, moving entries and the
   **Empty Space**, unset items attached to it, old saves converting, ties kept.
-- `dev/setup_check.lua`: clicks through the settings against mocked frames: **Ordering** (welcome, `Start
+- `dev/setup_check.lua`: clicks through the settings against mocked frames: **Ordering** (the first layout, `Start
   Fresh`, outlines, moves, the **Empty Space**, unset items, x with `Undo`, **Select Mode**, wider choices,
-  drag and drop), **History**, Special bags, the Debug group's gating, Tools and Files, and the ordering
+  drag and drop), **History**, Options, the Debug group's gating, Tools and Files, and the ordering
   popup.

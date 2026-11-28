@@ -1,4 +1,4 @@
--- Options: the Timing and Special bags sections.
+-- Options: one section (user, 2026-11-27: Timing and Special bags merged), Timing on top, then Special bags.
 
 local _, ns = ...
 ns.loadedFiles = ns.loadedFiles or {}
@@ -15,12 +15,16 @@ local GAP_HELP, GAP_GROUP, CONTROL_X, CONTENT_W, ROW_HEIGHT, CLICK_GUARD = UI.GA
 local Changed, WeightChanged, FormatWeight = UI.Changed, UI.WeightChanged, UI.FormatWeight
 local ItemLabel, ClassLabel, SubclassLabel, KeepOutLabel = UI.ItemLabel, UI.ClassLabel, UI.SubclassLabel, UI.KeepOutLabel
 
+-- A heading inside the section: Timing, Special bags.
+local function Heading(page, place, gap, text)
+	return place(Text(page, "GameFontNormalLarge", text), gap, 4)
+end
+
 -- Timing: the two numbers worth tuning. Auto-sort itself is always on, sorts in the full order, and an
 -- auto-sort running when the bags open finishes at full speed (user, 2026-11-26: those aren't choices).
-local function BuildTimingPage(page)
-	page.refreshers = {}
-	local place = Flow(page)
-	LabeledBox(page, place, 0, "Wait after changes (seconds)",
+local function BuildTiming(page, place)
+	Heading(page, place, 0, "Timing")
+	LabeledBox(page, place, GAP_GROUP, "Wait after changes (seconds)",
 		"How long the bags must be quiet before they sort. Long enough for a burst of looting to finish and "
 		.. "new quest items to register.",
 		ns.AutoSort.Delay, function(n) DisorderItemManagerDB.autoSortDelay = math.max(0, math.min(30, n)) end)
@@ -35,10 +39,9 @@ end
 -- with Undo, so nothing moves under the mouse. Rules are added from the weight popup.
 local specialRows = {}
 
-local function BuildSpecialPage(page)
-	page.refreshers = {}
-	local place = Flow(page)
-	local bagsText = place(Text(page, "GameFontHighlight"), 0, 4, true)
+local function BuildSpecialBags(page, place)
+	Heading(page, place, GAP_GROUP * 2, "Special bags")
+	local bagsText = place(Text(page, "GameFontHighlight"), GAP_GROUP, 4, true)
 	page.refreshers[#page.refreshers + 1] = function()
 		local names = {}
 		for _, b in ipairs(ns.Bags.SpecialBags()) do
@@ -159,9 +162,14 @@ local function BuildSpecialPage(page)
 	end
 end
 
-Settings.AddPage("Timing", { build = BuildTimingPage })
-Settings.AddPage("Special bags", {
-	build = BuildSpecialPage,
+local function BuildOptionsPage(page)
+	local place = Flow(page)
+	BuildTiming(page, place)
+	BuildSpecialBags(page, place)
+end
+
+Settings.AddPage("Options", {
+	build = BuildOptionsPage,
 	onShow = function()
 		if Options.RefreshSpecialList then
 			Options.RefreshSpecialList()

@@ -1,5 +1,5 @@
--- Clicks through the settings against mocked frames (no game needed): the Order section (welcome, Start
--- Fresh, rows, outlines, moving rows and the Empty Space, unset items, x with Undo, Select Mode and widen,
+-- Clicks through the settings against mocked frames (no game needed): the Order section (the first layout,
+-- Start Fresh, rows, outlines, moving rows and the Empty Space, unset items, x with Undo, Select Mode and widen,
 -- drag and drop), History, Special bags, Debug > Files and the weight popup.
 -- It checks the logic and that nothing errors, not how anything looks.
 -- Run: lua dev/setup_check.lua (from the addon folder).
@@ -193,20 +193,15 @@ local W, S = ns.Weights, ns.Settings
 local w = function() return DisorderItemManagerDB.weights end
 local function Weight(it) return (W.Resolve(it)) end
 
--- A new user clicks the gear: the settings open at Order, with the welcome over the list (no rules yet).
-S.OpenDefault()
-local P = ns.Order.pane
-assert(DisorderItemManagerSettings.shown and S.currentTab == "Order", "the gear didn't open Order")
-assert(P.welcome.shown and not P.welcome.close.shown, "no welcome (or a Close button) with no rules")
-assert(not ns.Overlays.IsSelecting(), "Select Mode is on under the welcome")
-
--- Start Fresh from the welcome: the default order, a Created entry, Combined Backpack on, the bags sorted,
--- and Select Mode on now that the list shows.
+-- A new user clicks the gear: the settings open at Ordering, and with nothing ordered yet the default order is
+-- laid out by itself (no welcome screen): a Created entry, Combined Backpack on, the bags sorted, Select Mode on.
 local sortsBefore = sorts
-Click(P.welcome.fresh)
+S.OpenDefault()
 RunTimers()
-assert(not P.welcome.shown, "the welcome stayed after Start Fresh")
-assert(sorts > sortsBefore, "Start Fresh didn't sort")
+local P = ns.Order.pane
+assert(DisorderItemManagerSettings.shown and S.currentTab == "Order", "the gear didn't open Ordering")
+assert(DisorderItemManagerDB.laidOut, "the first open wasn't remembered")
+assert(sorts > sortsBefore, "the first layout didn't sort")
 assert(W.History()[1] and W.History()[1].kind == "created", "Start Fresh didn't add a Created entry")
 assert(cvars.combinedBags == "1", "Start Fresh didn't turn on Combined Backpack")
 assert(Plain(P.widenLabel.text):find("Combined Backpack"), "no notice on the page")
@@ -233,9 +228,24 @@ local function Choices()
 	for _, b in ipairs(P.widen) do if b.shown then labels[#labels + 1] = b.text end end
 	return table.concat(labels, "|")
 end
+-- Start Fresh's order: the Hearthstone, the Empty Space, Gray Quality; everything else isn't ordered yet.
+assert(RowIds() == "item:6948 gap flag:gray", "fresh rows: " .. RowIds())
+-- A longer order for the rest of the walkthrough (Start Fresh's old ten groups), written directly.
+local function Rung(...)
+	local rules = {}
+	for i = 1, select("#", ...), 2 do rules[#rules + 1] = { kind = select(i, ...), key = select(i + 1, ...) } end
+	return { rules = rules }
+end
+local function LongerOrder()
+	W.WriteRankingList({ Rung("item", HS), Rung("subclass", "0:1"), Rung("subclass", "0:7"), Rung("class", 0),
+		Rung("flag", "quest", "class", 12), Rung("flag", "unboundGear"), Rung("class", 1), { divider = true },
+		Rung("class", 2), Rung("class", 4), Rung("class", 7), Rung("class", 15), Rung("flag", "gray") })
+	ns.Order.Refresh()
+end
+LongerOrder()
 local FRESH = "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 gap class:2 class:4 "
 	.. "class:7 class:15 flag:gray"
-assert(RowIds() == FRESH, "fresh rows: " .. RowIds())
+assert(RowIds() == FRESH, "longer order rows: " .. RowIds())
 assert(DisorderItemManagerDB.weights.sinkLine == 50, "sink line isn't 50")
 assert(P.unset.text == "" and P.unset.shown, "the not-set line should be empty but kept")
 
@@ -322,8 +332,8 @@ assert(Gold(#contents), "selecting the Empty Space doesn't outline the unset ite
 assert(Weight(contents[#contents]) >= 50 and Weight(contents[#contents]) < Weight(contents[2]),
 	"with the Empty Space at the top, unset items should sit just below it")
 
--- x removes a row: it stays greyed in place with Undo; the rule is gone and the bags sort. Undo puts it back
--- exactly where it was.
+-- x removes a row: it stays greyed in place with Undo, even when the list changes, until the section closes; the
+-- rule is gone and the bags sort. Undo puts it back right below the row that was above it.
 local orderBefore = RowIds()
 Wait(1)
 sortsBefore = sorts
@@ -335,6 +345,26 @@ assert(ghostRow and ghostRow.undo.shown and not ghostRow.remove.shown, "no greye
 assert(RowIds() == orderBefore:gsub("class:7", "ghost"), "the removed row didn't stay in place: " .. RowIds())
 Click(ghostRow.undo)
 assert(RowIds() == orderBefore and DisorderItemManagerDB.weights.classes[7], "Undo didn't put it back in place")
+-- Removed, then the list changes (the row above it is dragged to the top): the removed row stays, under that
+-- row; Undo puts Trade Goods back under it, wherever it is now.
+local above
+do
+	local ids = {}
+	for id in RowIds():gmatch("%S+") do ids[#ids + 1] = id end
+	for n, id in ipairs(ids) do if id == "class:7" then above = ids[n - 1] end end
+end
+assert(above, "Trade Goods has no row above it in this test")
+Wait(1)
+Click(RowById("class:7").remove)
+Wait(1)
+Drag(above, 0)
+for _, r in ipairs(OrderRows()) do if r.ghost then ghostRow = r end end
+assert(RowIds():find("^" .. above:gsub("%p", "%%%0") .. " ghost "), "the removed row didn't follow the row above it: " .. RowIds())
+Wait(1)
+Click(ghostRow.undo)
+assert(RowIds():find("^" .. above:gsub("%p", "%%%0") .. " class:7 "), "Undo didn't put it back under " .. above .. ": " .. RowIds())
+LongerOrder()
+assert(RowIds() == FRESH, "longer order again: " .. RowIds())
 
 -- Select Mode (on since the list showed): hovering a bag item lights up the row that sorts it; a click adds
 -- the item's row right above that row, selected, with its widen choices on the right; hovering a choice
@@ -385,13 +415,6 @@ assert(not ns.Overlays.IsSelecting() and P.pick.text == "Select Mode: Off", "the
 Click(P.pick)
 assert(ns.Overlays.IsSelecting() and P.pick.text == "Select Mode: On", "the button didn't turn Select Mode back on")
 
--- ? shows the welcome over the list, with Close now that there are rules; no picking under it.
-S.ShowWelcome()
-assert(P.welcome.shown and P.welcome.close.shown, "? didn't show the welcome with Close")
-assert(not ns.Overlays.IsSelecting(), "Select Mode stayed on under the welcome")
-Click(P.welcome.close)
-assert(not P.welcome.shown and ns.Overlays.IsSelecting(), "Close didn't hide the welcome and pick again")
-
 -- Start Fresh with rules (the bottom button asks first): saves them, keep-out included, clears, lays out again.
 DisorderItemManagerDB.weights.items[2002] = 5
 DisorderItemManagerDB.keepOut = { items = {}, subclasses = { ["7:5"] = true } }
@@ -403,19 +426,28 @@ assert(DisorderItemManagerDB.weights.items[2002] == nil and DisorderItemManagerD
 local h = W.History()
 assert(#h == nBefore + 2 and h[1].kind == "created" and h[2].kind == "snapshot" and h[2].keepOut.subclasses["7:5"],
 	"Start Fresh didn't save the rules first and add a Created entry")
-assert(RowIds() == "item:6948 subclass:0:1 subclass:0:7 class:0 flag:quest flag:unboundGear class:1 class:9 gap class:2 "
-	.. "class:4 class:7 class:15 flag:gray", "fresh again: " .. RowIds())
+assert(RowIds() == "item:6948 gap flag:gray", "fresh again: " .. RowIds())
 assert(not (ns.lastPrint and Plain(ns.lastPrint):find("Combined")), "a notice although Combined Backpack was already on")
+LongerOrder()
 
 -- Leaving the section: no outlines, picking ends; coming back turns it on again, even if it was turned off.
 Click(P.pick)
-S.Open("Sorting")
+S.Open("Options")
 assert(not buttons[2].DisorderMark.shown and not ns.Overlays.IsSelecting(), "outlines or picking stayed after leaving Order")
 S.Open("Order")
 assert(ns.Overlays.IsSelecting(), "Select Mode isn't on again on returning to Order")
 Wait(1)
 Click(RowById("class:7"))
 assert(Gold(2), "outlines didn't come back on returning to Order")
+-- A list emptied on purpose stays empty: the automatic layout happens only on the very first open.
+local kept = W.CopyWeights()
+W.SetWeights({ sinkLine = 50, default = 50, items = {}, flags = {}, subclasses = {}, classes = {} })
+S.Open("Options")
+S.Open("Order")
+assert(next(DisorderItemManagerDB.weights.classes) == nil, "the default order came back on an emptied list")
+W.SetWeights(kept)
+S.Open("Options")
+S.Open("Order")
 S.OnCombat()
 assert(not DisorderItemManagerSettings.shown and not ns.Overlays.IsSelecting(), "combat didn't close the settings and end picking")
 contents[#contents] = false
@@ -496,8 +528,8 @@ for _, e in ipairs(W.History()) do assert(e ~= victim, "closing the window didn'
 assert(StaticPopupDialogs.SEDIMENT_RESTORE_RULES == nil, "Restore previous rules is still there")
 print("history section OK")
 
--- Special bags: the fill switch turns off and back on (it used to save "off" either way).
-S.Open("Special bags")
+-- Options > Special bags: the fill switch turns off and back on (it used to save "off" either way).
+S.Open("Options")
 local fill
 for _, f in ipairs(allFrames) do
 	if f.label and f.label.text == "Fill reagent and profession bags automatically" then fill = f end
@@ -540,8 +572,24 @@ end
 assert(Has("^Disorder 0%.17%.1 %(the version in the %.toc%)$"), "no version line")
 assert(Has("^1 of 5 files missing%.$"), "no missing summary")
 assert(Has("^Missing%.lua   missing %(restart the game%)$") and Has("^Ordering%.lua   loaded$"), "file lines wrong")
+-- Debug: an item the game has locked shows red at once, and the red goes when it unlocks.
+contents[2].isLocked = true
+ns.Debug.lockWatch.scripts.OnEvent(ns.Debug.lockWatch, "ITEM_LOCK_CHANGED", 0, 2)
+RunTimers()
+assert(buttons[2].DisorderLockMark and buttons[2].DisorderLockMark.shown, "a locked item isn't red")
+assert(not (buttons[3].DisorderLockMark and buttons[3].DisorderLockMark.shown), "an unlocked item is red")
+contents[2].isLocked = nil
+ns.Debug.lockWatch.scripts.OnEvent(ns.Debug.lockWatch, "ITEM_LOCK_CHANGED", 0, 2)
+RunTimers()
+assert(not buttons[2].DisorderLockMark.shown, "the red stayed after the item unlocked")
 debugAddon = false
+-- Without the debug addon: no red at all.
+contents[2].isLocked = true
+ns.Debug.RefreshLockMarks()
+assert(not buttons[2].DisorderLockMark.shown, "a red overlay without the debug addon")
+contents[2].isLocked = nil
 print("files section OK")
+print("red overlay on locked items OK")
 
 -- The weight popup: the levels that apply, most specific first; the winner marked; Add only above it.
 ns.Bags.SpecialBagItem = function() return false end
@@ -550,8 +598,9 @@ C_Container = { GetContainerItemInfo = function(_, slot) return contents[slot] a
 C_Item.GetItemInfoInstant = function(id) return id, nil, nil, nil, "icon" .. id end
 assert(loadfile("Popup.lua"))("Disorder_ItemManager", ns)
 local Popup = ns.Popup
-StaticPopupDialogs.DISORDER_ITEMMANAGER_START_FRESH.OnAccept() -- the default order again
+StaticPopupDialogs.DISORDER_ITEMMANAGER_START_FRESH.OnAccept() -- clean rules again
 RunTimers()
+LongerOrder()
 local function PopupRows()
 	local list = {}
 	for _, f in ipairs(allFrames) do

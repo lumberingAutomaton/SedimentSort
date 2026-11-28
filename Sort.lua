@@ -17,10 +17,30 @@ local UPDATE_TIMEOUT = 2  -- seconds to wait for the game to confirm a move
 local CURSOR_TIMEOUT = 3  -- seconds to wait for the user to drop something from the cursor
 local MAX_MOVES = 1000
 local MAX_REPEATS = 3     -- same batch this many times in a row = stuck
+local MAX_IN_FLIGHT = 1   -- our swaps waiting for the game at once (2026-11-27). Every lockup today had several
+                          -- swaps waiting at once: one went unanswered and every swap sent behind it was lost too,
+                          -- each leaving its items locked until a client restart. Auto-sort, which never failed,
+                          -- in effect has one at a time. (Bag Master allows 4; we tried 4 and lost 4.)
+local LAND_WAIT = 2       -- seconds to wait for our swaps to land before carrying on around whatever is still locked
+local LAND_CHECK = 0.05   -- seconds between looks at the bags while waiting for swaps to land
+local SETTLE = 0.5        -- seconds after the last edit before its sort starts, so a burst of edits makes one sort
 
 local ticker
 local moves, rounds, startedAt, lastKey, repeats
 local waitingForUpdate, waitStarted, cursorSince
+local flying, flyingSince, lastLandCheck -- our swaps sent and not yet landed (see Fly), and since when
+local skipTraced -- locked slots this sort has already noted in the trace
+
+-- The debug addon's sort trace (Debug.lua, ns.SortTrace): what the sort does, step by step. Nothing without it.
+local function Trace(...)
+	if ns.SortTrace then
+		ns.SortTrace(...)
+	end
+end
+
+local function SlotText(s)
+	return ("%d/%d %s"):format(s.bag, s.slot, s.item and (s.item.link or s.item.itemID) or "empty")
+end
 local plan -- { rounds, round, n }: placement rounds still to send
 local quiet    -- auto-sort: no chat on success, and stream the swaps
 local cpuMs = 0 -- our own Lua time during the current sort
@@ -386,6 +406,7 @@ end
 -- success = the sort finished normally. A quiet sort (auto-sort) only prints when something
 -- went wrong.
 local function Stop(msg, success)
+	Trace("stop", success and "ok" or "not ok", msg)
 	if ticker then
 		ticker:Cancel()
 		ticker = nil
@@ -393,6 +414,7 @@ local function Stop(msg, success)
 	waitingForUpdate = false
 	plan = nil
 	sending = nil
+	flying = nil
 	hurry = false
 	if Sort.sender then
 		Sort.sender:Hide()
@@ -489,9 +511,85 @@ end
 
 local ExecuteSwap
 
+-- Moves in flight (user, 2026-11-27): once a swap is sent, neither of its slots is touched again until the game
+-- shows it landed, and no more than MAX_IN_FLIGHT swaps wait for the game at once. Each swap records what its two
+-- slots should hold once it lands (bag*1000+slot -> { sig, count }).
+local function Fly(move)
+	local src, dst = move.src, move.dst
+	local si, di = src.item, dst.item
+	local f = {}
+	if move.kind == "merge" then
+		-- Part (or all) of the source stack onto the destination stack of the same item.
+		local left = si.count - move.amount
+		f[src.bag * 1000 + src.slot] = { sig = left > 0 and si.sig or EMPTY, count = left > 0 and left or 0 }
+		f[dst.bag * 1000 + dst.slot] = { sig = di.sig, count = di.count + move.amount }
+	else
+		-- A swap (or a move into an empty slot): the two slots trade contents.
+		f[src.bag * 1000 + src.slot] = { sig = di and di.sig or EMPTY, count = di and di.count or 0 }
+		f[dst.bag * 1000 + dst.slot] = { sig = si.sig, count = si.count }
+	end
+	flying = flying or {}
+	flying[#flying + 1] = f
+	flyingSince = GetTime()
+end
+
+-- Drop the swaps that have landed: both slots hold what they should and neither is locked.
+local function Land(slots)
+	if not flying then
+		return
+	end
+	local now = {}
+	for _, sl in ipairs(slots) do
+		now[sl.bag * 1000 + sl.slot] = sl
+	end
+	local still = {}
+	for _, f in ipairs(flying) do
+		local landed = true
+		for key, e in pairs(f) do
+			local item = now[key] and now[key].item
+			if (item and item.sig or EMPTY) ~= e.sig or (item and item.count or 0) ~= e.count or (item and item.isLocked) then
+				landed = false
+			end
+		end
+		if not landed then
+			still[#still + 1] = f
+		end
+	end
+	flying = #still > 0 and still or nil
+end
+
+-- Wait for our swaps to land: true while still waiting (at most LAND_WAIT); after that, carry on: whatever is
+-- still locked is planned around.
+local function WaitingToLand(need)
+	if not flying or #flying < need then
+		return false
+	end
+	local now = GetTime()
+	if now - (lastLandCheck or 0) >= LAND_CHECK then
+		lastLandCheck = now
+		Land((ns.Bags.Read()))
+	end
+	if not flying or #flying < need then
+		return false
+	end
+	if now - flyingSince < LAND_WAIT then
+		return true
+	end
+	Trace("not landed after", LAND_WAIT, "s:", #flying, "swaps; carrying on around them")
+	flying = nil
+	return false
+end
+
+-- Is this slot locked right now (a swap of ours landing, an item in use, anything the game holds)?
+local function IsLocked(s)
+	local item = ns.Bags.ReadSlot(s.bag, s.slot)
+	return item and item.isLocked or false
+end
+
 -- One swap, timed. The time includes every event handler the game runs inside the pick-up and
 -- drop calls (Blizzard's UI and other addons), since those run before the call returns.
 local function Execute(move)
+	Trace("move", move.kind, SlotText(move.src), "->", SlotText(move.dst))
 	local t = debugprofilestop()
 	ExecuteSwap(move)
 	local spent = debugprofilestop() - t
@@ -580,10 +678,14 @@ function StepWork()
 		if GetTime() - waitStarted < UPDATE_TIMEOUT then
 			return
 		end
+		Trace("no bag update after", UPDATE_TIMEOUT, "s")
 		waitingForUpdate = false -- no confirmation; carry on and let the re-read sort it out
 	end
 
 	if GetCursorInfo() then
+		if not cursorSince then
+			Trace("cursor holds", GetCursorInfo())
+		end
 		cursorSince = cursorSince or GetTime()
 		if GetTime() - cursorSince > CURSOR_TIMEOUT then
 			cursorSince = nil
@@ -593,9 +695,31 @@ function StepWork()
 	end
 	cursorSince = nil
 
-	local slots, anyLocked = ns.Bags.Read()
-	if anyLocked then
+	-- Our last round has to land before anything new is planned (up to LAND_WAIT).
+	if WaitingToLand(1) then
 		return
+	end
+	-- Locked slots, whatever the reason, are left out of this plan: their items stay where they are for now and
+	-- everything else sorts around them. No waiting and no message (user, 2026-11-27); once a slot unlocks it's
+	-- planned again. (Bag Master does the same.)
+	local all, lockedList = ns.Bags.Read()
+	local slots = all
+	if lockedList then
+		local skip = {}
+		for _, s in ipairs(lockedList) do
+			local key = s.bag * 1000 + s.slot
+			skip[key] = true
+			if not skipTraced[key] then
+				skipTraced[key] = true
+				Trace("skipping locked", SlotText(s))
+			end
+		end
+		slots = {}
+		for _, s in ipairs(all) do
+			if not skip[s.bag * 1000 + s.slot] then
+				slots[#slots + 1] = s
+			end
+		end
 	end
 
 	-- One phase per round: merge stacks, move kept-out items out of special bags, move items into special
@@ -661,6 +785,7 @@ function StepWork()
 	end
 	moves = moves + #batch
 	rounds = rounds + 1
+	Trace("round", rounds, batch[1].kind, #batch, "moves")
 	movesByKind[batch[1].kind] = (movesByKind[batch[1].kind] or 0) + #batch
 	if moves > MAX_MOVES then
 		Stop("stopped: too many moves.")
@@ -668,26 +793,10 @@ function StepWork()
 	end
 
 	ReportProgress(#batch)
-	if quiet and not hurry then
-		-- Auto-sort: stream the round out a few swaps per frame (see Sender below).
-		sending = { batch = batch, keys = keys, i = 1 }
-		Sort.sender:Show()
-		return
-	end
-	-- Button sort: the whole round in one go.
-	for i, move in ipairs(batch) do
-		if InCombatLockdown() then
-			CombatStop()
-			return
-		end
-		Execute(move)
-		if GetCursorInfo() and not HandleFailedMove(move, keys[i]) then
-			return
-		end
-		ReportProgress(#batch - i)
-	end
-	waitingForUpdate = true
-	waitStarted = GetTime()
+	-- Every round streams out through the sender: auto-sorts paced for smoothness, the others as fast as the
+	-- in-flight limit allows.
+	sending = { batch = batch, keys = keys, i = 1 }
+	Sort.sender:Show()
 end
 
 -- Streaming. Each swap makes the game fire events right away, and Blizzard's UI and other addons
@@ -734,13 +843,31 @@ Sort.sender:SetScript("OnUpdate", function(self)
 			CombatStop()
 			return
 		end
+		-- No more than MAX_IN_FLIGHT of our swaps waiting for the game at once.
+		if WaitingToLand(MAX_IN_FLIGHT) then
+			break
+		end
 		local i = sending.i
-		local before = debugprofilestop()
-		Execute(batch[i])
-		allowance = allowance - (debugprofilestop() - before)
-		if GetCursorInfo() and not HandleFailedMove(batch[i], sending.keys[i]) then
+		local move = batch[i]
+		-- A slot that got locked since the plan (an item put to use, say): drop the rest of this round and
+		-- plan again around it.
+		if IsLocked(move.src) or IsLocked(move.dst) then
+			Trace("locked since planning; planning again", SlotText(IsLocked(move.src) and move.src or move.dst))
+			sending, plan = nil, nil
+			self:Hide()
 			cpuMs = cpuMs + (debugprofilestop() - start)
 			return
+		end
+		local before = debugprofilestop()
+		Execute(move)
+		allowance = allowance - (debugprofilestop() - before)
+		if GetCursorInfo() then
+			if not HandleFailedMove(move, sending.keys[i]) then
+				cpuMs = cpuMs + (debugprofilestop() - start)
+				return
+			end
+		else
+			Fly(move)
 		end
 		sending.i = i + 1
 		ReportProgress(#batch - i)
@@ -755,6 +882,9 @@ Sort.sender:SetScript("OnUpdate", function(self)
 end)
 
 function Sort.OnBagUpdateDelayed()
+	if ticker then
+		Trace("bag update")
+	end
 	waitingForUpdate = false
 end
 
@@ -762,8 +892,8 @@ function Sort.IsRunning()
 	return ticker ~= nil
 end
 
--- isQuiet: don't announce a normal finish (used by auto-sort).
-function Sort.Start(isQuiet)
+-- isQuiet: don't announce a normal finish (used by auto-sort). why: for the trace ("edit").
+function Sort.Start(isQuiet, why)
 	if ticker then
 		-- A button sort during an auto-sort takes it over: same plan, full speed.
 		if quiet and not isQuiet then
@@ -785,40 +915,37 @@ function Sort.Start(isQuiet)
 	Sort.lastFrames = 0
 	ns.Sound.MuteItemSounds()
 	moves, rounds, startedAt, lastKey, repeats = 0, 0, GetTime(), nil, 0
-	waitingForUpdate, cursorSince, plan, hurry = false, nil, nil, false
+	waitingForUpdate, cursorSince, plan, hurry, flying, skipTraced = false, nil, nil, false, nil, {}
+	Trace("start", quiet and "auto" or why or "button", mode)
 	ticker = C_Timer.NewTicker(TICK, Step)
 	ns.OnSortStateChanged()
 end
 
--- A sort right now at button speed, to show the result of a change the player just made: a Setup answer, a
--- Weight typed or removed in the settings or the weight popup, a History save loaded (user, 2026-11-25: show
--- the outcome as soon as a Weight changes, bags open or not). A sort already running planned with the old
--- rules, so wait for it to end (taking over a running auto-sort so it ends quickly), then sort again.
-local sortWaiting = false
+-- A sort soon, to show the result of a change the player just made (an Ordering edit, the popup's Add, a History
+-- save loaded): bags open or not. It starts SETTLE seconds after the last change, so a burst of edits makes one
+-- sort, and after any sort still running (which planned with the old rules).
+local sortWaiting, settleUntil = false, 0
 
 function Sort.StartSoon()
-	if sortWaiting or InCombatLockdown() then
+	if InCombatLockdown() then
 		return
 	end
-	if not ticker then
-		Sort.Start()
+	settleUntil = GetTime() + SETTLE
+	if sortWaiting then
 		return
-	end
-	if quiet then
-		Sort.Start() -- a running auto-sort: finish it at full speed
 	end
 	sortWaiting = true
 	local function Try()
-		if ticker then
-			C_Timer.After(0.2, Try)
+		if GetTime() < settleUntil or ticker then
+			C_Timer.After(0.1, Try)
 			return
 		end
 		sortWaiting = false
 		if not InCombatLockdown() then
-			Sort.Start()
+			Sort.Start(false, "edit")
 		end
 	end
-	C_Timer.After(0.2, Try)
+	C_Timer.After(0.1, Try)
 end
 
 -- Test bench: rearrange the normal bags into targets (one item signature or nil per normal-bag

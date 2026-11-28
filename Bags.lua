@@ -234,14 +234,16 @@ end
 
 -- Every slot. Each entry: { bag, slot, zone, info, item = ReadSlot() or nil }, info being the bag's
 -- description from Describe. Main-zone slots come first in on-screen order, then each special bag
--- (profession bags before the reagent bag). Also reports whether any slot is locked (mid-move).
+-- (profession bags before the reagent bag). Also returns the locked slots (mid-move, or held by the game) as a
+-- list, or false when none are.
 function Bags.Read()
 	local main, special, anyLocked = {}, {}, false
 	local function AddBag(list, bag, info)
 		for slot = 1, C_Container.GetContainerNumSlots(bag) do
 			local item = Bags.ReadSlot(bag, slot)
 			if item and item.isLocked then
-				anyLocked = true
+				anyLocked = anyLocked or {}
+				anyLocked[#anyLocked + 1] = { bag = bag, slot = slot, item = item }
 			end
 			list[#list + 1] = { bag = bag, slot = slot, zone = info.zone, info = info, item = item }
 		end

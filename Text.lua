@@ -34,7 +34,6 @@ ns.TEXT = {
 	KeepSaveButton = "Pin",
 	UnkeepSaveButton = "Unpin",
 	UndoButton = "Undo",
-	CloseButton = "Close",
 
 	-- The rule that keeps items out of reagent and profession bags.
 	KeepOutRule = "Keep out of special bags",
